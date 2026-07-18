@@ -1,0 +1,17 @@
+# Sample agent definition: 智能体架构设计师
+name: architect
+version: 1.0
+description: 智能体架构设计师 — Agent architecture design specialist
+personality: agent-architect
+profile: sccsos
+toolsets:
+  - llm-wiki
+  - filesystem
+  - web-search
+tags:
+  - core
+  - architecture
+lifecycle:
+  max_turns: 90
+  timeout: 1800
+  auto_recover: true

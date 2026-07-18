@@ -1,0 +1,258 @@
+"""sccsos configuration loader.
+
+Loads sccsos.yaml from project root with sensible defaults.
+Config hierarchy: CLI args > env vars > config file > defaults.
+"""
+
+from __future__ import annotations
+
+import os
+import yaml
+from pathlib import Path
+from dataclasses import dataclass, field
+from typing import Optional
+
+
+DEFAULT_CONFIG_PATH = "sccsos.yaml"
+
+
+@dataclass
+class DatabaseConfig:
+    path: str = "./data/sccsos.db"
+
+
+@dataclass
+class DefaultsConfig:
+    hermes_profile: str = "sccsos"
+    max_turns: int = 90
+    timeout: int = 1800
+
+
+@dataclass
+class LoggingConfig:
+    level: str = "INFO"
+    format: str = "json"
+    directory: str = "./logs"
+    retention_days: int = 30
+
+
+@dataclass
+class TracingConfig:
+    enabled: bool = True
+    export_path: str = "./traces/"
+    pricing_path: str = ""  # Optional: path to pricing.json
+
+
+@dataclass
+class AgentsConfig:
+    path: str = "./agents"
+    wiki_path: str = ""  # Optional: path to wiki .md files for KB context injection
+    personalities_path: str = "./personalities"  # Optional: path to personality YAML files
+
+
+@dataclass
+class PolicyDefaults:
+    max_tokens_per_session: int = 100000
+    max_cost_usd: float = 5.0
+    allowed_tools: list[str] = field(default_factory=lambda: [
+        "read_file", "search_files", "web_search", "web_extract", "terminal",
+    ])
+    blocked_tools: list[str] = field(default_factory=list)
+    allowed_commands: list[str] = field(default_factory=lambda: [
+        "hermes", "git", "ls", "cat", "head", "tail", "echo",
+        "python3", "pip3", "node", "npm", "which",
+    ])
+    dangerous_patterns: list[str] = field(default_factory=list)
+
+
+@dataclass
+class PoliciesConfig:
+    """Policy configuration with default + named policies.
+
+    Usage:
+        cfg.policies.default          # Global default
+        cfg.policies.get("restricted")  # Named policy from YAML
+        cfg.policies.named             # All named policies dict
+    """
+    default: PolicyDefaults = field(default_factory=PolicyDefaults)
+    named: dict[str, PolicyDefaults] = field(default_factory=dict)
+
+    def get(self, name: str) -> PolicyDefaults:
+        """Get a policy by name, falling back to default."""
+        if name == "default" or name not in self.named:
+            return self.default
+        return self.named[name]
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "PoliciesConfig":
+        """Parse policies section from YAML data.
+
+        Example YAML::
+
+            policies:
+              default:
+                max_cost_usd: 5.0
+                allowed_tools: [...]
+              restricted:
+                max_cost_usd: 2.0
+                blocked_tools: [terminal]
+        """
+        cfg = cls()
+        for name, pd_data in (data or {}).items():
+            if not isinstance(pd_data, dict):
+                continue
+            p = PolicyDefaults(**{
+                k: v for k, v in pd_data.items()
+                if k in PolicyDefaults.__dataclass_fields__
+            })
+            if name == "default":
+                # Merge into existing defaults (preserving unspecified fields)
+                for f in PolicyDefaults.__dataclass_fields__:
+                    if f in pd_data:
+                        setattr(cfg.default, f, getattr(p, f))
+            else:
+                cfg.named[name] = p
+        return cfg
+
+
+@dataclass
+class WebhookEntry:
+    """A single webhook endpoint configuration."""
+    url: str
+    events: list[str] = field(default_factory=lambda: ["completed", "failed"])
+    secret: str = ""
+
+
+@dataclass
+class WebhooksConfig:
+    """Webhook notification configuration."""
+    enabled: bool = False
+    endpoints: list[WebhookEntry] = field(default_factory=list)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "WebhooksConfig":
+        cfg = cls()
+        if "enabled" in data:
+            cfg.enabled = bool(data["enabled"])
+        for entry_data in data.get("endpoints", []):
+            if isinstance(entry_data, dict) and "url" in entry_data:
+                cfg.endpoints.append(WebhookEntry(
+                    url=entry_data["url"],
+                    events=entry_data.get("events", ["completed", "failed"]),
+                    secret=entry_data.get("secret", ""),
+                ))
+        return cfg
+
+
+@dataclass
+class ProjectConfig:
+    name: str = "sccsos"
+    version: str = "0.6.0"
+
+
+@dataclass
+class AgentOSConfig:
+    """Top-level configuration for a sccsos project."""
+
+    project: ProjectConfig = field(default_factory=ProjectConfig)
+    database: DatabaseConfig = field(default_factory=DatabaseConfig)
+    defaults: DefaultsConfig = field(default_factory=DefaultsConfig)
+    logging: LoggingConfig = field(default_factory=LoggingConfig)
+    tracing: TracingConfig = field(default_factory=TracingConfig)
+    agents: AgentsConfig = field(default_factory=AgentsConfig)
+    policies: PoliciesConfig = field(default_factory=PoliciesConfig)
+    webhooks: WebhooksConfig = field(default_factory=WebhooksConfig)
+
+    @classmethod
+    def load(cls, path: Optional[str] = None) -> "AgentOSConfig":
+        """Load config from YAML file, falling back to defaults."""
+        path = path or os.environ.get("AGENTOS_CONFIG") or DEFAULT_CONFIG_PATH
+        cfg_path = Path(path)
+
+        if not cfg_path.exists():
+            return cls()
+
+        with open(cfg_path, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+
+        return cls._from_dict(data)
+
+    @classmethod
+    def _from_dict(cls, data: dict) -> "AgentOSConfig":
+        """Recursively build dataclass from dict, preserving defaults."""
+        project_data = data.get("project", {})
+        db_data = data.get("database", {})
+        defaults_data = data.get("defaults", {})
+        logging_data = data.get("logging", {})
+        tracing_data = data.get("tracing", {})
+
+        cfg = cls()
+
+        if "name" in project_data:
+            cfg.project.name = project_data["name"]
+        if "version" in project_data:
+            cfg.project.version = project_data["version"]
+
+        if "path" in db_data:
+            cfg.database.path = db_data["path"]
+
+        if "hermes_profile" in defaults_data:
+            cfg.defaults.hermes_profile = defaults_data["hermes_profile"]
+        if "max_turns" in defaults_data:
+            cfg.defaults.max_turns = defaults_data["max_turns"]
+        if "timeout" in defaults_data:
+            cfg.defaults.timeout = defaults_data["timeout"]
+
+        if "level" in logging_data:
+            cfg.logging.level = logging_data["level"]
+        if "format" in logging_data:
+            cfg.logging.format = logging_data["format"]
+        if "directory" in logging_data:
+            cfg.logging.directory = logging_data["directory"]
+        if "retention_days" in logging_data:
+            cfg.logging.retention_days = logging_data["retention_days"]
+
+        if "enabled" in tracing_data:
+            cfg.tracing.enabled = tracing_data["enabled"]
+        if "export_path" in tracing_data:
+            cfg.tracing.export_path = tracing_data["export_path"]
+        if "pricing_path" in tracing_data:
+            cfg.tracing.pricing_path = tracing_data["pricing_path"]
+
+        policies_data = data.get("policies", {})
+        if policies_data:
+            policies_parsed = PoliciesConfig.from_dict(policies_data)
+            cfg.policies.default = policies_parsed.default
+            cfg.policies.named = policies_parsed.named
+
+        agents_data = data.get("agents", {})
+        if "path" in agents_data:
+            cfg.agents.path = agents_data["path"]
+        if "wiki_path" in agents_data:
+            cfg.agents.wiki_path = agents_data["wiki_path"]
+        if "personalities_path" in agents_data:
+            cfg.agents.personalities_path = agents_data["personalities_path"]
+
+        webhooks_data = data.get("webhooks", {})
+        if webhooks_data:
+            cfg.webhooks = WebhooksConfig.from_dict(webhooks_data)
+
+        return cfg
+
+
+# Global config singleton (loaded once)
+_config: Optional[AgentOSConfig] = None
+
+
+def get_config() -> AgentOSConfig:
+    """Get the global config, loading on first access."""
+    global _config
+    if _config is None:
+        _config = AgentOSConfig.load()
+    return _config
+
+
+def set_config(cfg: AgentOSConfig) -> None:
+    """Set config (used for testing)."""
+    global _config
+    _config = cfg

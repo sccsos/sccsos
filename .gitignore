@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+
+# sccsos runtime data
+data/
+logs/
+traces/
+*.db
+
+# Generated output docs (reproducible from Markdown sources)
+输出/*.docx
+输出/*.pdf
+输出/images/*.png
+输出/images/*.svg
+输出/images/*.html
+
+# Build script cache
+脚本/构建状态.json
+
+# Unused example config
+config/multi-profile-config.yaml
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db

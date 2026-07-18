@@ -1,0 +1,24 @@
+# SCCS OS — .dockerignore
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.env
+.git/
+.gitignore
+build/
+dist/
+*.egg-info/
+.DS_Store
+data/
+logs/
+traces/
+tests/
+输出/
+脚本/
+**/__pycache__/
+*.db
+*.log

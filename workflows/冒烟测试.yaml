@@ -1,0 +1,18 @@
+name: smoke-test
+version: "1.0"
+description: 冒烟测试工作流 — 验证 Hermes 连接和 Agent 基本响应
+
+steps:
+  - id: hello-agent
+    name: 连通性测试
+    agent: architect
+    prompt: |
+      请回复以下确认信息，仅返回 JSON 格式：
+
+      {"status": "ok", "agent": "architect", "version": "0.6.0", "message": "Hermes agent is reachable"}
+
+  - id: info
+    name: 环境信息
+    agent: architect
+    prompt: |
+      请列出当前可用的 Hermes 工具和技能列表。以 Markdown 列表格式输出。

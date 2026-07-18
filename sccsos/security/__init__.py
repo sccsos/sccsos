@@ -1,0 +1,1 @@
+"""Security sandbox — policy enforcement and isolation for agent execution."""

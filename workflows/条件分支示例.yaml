@@ -1,0 +1,39 @@
+name: conditional-review
+version: "1.0"
+description: 带条件分支的架构评审工作流 — 仅在需求明确时进入深度设计
+
+steps:
+  - id: requirements_analysis
+    name: 需求分析
+    agent: architect
+    prompt: |
+      分析以下项目需求，输出需求明确度评估结果。
+
+      项目需求：
+      {{ steps.input.context }}
+
+      请在输出的第一行明确标注：CLEAR / VAGUE / INCOMPLETE
+
+  - id: deep_design
+    name: 深度设计
+    agent: architect
+    prompt: |
+      需求分析确认需求明确，请进行深度架构设计。
+
+      需求分析结果：
+      {{ steps.requirements_analysis.response }}
+    depends_on:
+      - requirements_analysis
+    condition: "'CLEAR' in steps.requirements_analysis.response"
+
+  - id: clarification_needed
+    name: 需求澄清建议
+    agent: architect
+    prompt: |
+      需求不够明确，请列出需要澄清的问题清单。
+
+      当前需求分析结果：
+      {{ steps.requirements_analysis.response }}
+    depends_on:
+      - requirements_analysis
+    condition: "'CLEAR' not in steps.requirements_analysis.response"

@@ -1,0 +1,1 @@
+"""Agent definitions — YAML-based agent specifications for sccsos runtime."""

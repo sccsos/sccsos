@@ -1,0 +1,16 @@
+# Sample agent definition: 文档生成 Agent
+name: doc-writer
+version: 1.0
+description: 技术文档自动生成 Agent — Technical documentation and report generation
+personality: doc-writer
+profile: sccsos
+toolsets:
+  - filesystem
+  - web-search
+tags:
+  - core
+  - documentation
+lifecycle:
+  max_turns: 30
+  timeout: 900
+  auto_recover: true

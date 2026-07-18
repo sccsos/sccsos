@@ -1,0 +1,70 @@
+# sccsos v0.6.0 示例配置文件
+# 用途：作为 sccsos.yaml 的完整参考模板
+
+project:
+  name: my-project
+  version: 1.0.0
+
+database:
+  path: ./data/sccsos.db
+
+defaults:
+  hermes_profile: sccsos
+  max_turns: 90
+  timeout: 1800
+
+logging:
+  level: INFO
+  format: json
+  directory: ./logs
+  retention_days: 30
+
+tracing:
+  enabled: true
+  export_path: ./traces/
+  pricing_path: ./config/pricing.json   # External pricing CSV/JSON
+
+agents:
+  path: ./agents
+  personalities_path: ./personalities
+
+policies:
+  # ── Default policy (applied to all agents) ──────────────────
+  default:
+    max_tokens_per_session: 100000
+    max_cost_usd: 5.0
+    allowed_tools:
+      - read_file
+      - search_files
+      - web_search
+      - web_extract
+      - terminal
+      - delegate_task
+    blocked_tools: []
+    allowed_commands:
+      - hermes
+      - git
+      - ls
+      - cat
+      - head
+      - tail
+      - echo
+      - python3
+      - pip3
+      - node
+      - npm
+      - which
+
+  # ── Restricted policy (example: read-only agents) ────────────
+  restricted:
+    max_tokens_per_session: 50000
+    max_cost_usd: 2.0
+    allowed_tools:
+      - read_file
+      - search_files
+    blocked_tools:
+      - terminal
+    allowed_commands:
+      - ls
+      - cat
+      - head

@@ -1,0 +1,31 @@
+version: "3.8"
+
+services:
+  sccsos:
+    build: .
+    image: sccsos:0.6.0
+    container_name: sccsos
+    ports:
+      - "8765:8765"
+    volumes:
+      - sccsos_data:/sccsos/data
+      - sccsos_logs:/sccsos/logs
+      - sccsos_traces:/sccsos/traces
+      - ./agents:/sccsos/agents:ro
+      - ./workflows:/sccsos/workflows:ro
+      - ./personalities:/sccsos/personalities:ro
+      - ./wiki:/sccsos/wiki:ro
+    environment:
+      - SCCSOS_CONFIG=/sccsos/sccsos.yaml
+      - HERMES_PROFILE=sccsos
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python3", "-m", "sccsos", "health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  sccsos_data:
+  sccsos_logs:
+  sccsos_traces:

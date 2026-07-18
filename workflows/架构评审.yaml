@@ -1,0 +1,81 @@
+name: architecture-review
+version: "1.0"
+description: 多 Agent 协同架构评审工作流 — 需求分析、方案设计、风险评估三步走
+
+steps:
+  - id: requirements_analysis
+    name: 需求分析
+    agent: architect
+    prompt: |
+      你是一名资深架构师。请分析以下项目需求，提炼出关键的功能需求、非功能需求和技术约束。
+
+      项目需求：
+      {{ steps.input.context }}
+
+      请输出：
+      1. 核心功能需求列表
+      2. 非功能需求（性能、可用性、安全性等）
+      3. 技术约束条件
+      4. 潜在的技术风险点
+
+  - id: architecture_design
+    name: 架构方案设计
+    agent: architect
+    prompt: |
+      基于以下需求分析结果，设计系统架构方案。
+
+      需求分析：
+      {{ steps.requirements_analysis.response }}
+
+      请输出：
+      1. 总体架构图描述（分层架构/模块划分）
+      2. 核心组件及其职责
+      3. 关键技术选型及理由
+      4. 数据流设计
+      5. 部署方案建议
+    depends_on:
+      - requirements_analysis
+
+  - id: risk_assessment
+    name: 风险评估
+    agent: architect
+    prompt: |
+      请对以下架构方案进行全面的风险评估。
+
+      架构方案：
+      {{ steps.architecture_design.response }}
+
+      请评估以下方面：
+      1. 技术可行性风险
+      2. 性能与扩展性风险
+      3. 安全合规风险
+      4. 实施与交付风险
+      5. 风险缓解措施建议
+    depends_on:
+      - architecture_design
+
+  - id: review_summary
+    name: 评审总结
+    agent: architect
+    prompt: |
+      请根据以上所有分析，生成一份完整的架构评审总结报告。
+
+      需求分析：
+      {{ steps.requirements_analysis.response }}
+
+      架构方案：
+      {{ steps.architecture_design.response }}
+
+      风险评估：
+      {{ steps.risk_assessment.response }}
+
+      报告格式：
+      ## 架构评审报告
+      ### 1. 需求概述
+      ### 2. 架构方案
+      ### 3. 风险评估
+      ### 4. 评审结论
+      ### 5. 后续行动项
+    depends_on:
+      - architecture_design
+      - risk_assessment

@@ -1,0 +1,65 @@
+# sccsos v0.6.0 project configuration
+project:
+  name: sccsos
+  version: 0.6.0
+
+database:
+  path: ./data/sccsos.db
+
+defaults:
+  hermes_profile: sccsos
+  max_turns: 90
+  timeout: 1800
+
+logging:
+  level: INFO
+  format: json
+  directory: ./logs
+  retention_days: 30
+
+tracing:
+  enabled: true
+  export_path: ./traces/
+  pricing_path: ./config/pricing.json
+
+agents:
+  path: ./agents
+  wiki_path: ./wiki
+  personalities_path: ./personalities
+
+policies:
+  default:
+    max_tokens_per_session: 100000
+    max_cost_usd: 5.0
+    allowed_tools:
+      - read_file
+      - search_files
+      - web_search
+      - web_extract
+      - terminal
+      - delegate_task
+    blocked_tools: []
+    allowed_commands:
+      - hermes
+      - git
+      - ls
+      - cat
+      - head
+      - tail
+      - echo
+      - python3
+      - pip3
+      - node
+      - npm
+      - which
+
+# Webhook notifications (disabled by default)
+# Uncomment and set endpoints to receive workflow lifecycle events:
+# webhooks:
+#   enabled: true
+#   endpoints:
+#     - url: https://hooks.example.com/sccsos
+#       events:
+#         - completed
+#         - failed
+#       secret: your-secret-token

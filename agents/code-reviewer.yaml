@@ -1,0 +1,16 @@
+# Sample agent definition: 代码审查 Agent
+name: code-reviewer
+version: 1.0
+description: 代码质量审查 Agent — Automated code review and quality analysis
+personality: code-reviewer
+profile: sccsos
+toolsets:
+  - filesystem
+  - delegate_task
+tags:
+  - core
+  - code-quality
+lifecycle:
+  max_turns: 40
+  timeout: 1200
+  auto_recover: true

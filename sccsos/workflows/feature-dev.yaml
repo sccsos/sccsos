@@ -1,0 +1,77 @@
+# Sample workflow: 架构评审→编码→测试→审查全流程
+name: feature-development
+version: 1.0
+description: 功能开发全流程 — 架构评审到代码审查
+
+steps:
+  - id: architecture_review
+    name: 架构评审
+    agent: architect
+    prompt: |
+      Review the following requirements and produce an architecture decision:
+
+      Requirements: 实现用户认证模块，支持 JWT token 和 OAuth2 登录
+
+      Output format:
+      1. 技术选型
+      2. 组件设计
+      3. 接口定义
+      4. 数据模型
+
+  - id: code_generation
+    name: 代码生成
+    agent: architect
+    prompt: |
+      Implement the code based on the architecture review.
+
+      Architecture context:
+      {{ steps.architecture_review.response }}
+
+      Generate production-quality code with:
+      1. JWT authentication middleware
+      2. OAuth2 provider integration
+      3. User model and repository
+      4. Unit tests
+    depends_on:
+      - architecture_review
+
+  - id: test_generation
+    name: 测试生成
+    agent: architect
+    prompt: |
+      Generate comprehensive tests for the authentication module.
+
+      Implementation context:
+      {{ steps.code_generation.response }}
+
+      Include:
+      1. Unit tests for auth middleware
+      2. Integration tests for OAuth flow
+      3. Edge cases and error handling
+    depends_on:
+      - code_generation
+
+  - id: code_review
+    name: 代码评审
+    agent: architect
+    prompt: |
+      Review the complete implementation for quality and security.
+
+      Review scope:
+      - Implementation: {{ steps.code_generation.response }}
+      - Tests: {{ steps.test_generation.response }}
+
+      Check for:
+      1. Security vulnerabilities
+      2. Code quality issues
+      3. Test coverage gaps
+      4. Documentation completeness
+    depends_on:
+      - test_generation
+
+parallel_groups:
+  - id: dev-parallel
+    steps:
+      - code_generation
+      - test_generation
+    max_concurrent: 1
