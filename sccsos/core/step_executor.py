@@ -23,6 +23,7 @@ from sccsos.core.personality import PersonalityRegistry
 from sccsos.observability.tracer import Tracer
 from sccsos.observability.auditor import Auditor
 from sccsos.observability.pricing import PricingTable
+from sccsos.memory.memory_store import MemoryStore
 
 
 # ── Exceptions ─────────────────────────────────────────────────────
@@ -50,10 +51,12 @@ class StepExecutor:
                  config=None,
                  registry=None,
                  knowledge_base=None,
+                 memory_store: Optional[MemoryStore] = None,
                  personality_registry: Optional[PersonalityRegistry] = None,
                  policy_engine=None,
                  db_lock: Optional[threading.Lock] = None,
-                 cancel_event: Optional[threading.Event] = None):
+                 cancel_event: Optional[threading.Event] = None,
+                 template_engine=None):
         self._db = db
         self._adapter = adapter
         self._tracer = tracer or Tracer(db)
@@ -64,6 +67,8 @@ class StepExecutor:
         self._personality_registry = personality_registry
         self._policy_engine = policy_engine
         self._db_lock = db_lock or threading.Lock()
+        self._memory_store = memory_store
+        self._template_engine = template_engine
 
     # ── Public API ───────────────────────────────────────────────
 
@@ -110,7 +115,7 @@ class StepExecutor:
                     delay = min(2 ** attempt, 30)
                     # Log retry via DB event
                     with self._db_lock:
-                        self._db.get_conn().execute(
+                        self._db.execute(
                             """INSERT INTO agent_events (agent_id, event, detail)
                                VALUES (?, 'retry', ?)""",
                             (step.agent,
@@ -156,16 +161,25 @@ class StepExecutor:
             if kb_results:
                 template_context["knowledge"] = kb_results
 
+        # Query persistent memory for this agent (if configured)
+        if self._memory_store is not None:
+            memory_data = self._memory_store.get_all(step.agent)
+            if memory_data:
+                template_context["memory"] = memory_data
+
+        # Use injected template engine if available, fall back to default
+        render_fn = self._template_engine or _render_template
+
         # ── Condition check: if falsy → skip step ──────────────
         if step.condition:
-            condition_result = _render_template(step.condition, template_context)
+            condition_result = render_fn(step.condition, template_context)
             if not condition_result or condition_result.strip().lower() in (
                 "", "false", "0", "no", "none", "skip",
             ):
                 # Record as skipped
                 self._tracer.end_span(step_span.span_id, status="skipped")
                 with self._db_lock:
-                    self._db.get_conn().execute(
+                    self._db.execute(
                         """INSERT INTO workflow_steps (run_id, step_id, agent_name, status, started_at, finished_at)
                            VALUES (?, ?, ?, 'skipped', ?, ?)""",
                         (run_id, step.id, step.agent, start_ts.isoformat(),
@@ -178,7 +192,7 @@ class StepExecutor:
                 return
 
         # Render prompt with template
-        prompt = _render_template(step.prompt, template_context)
+        prompt = render_fn(step.prompt, template_context)
 
         # Wrap prompt with personality system prompt (if personality_registry configured)
         if self._personality_registry is not None and step.agent:
@@ -193,7 +207,7 @@ class StepExecutor:
 
         # Record step start (DB write)
         with self._db_lock:
-            self._db.get_conn().execute(
+            self._db.execute(
                 """INSERT INTO workflow_steps (run_id, step_id, agent_name, status, started_at)
                    VALUES (?, ?, ?, 'running', ?)""",
                 (run_id, step.id, step.agent, start_ts.isoformat()),
@@ -241,7 +255,7 @@ class StepExecutor:
                 # -- Failure path --
                 if not result.success:
                     self._tracer.end_span(step_span.span_id, status="error")
-                    self._db.get_conn().execute(
+                    self._db.execute(
                         """UPDATE workflow_steps SET status = 'failed',
                            finished_at = ?, duration_ms = ?, error = ? WHERE run_id = ? AND step_id = ?""",
                         (end_ts.isoformat(), result.duration_ms, result.error[:500], run_id, step.id),
@@ -263,7 +277,7 @@ class StepExecutor:
                 self._tracer.end_span(step_span.span_id, status="ok")
 
                 # Record step completion
-                self._db.get_conn().execute(
+                self._db.execute(
                     """UPDATE workflow_steps SET status = 'completed',
                        finished_at = ?, duration_ms = ?, output = ?
                        WHERE run_id = ? AND step_id = ?""",
@@ -281,7 +295,7 @@ class StepExecutor:
             with self._db_lock:
                 self._tracer.end_span(step_span.span_id, status="error")
                 now = datetime.now(timezone.utc)
-                self._db.get_conn().execute(
+                self._db.execute(
                     """UPDATE workflow_steps SET status = 'failed',
                        finished_at = ?, duration_ms = ?, error = ? WHERE run_id = ? AND step_id = ?""",
                     (now.isoformat(), int((now - start_ts).total_seconds() * 1000),

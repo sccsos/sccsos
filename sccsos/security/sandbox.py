@@ -12,6 +12,7 @@ Usage:
 
 from __future__ import annotations
 
+import re
 import shlex
 from dataclasses import dataclass, field
 from typing import Optional
@@ -46,6 +47,8 @@ class CommandWhitelist:
 
     Two-layer protection:
       1. Hard block: dangerous patterns are always rejected
+         (uses regex word boundary for single-word patterns,
+          substring for multi-word patterns)
       2. Whitelist: the command's base executable must match
          an allowed prefix
 
@@ -75,7 +78,7 @@ class CommandWhitelist:
         if not command or not command.strip():
             return SandboxResult(allowed=True)
 
-        # Layer 1: Dangerous pattern check
+        # Layer 1: Dangerous pattern check (regex-based)
         cmd_lower = command.strip().lower()
 
         # Built-in dangerous patterns
@@ -85,11 +88,24 @@ class CommandWhitelist:
             all_patterns.extend(self._extra_dangerous)
 
         for pattern in all_patterns:
-            if pattern in cmd_lower:
-                return SandboxResult(
-                    allowed=False,
-                    reason=f"Command blocked: contains dangerous pattern '{pattern}'",
-                )
+            p = pattern.strip()
+            if not p:
+                continue
+            if ' ' in p:
+                # Multi-word pattern — substring match (already specific enough)
+                if p in cmd_lower:
+                    return SandboxResult(
+                        allowed=False,
+                        reason=f"Command blocked: contains dangerous pattern '{pattern}'",
+                    )
+            else:
+                # Single-word pattern — use regex word boundary
+                # Avoids false positives like "sudo" inside "pseudocode"
+                if re.search(r'\b' + re.escape(p) + r'\b', cmd_lower):
+                    return SandboxResult(
+                        allowed=False,
+                        reason=f"Command blocked: contains dangerous pattern '{pattern}'",
+                    )
 
         # Layer 2: Whitelist check
         if self._allow_all:

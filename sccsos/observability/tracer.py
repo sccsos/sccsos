@@ -2,6 +2,10 @@
 
 Each workflow run or agent session produces a trace tree of spans.
 Spans record timing, status, events, and parent-child relationships.
+
+JSON export (optional): completed spans are accumulated per-trace and
+written as a single merged file ``{export_path}/{trace_id}.json``
+when the root span completes.
 """
 
 from __future__ import annotations
@@ -44,8 +48,8 @@ class Span:
 class Tracer:
     """Creates and manages trace spans, persisted to the database.
 
-    Optionally exports completed spans to JSON files on disk
-    (configured via ``export_path`` in sccsos.yaml).
+    Optionally exports completed trace trees to a single merged JSON
+    file per trace (configured via ``export_path`` in sccsos.yaml).
 
     Usage:
         tracer = Tracer(db)
@@ -60,6 +64,8 @@ class Tracer:
         if self._export_path:
             self._export_path.mkdir(parents=True, exist_ok=True)
         self._active_spans: dict[str, Span] = {}
+        # Accumulated completed spans per trace (for merged JSON export)
+        self._trace_spans: dict[str, list[dict]] = {}
 
     def start_span(self, name: str,
                    agent: str = "",
@@ -102,8 +108,8 @@ class Tracer:
         # Persist to DB
         self._persist_span(span)
 
-        # Export to JSON file (if export_path configured)
-        self._export_span_json(span)
+        # Accumulate for merged JSON export
+        self._accumulate_span(span)
 
         # Remove from active
         del self._active_spans[span_id]
@@ -147,6 +153,30 @@ class Tracer:
         ).fetchall()
         return [dict(r) for r in rows]
 
+    def flush_trace(self, trace_id: str) -> None:
+        """Write all accumulated spans for a trace to a single merged JSON file.
+
+        The output is ``{export_path}/{trace_id}.json`` containing a
+        ``spans`` array. This replaces the previous per-span file strategy.
+        """
+        if self._export_path is None:
+            return
+        spans = self._trace_spans.pop(trace_id, [])
+        if not spans:
+            return
+        trace_file = self._export_path / f"{trace_id}.json"
+        data = {
+            "trace_id": trace_id,
+            "span_count": len(spans),
+            "spans": spans,
+        }
+        trace_file.write_text(
+            json.dumps(data, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+    # ── Internal ────────────────────────────────────────────────
+
     def _persist_span(self, span: Span) -> None:
         """Write a completed span to the database."""
         conn = self._db.get_conn()
@@ -170,20 +200,14 @@ class Tracer:
         )
         conn.commit()
 
-    def _export_span_json(self, span: Span) -> None:
-        """Export a completed span to a JSON file (if ``export_path`` configured).
+    def _accumulate_span(self, span: Span) -> None:
+        """Accumulate a completed span for merged JSON export.
 
-        Each span is written as ``{export_path}/{trace_id}/{span_id}.json``.
-        This enables external tools (Grafana, log aggregators) to ingest
-        trace data without direct DB access.
+        If this is a root span (no parent), flush the entire trace.
         """
         if self._export_path is None:
             return
-        trace_dir = self._export_path / span.trace_id
-        trace_dir.mkdir(parents=True, exist_ok=True)
-        span_file = trace_dir / f"{span.span_id}.json"
-        data = {
-            "trace_id": span.trace_id,
+        span_data = {
             "span_id": span.span_id,
             "parent_span_id": span.parent_span_id,
             "name": span.name,
@@ -194,7 +218,8 @@ class Tracer:
             "status": span.status,
             "events": [asdict(e) for e in span.events],
         }
-        span_file.write_text(
-            json.dumps(data, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
+        self._trace_spans.setdefault(span.trace_id, []).append(span_data)
+
+        # Root span (no parent) — flush the merged file
+        if not span.parent_span_id:
+            self.flush_trace(span.trace_id)

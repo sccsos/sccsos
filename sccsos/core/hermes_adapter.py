@@ -79,9 +79,11 @@ class HermesSubprocessAdapter(HermesAdapter):
     """
 
     def __init__(self, hermes_bin: str = "hermes",
-                 whitelist: Optional["CommandWhitelist"] = None):
+                 whitelist: Optional["CommandWhitelist"] = None,
+                 retry_count: int = 2):
         self._hermes_bin = hermes_bin
         self._whitelist = whitelist
+        self._retry_count = retry_count
 
     def _sandbox_check(self, cmd: list[str]) -> str | None:
         """Run sandbox check. Returns error string if blocked, None if allowed."""
@@ -149,72 +151,103 @@ class HermesSubprocessAdapter(HermesAdapter):
             )
 
         start_time = time.time()
-        try:
-            proc = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-            )
-
-            # Poll with cancel_event check (1s intervals)
-            deadline = start_time + timeout
-            while time.time() < deadline:
-                # Check cancellation
-                if cancel_event is not None and cancel_event.is_set():
-                    proc.kill()
-                    proc.wait(timeout=5)
-                    duration_ms = int((time.time() - start_time) * 1000)
-                    return TaskResult(
-                        response="",
-                        duration_ms=duration_ms,
-                        success=False,
-                        error=f"Task cancelled (agent: {agent_name})",
-                    )
-                # Check if process finished
-                ret = proc.poll()
-                if ret is not None:
-                    break
-                time.sleep(0.5)
-            else:
-                # Deadline reached — kill and timeout
-                proc.kill()
-                proc.wait(timeout=5)
+        # ── Subprocess execution with retry for transient failures ──
+        max_attempts = self._retry_count + 1  # 1 initial + N retries
+        last_error = ""
+        for attempt in range(max_attempts):
+            # Check cancellation before each attempt
+            if cancel_event is not None and cancel_event.is_set():
                 duration_ms = int((time.time() - start_time) * 1000)
                 return TaskResult(
                     response="",
                     duration_ms=duration_ms,
                     success=False,
-                    error=f"Hermes task timed out (agent: {agent_name})",
+                    error=f"Task cancelled (agent: {agent_name})",
                 )
 
-            stdout, stderr = proc.communicate(timeout=5)
-            duration_ms = int((time.time() - start_time) * 1000)
-
-            if proc.returncode == 0:
-                response = stdout.strip()
-                tokens_in, tokens_out = _estimate_tokens(prompt, response)
-                return TaskResult(
-                    response=response,
-                    duration_ms=duration_ms,
-                    tokens_input=tokens_in,
-                    tokens_output=tokens_out,
-                    success=True,
+            try:
+                proc = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
                 )
-            else:
-                error = stderr.strip() or f"exit code {proc.returncode}"
+
+                # Poll with cancel_event check (1s intervals)
+                deadline = start_time + timeout
+                while time.time() < deadline:
+                    # Check cancellation
+                    if cancel_event is not None and cancel_event.is_set():
+                        proc.kill()
+                        proc.wait(timeout=5)
+                        duration_ms = int((time.time() - start_time) * 1000)
+                        return TaskResult(
+                            response="",
+                            duration_ms=duration_ms,
+                            success=False,
+                            error=f"Task cancelled (agent: {agent_name})",
+                        )
+                    # Check if process finished
+                    ret = proc.poll()
+                    if ret is not None:
+                        break
+                    time.sleep(0.5)
+                else:
+                    # Deadline reached — kill and timeout
+                    proc.kill()
+                    proc.wait(timeout=5)
+                    duration_ms = int((time.time() - start_time) * 1000)
+                    if attempt < max_attempts - 1:
+                        last_error = f"Hermes task timed out (agent: {agent_name})"
+                        time.sleep(min(2 ** attempt, 10))
+                        continue  # Retry
+                    return TaskResult(
+                        response="",
+                        duration_ms=duration_ms,
+                        success=False,
+                        error=last_error,
+                    )
+
+                stdout, stderr = proc.communicate(timeout=5)
+                duration_ms = int((time.time() - start_time) * 1000)
+
+                if proc.returncode == 0:
+                    response = stdout.strip()
+                    tokens_in, tokens_out = _estimate_tokens(prompt, response)
+                    return TaskResult(
+                        response=response,
+                        duration_ms=duration_ms,
+                        tokens_input=tokens_in,
+                        tokens_output=tokens_out,
+                        success=True,
+                    )
+                else:
+                    error = stderr.strip() or f"exit code {proc.returncode}"
+                    if attempt < max_attempts - 1:
+                        last_error = error
+                        time.sleep(min(2 ** attempt, 10))
+                        continue  # Retry
+                    return TaskResult(
+                        response="",
+                        duration_ms=duration_ms,
+                        success=False,
+                        error=error,
+                    )
+
+            except FileNotFoundError:
+                # Don't retry FileNotFoundError — hermes CLI missing is permanent
                 return TaskResult(
                     response="",
-                    duration_ms=duration_ms,
                     success=False,
-                    error=error,
+                    error=f"Hermes CLI '{self._hermes_bin}' not found",
                 )
-        except FileNotFoundError:
-            return TaskResult(
-                response="",
-                success=False,
-                error=f"Hermes CLI '{self._hermes_bin}' not found",
-            )
+
+        # All attempts exhausted
+        return TaskResult(
+            response="",
+            success=False,
+            error=f"Task failed after {max_attempts} attempts: {last_error}",
+        )
 
     def check_connectivity(self) -> bool:
         """Check hermes CLI is available and responds."""
@@ -303,6 +336,17 @@ class MockHermesAdapter(HermesAdapter):
                     response="",
                     success=False,
                     error=f"Policy rejected: {result.reason}",
+                )
+
+            # Tool access check — defense-in-depth (mirrors subprocess adapter)
+            tool_result = policy_engine.check_tool_access(
+                agent_name, "delegate_task"
+            )
+            if not tool_result.allowed:
+                return TaskResult(
+                    response="",
+                    success=False,
+                    error=f"Tool rejected: {tool_result.reason}",
                 )
 
         self.tasks.append({

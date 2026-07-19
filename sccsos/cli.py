@@ -11,42 +11,11 @@ from pathlib import Path
 
 import click
 
-from sccsos.core.agent_runtime import AgentRuntime
+from sccsos.core.agent_runtime import AgentRuntime, get_runtime as _get_runtime, set_runtime as _set_runtime
 from sccsos.core.config import get_config
 from sccsos.core.lifecycle import AgentStatus, TransitionError
 from sccsos.core.orchestrator import WorkflowDef, WorkflowValidationError
 from sccsos.observability.logger import get_logger
-
-
-# ── Global state (lazy initialized, factory pattern for testability) ──
-
-
-class _RuntimeFactory:
-    """Factory for AgentRuntime that supports test override."""
-
-    def __init__(self):
-        self._runtime: AgentRuntime | None = None
-
-    def get(self) -> AgentRuntime:
-        if self._runtime is None:
-            self._runtime = AgentRuntime()
-        return self._runtime
-
-    def set(self, runtime: AgentRuntime) -> None:
-        self._runtime = runtime
-
-
-_runtime_factory = _RuntimeFactory()
-
-
-def _get_runtime() -> AgentRuntime:
-    """Get the current AgentRuntime singleton."""
-    return _runtime_factory.get()
-
-
-def _set_runtime(runtime: AgentRuntime) -> None:
-    """Override the runtime singleton (used in tests)."""
-    _runtime_factory.set(runtime)
 
 
 def _ensure_initialized() -> bool:
@@ -87,6 +56,7 @@ def init(dir, force):
         target / "agents",
         target / "workflows",
         target / "personalities",
+        target / "wiki",
     ]
     for d in dirs:
         d.mkdir(parents=True, exist_ok=True)
@@ -117,7 +87,8 @@ def agent():
 
 
 @agent.command("list")
-def agent_list():
+@click.option("--tenant", "-t", default="", help="Filter by tenant ID")
+def agent_list(tenant):
     """List all registered agents."""
     runtime = _get_runtime()
     if not runtime.initialize():
@@ -125,18 +96,19 @@ def agent_list():
         return
 
     agents = runtime.registry.list()
+    if tenant:
+        agents = [a for a in agents if a.tenant_id == tenant]
     if not agents:
         click.echo("No agents registered.")
         return
 
-    click.echo(f"{'Name':<20} {'Version':<10} {'Status':<14} {'Runner':<10} {'Description'}")
-    click.echo("-" * 80)
+    click.echo(f"{'Name':<20} {'Version':<10} {'Tenant':<14} {'Status':<14} {'Runner':<10} {'Description'}")
+    click.echo("-" * 90)
     for a in agents:
-        # Check if there's a running instance
         instance = runtime.lifecycle.get_instance(a.name)
         status = instance.status.value if instance else "registered"
         runner = "running" if runtime.runner.is_running(a.name) else "-"
-        click.echo(f"{a.name:<20} {a.version:<10} {status:<14} {runner:<10} {a.description[:40]}")
+        click.echo(f"{a.name:<20} {a.version:<10} {a.tenant_id:<14} {status:<14} {runner:<10} {a.description[:40]}")
 
 
 @agent.command()
@@ -248,7 +220,7 @@ def stop(name):
 @agent.command()
 @click.argument("name")
 def pause(name):
-    """Pause a running agent: RUNNING → PAUSED."""
+    """Pause a running agent: RUNNING → PAUSED + stop runner."""
     runtime = _get_runtime()
     if not runtime.initialize():
         click.echo("Not initialized. Run 'sccsos init' first.")
@@ -258,6 +230,10 @@ def pause(name):
         if inst.spec.name == name and inst.status == AgentStatus.RUNNING:
             try:
                 runtime.lifecycle.pause(inst.id)
+                # Also pause the background runner
+                runner_paused = runtime.runner.pause_agent(name)
+                if runner_paused:
+                    click.echo(f"Paused runner: {name}")
                 click.echo(f"Paused: {name} ({inst.id})")
                 return
             except TransitionError as e:
@@ -270,7 +246,7 @@ def pause(name):
 @agent.command()
 @click.argument("name")
 def resume(name):
-    """Resume a paused agent: PAUSED → RUNNING."""
+    """Resume a paused agent: PAUSED → RUNNING + resume runner."""
     runtime = _get_runtime()
     if not runtime.initialize():
         click.echo("Not initialized. Run 'sccsos init' first.")
@@ -280,6 +256,10 @@ def resume(name):
         if inst.spec.name == name and inst.status == AgentStatus.PAUSED:
             try:
                 runtime.lifecycle.resume(inst.id)
+                # Also resume the background runner
+                runner_resumed = runtime.runner.resume_agent(name)
+                if runner_resumed:
+                    click.echo(f"Resumed runner: {name}")
                 click.echo(f"Resumed: {name} ({inst.id})")
                 return
             except TransitionError as e:
@@ -292,23 +272,71 @@ def resume(name):
 @agent.command()
 @click.argument("name")
 def restart(name):
-    """Restart a failed agent: FAILED → RUNNING."""
+    """Restart an agent from any state.
+
+    - RUNNING → stop + start (true restart)
+    - PAUSED  → stop + start
+    - FAILED  → restart
+    - CREATED → start directly
+    """
     runtime = _get_runtime()
     if not runtime.initialize():
         click.echo("Not initialized. Run 'sccsos init' first.")
         return
 
     for inst in runtime.lifecycle.list_instances():
-        if inst.spec.name == name and inst.status == AgentStatus.FAILED:
+        if inst.spec.name == name:
             try:
-                runtime.lifecycle.restart(inst.id)
+                if inst.status == AgentStatus.FAILED:
+                    runtime.lifecycle.restart(inst.id)
+                elif inst.status == AgentStatus.RUNNING:
+                    # RUNNING → fail → FAILED → restart → RUNNING
+                    runtime.lifecycle.fail(inst.id, "restart requested")
+                    runtime.lifecycle.restart(inst.id)
+                elif inst.status == AgentStatus.PAUSED:
+                    # PAUSED → stop → new instance (clean start)
+                    runtime.lifecycle.stop(inst.id)
+                    new_inst = runtime.lifecycle.create(inst.spec)
+                    runtime.lifecycle.start(new_inst.id)
+                    inst = new_inst
+                elif inst.status == AgentStatus.CREATED:
+                    runtime.lifecycle.start(inst.id)
+                else:
+                    click.echo(f"Cannot restart agent in '{inst.status.value}' state")
+                    return
+
+                # (Re)start background runner
+                profile = inst.spec.profile or "sccsos"
+                runtime.runner.stop_agent(name)
+                runtime.runner.start_agent(
+                    name, profile=profile,
+                    policy_engine=runtime.policy_engine,
+                    model=inst.spec.model,
+                )
                 click.echo(f"Restarted: {name} ({inst.id})")
                 return
-            except TransitionError as e:
+            except Exception as e:
                 click.echo(f"Error: {e}", err=True)
                 return
 
-    click.echo(f"No failed instance found for '{name}'")
+    # No instance exists — try to create + start from registry
+    spec = runtime.registry.find(name)
+    if spec:
+        try:
+            instance = runtime.lifecycle.create(spec)
+            runtime.lifecycle.start(instance.id)
+            profile = spec.profile or "sccsos"
+            runtime.runner.start_agent(
+                name, profile=profile,
+                policy_engine=runtime.policy_engine,
+                model=spec.model,
+            )
+            click.echo(f"Started: {name} ({instance.id})")
+        except Exception as e:
+            click.echo(f"Error: {e}", err=True)
+        return
+
+    click.echo(f"Agent '{name}' not found in registry or lifecycle.")
 
 
 @agent.command()
@@ -375,17 +403,68 @@ def logs(name, limit):
 def ask(name, prompt, timeout):
     """Send a prompt to a running agent and print response.
 
+    Tries to use a running API Server first (localhost:8765 for persistence).
+    Falls back to local auto-start if no API Server is detected.
+
     Usage:
-        sccsos agent ask architect \"Design a user auth module\"
-        sccsos agent ask reviewer \"Review this design\" --timeout 600
+        sccsos agent ask architect "Design a user auth module"
+        sccsos agent ask reviewer "Review this design" --timeout 600
     """
+    import urllib.request as _urllib
+    import json as _json
+
+    full_prompt = " ".join(prompt)
+    click.echo(f"Asking agent '{name}'...")
+
+    # ── Try API Server first (persistent agent process) ──────────
+    try:
+        req = _urllib.Request("http://127.0.0.1:8765/health",
+                              method="GET")
+        resp = _urllib.urlopen(req, timeout=1)
+        if resp.status == 200:
+            # API Server is running — delegate the ask
+            body = _json.dumps({
+                "prompt": full_prompt,
+                "timeout": timeout,
+            }).encode("utf-8")
+            req2 = _urllib.Request(
+                f"http://127.0.0.1:8765/agents/{name}/ask",
+                data=body,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            resp2 = _urllib.urlopen(req2, timeout=timeout + 5)
+            data = _json.loads(resp2.read())
+            if data.get("success"):
+                click.echo(data["response"])
+            else:
+                click.echo(f"Error: {data.get('error', 'unknown')}", err=True)
+            return
+    except Exception:
+        pass  # API Server unreachable — fall back to local
+
+    # ── Local fallback (auto-start temporary agent process) ──────
     runtime = _get_runtime()
     if not runtime.initialize():
         click.echo("Not initialized. Run 'sccsos init' first.")
         return
 
-    full_prompt = " ".join(prompt)
-    click.echo(f"Asking agent '{name}'...")
+    # Auto-start if registered but not running
+    if not runtime.runner.is_running(name):
+        spec = runtime.registry.find(name)
+        if spec is not None:
+            try:
+                instance = runtime.lifecycle.create(spec)
+                runtime.lifecycle.start(instance.id)
+                profile = spec.profile or "sccsos"
+                runtime.runner.start_agent(
+                    name, profile=profile,
+                    policy_engine=runtime.policy_engine,
+                    model=spec.model,
+                )
+            except Exception:
+                pass
+
     result = runtime.runner.ask_agent(name, full_prompt, timeout=timeout)
     if result.success:
         click.echo(result.response)
@@ -541,7 +620,8 @@ def cancel(run_id):
 
 
 @workflow.command("list")
-def workflow_list():
+@click.option("--tenant", "-t", default="", help="Filter by tenant ID")
+def workflow_list(tenant):
     """List recent workflow runs."""
     runtime = _get_runtime()
     if not runtime.initialize():
@@ -549,15 +629,18 @@ def workflow_list():
         return
 
     runs = runtime.engine.list_runs(limit=10)
+    if tenant:
+        runs = [r for r in runs if r.get("tenant_id", "") == tenant]
     if not runs:
         click.echo("No workflow runs yet.")
         return
 
-    click.echo(f"{'Run ID':<24} {'Workflow':<24} {'Status':<14} {'Started'}")
-    click.echo("-" * 80)
+    click.echo(f"{'Run ID':<24} {'Workflow':<24} {'Status':<14} {'Started':<22} {'Tenant'}")
+    click.echo("-" * 90)
     for r in runs:
         started = (r.get('started_at') or '')[:19]
-        click.echo(f"{r['id']:<24} {r['workflow_name']:<24} {r['status']:<14} {started}")
+        tid = r.get('tenant_id', 'default')
+        click.echo(f"{r['id']:<24} {r['workflow_name']:<24} {r['status']:<14} {started:<22} {tid}")
 
 
 @workflow.command()
@@ -759,6 +842,98 @@ def audit_log(limit, agent):
         click.echo(f"{ts:<22} {type_:<14} {tokens:<8} ${cost:<7.4f} {detail}")
 
 
+# ── memory commands ─────────────────────────────────────────────
+
+
+@click.group()
+def memory():
+    """Manage agent persistent memory (cross-session KV store)."""
+    pass
+
+
+@memory.command("save")
+@click.argument("agent_name")
+@click.argument("key")
+@click.argument("value")
+@click.option("--tenant", "-t", default="default", help="Tenant ID")
+def memory_save(agent_name, key, value, tenant):
+    """Save a memory entry for an agent.
+
+    Usage: sccsos memory save architect preferred_lang Python
+    """
+    runtime = _get_runtime()
+    if not runtime.initialize():
+        click.echo("Not initialized. Run 'sccsos init' first.")
+        return
+    runtime.memory.save(agent_name, key, value, tenant_id=tenant)
+    click.echo(f"Saved: {agent_name}/{key} = {value[:60]}")
+
+
+@memory.command("get")
+@click.argument("agent_name")
+@click.argument("key")
+@click.option("--tenant", "-t", default="default", help="Tenant ID")
+def memory_get(agent_name, key, tenant):
+    """Get a memory entry for an agent."""
+    runtime = _get_runtime()
+    if not runtime.initialize():
+        click.echo("Not initialized.")
+        return
+    value = runtime.memory.get(agent_name, key, tenant_id=tenant)
+    if value is None:
+        click.echo(f"Key '{key}' not found for agent '{agent_name}'")
+    else:
+        click.echo(value)
+
+
+@memory.command("list")
+@click.argument("agent_name")
+@click.option("--tenant", "-t", default="default", help="Tenant ID")
+def memory_list(agent_name, tenant):
+    """List all memory keys for an agent."""
+    runtime = _get_runtime()
+    if not runtime.initialize():
+        click.echo("Not initialized.")
+        return
+    keys = runtime.memory.list_keys(agent_name, tenant_id=tenant)
+    if not keys:
+        click.echo(f"No memory entries for agent '{agent_name}'")
+        return
+    click.echo(f"Memory keys for '{agent_name}':")
+    for k in keys:
+        click.echo(f"  - {k}")
+
+
+@memory.command("delete")
+@click.argument("agent_name")
+@click.argument("key")
+@click.option("--tenant", "-t", default="default", help="Tenant ID")
+def memory_delete(agent_name, key, tenant):
+    """Delete a memory entry for an agent."""
+    runtime = _get_runtime()
+    if not runtime.initialize():
+        click.echo("Not initialized.")
+        return
+    deleted = runtime.memory.delete(agent_name, key, tenant_id=tenant)
+    if deleted:
+        click.echo(f"Deleted: {agent_name}/{key}")
+    else:
+        click.echo(f"Key '{key}' not found for agent '{agent_name}'")
+
+
+@memory.command("clear")
+@click.argument("agent_name")
+@click.option("--tenant", "-t", default="default", help="Tenant ID")
+def memory_clear(agent_name, tenant):
+    """Clear all memory entries for an agent."""
+    runtime = _get_runtime()
+    if not runtime.initialize():
+        click.echo("Not initialized.")
+        return
+    count = runtime.memory.clear_agent(agent_name, tenant_id=tenant)
+    click.echo(f"Cleared {count} entries for agent '{agent_name}'")
+
+
 # ── main entry point ──────────────────────────────────────────────
 
 
@@ -774,16 +949,17 @@ main.add_command(agent)
 main.add_command(workflow)
 main.add_command(trace)
 main.add_command(audit)
+main.add_command(memory)
 main.add_command(health)
 
 
 # ── template constants ────────────────────────────────────────────
 
 
-_DEFAULT_YAML = """# sccsos project configuration
+_DEFAULT_YAML = """# sccsos v0.7.0 project configuration
 project:
   name: sccsos
-  version: 0.6.0
+  version: 0.7.0
 database:
   path: ./data/sccsos.db
 defaults:
@@ -813,6 +989,7 @@ policies:
       - web_search
       - web_extract
       - terminal
+      - delegate_task
     blocked_tools: []
 """
 

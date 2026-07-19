@@ -106,6 +106,12 @@ class AgentRuntime:
         return None
 
     @property
+    def memory(self):
+        """Access the MemoryStore (persistent cross-session KV store)."""
+        self._ensure_initialized()
+        return self._memory_store
+
+    @property
     def is_initialized(self) -> bool:
         return self._initialized
 
@@ -148,8 +154,12 @@ class AgentRuntime:
         )
         self._adapter = create_adapter("subprocess", whitelist=self._sandbox)
 
+        # ── Memory store (created early so runner can use it) ──────
+        from sccsos.memory.memory_store import MemoryStore
+        self._memory_store = MemoryStore(self._db)
+
         # ── Agent Runner (manages running agent processes) ─────────
-        self._runner = AgentRunner(self._adapter)
+        self._runner = AgentRunner(self._adapter, memory_store=self._memory_store)
 
         # ── Tracer & Auditor ──────────────────────────────────────
         self._tracer = Tracer(
@@ -203,11 +213,27 @@ class AgentRuntime:
             config=cfg,
             registry=self._registry,
             knowledge_base=self._knowledge_base,
+            memory_store=self._memory_store,
             personality_registry=self._personality_registry,
         )
 
         self._initialized = True
+        # Optional: config consistency checks
+        self._check_config(cfg)
         return True
+
+    def _check_config(self, cfg) -> None:
+        """Run optional config consistency checks (best-effort, no failure)."""
+        # Check pricing file existence
+        pricing_path = cfg.tracing.pricing_path
+        if pricing_path:
+            pp = Path(pricing_path)
+            if not pp.exists():
+                from sccsos.observability.logger import get_logger
+                get_logger().warning(
+                    "Pricing file '%s' not found. Using default pricing.",
+                    pricing_path,
+                )
 
     def _ensure_initialized(self) -> None:
         """Auto-initialise on first property access."""
@@ -224,6 +250,7 @@ class AgentRuntime:
         if self._db is None or self._lifecycle is None:
             return
         records = self._db.list_agents()
+        skipped = 0
         for rec in records:
             status = rec["status"]
             if status in ("terminated",):
@@ -234,8 +261,20 @@ class AgentRuntime:
                 self._lifecycle._restore_instance(
                     rec["id"], spec, rec["status"]
                 )
-            except Exception:
-                pass  # Skip unreadable records
+            except Exception as e:
+                skipped += 1
+                from sccsos.observability.logger import get_logger
+                get_logger().warning(
+                    "Skipped unreadable agent record '%s': %s",
+                    rec.get("id", "?"), e,
+                )
+        if skipped > 0:
+            from sccsos.observability.logger import get_logger
+            get_logger().info(
+                "Restored %d agents, skipped %d unreadable records",
+                len(records) - skipped - sum(1 for r in records if r["status"] in ("terminated",)),
+                skipped,
+            )
 
     # ── Health ───────────────────────────────────────────────────
 
@@ -307,3 +346,38 @@ class AgentRuntime:
             except Exception:
                 pass
         self._initialized = False
+
+
+# ── Runtime Factory (shared singleton for CLI & API) ────────
+
+
+class RuntimeFactory:
+    """Factory for AgentRuntime that supports test override.
+
+    Shared singleton used by both CLI (cli.py) and API server
+    (api/server.py) to avoid dual-runtime anti-pattern.
+    """
+
+    def __init__(self):
+        self._runtime: AgentRuntime | None = None
+
+    def get(self) -> AgentRuntime:
+        if self._runtime is None:
+            self._runtime = AgentRuntime()
+        return self._runtime
+
+    def set(self, runtime: AgentRuntime) -> None:
+        self._runtime = runtime
+
+
+_runtime_factory = RuntimeFactory()
+
+
+def get_runtime() -> AgentRuntime:
+    """Get the current AgentRuntime singleton."""
+    return _runtime_factory.get()
+
+
+def set_runtime(runtime: AgentRuntime) -> None:
+    """Override the runtime singleton (used in tests)."""
+    _runtime_factory.set(runtime)

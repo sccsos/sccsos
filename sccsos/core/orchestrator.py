@@ -27,6 +27,7 @@ from sccsos.observability.auditor import Auditor
 from sccsos.observability.pricing import PricingTable
 from sccsos.observability.webhook import WebhookNotifier
 from sccsos.observability.alert_manager import AlertManager
+from sccsos.memory.memory_store import MemoryStore
 
 
 # ── Exceptions ──
@@ -341,6 +342,27 @@ class DAGResolver:
         return self._step_map[step_id]
 
 
+# ── Workflow Run Context (thread-safe per-run state) ────────────────
+
+
+@dataclass
+class WorkflowRunContext:
+    """Per-run context encapsulating mutable state for one workflow execution.
+
+     Each call to ``WorkflowEngine.execute()`` creates its own context,
+     stored in ``self._run_contexts[run_id]``.  This eliminates the
+     thread-safety issue of sharing instance variables across concurrent
+     ``execute()`` calls.
+     """
+
+    run_id: str
+    workflow: WorkflowDef
+    resolver: DAGResolver
+    cancel_event: "threading.Event" = field(default_factory=threading.Event)
+    parallel_group_map: dict[str, int] = field(default_factory=dict)
+    step_group_map: dict[str, str] = field(default_factory=dict)
+
+
 # ── Workflow Engine ────────────────────────────────────────────────
 
 
@@ -353,6 +375,7 @@ class WorkflowEngine:
                  config: Optional[AgentOSConfig] = None,
                  registry: Optional["AgentRegistry"] = None,
                  knowledge_base: Optional["KnowledgeBase"] = None,
+                 memory_store: Optional[MemoryStore] = None,
                  personality_registry: Optional[PersonalityRegistry] = None):
         self._db = db
         self._adapter = adapter
@@ -361,10 +384,12 @@ class WorkflowEngine:
         self._config = config
         self._registry = registry
         self._kb = knowledge_base
+        self._memory_store = memory_store
         self._personality_registry = personality_registry
         self._policy_engine = None
         self._db_lock = threading.Lock()
-        self._cancel_event: Optional[threading.Event] = None
+        # Per-run contexts (thread-safe: each execute() gets its own)
+        self._run_contexts: dict[str, WorkflowRunContext] = {}
         self._notifier = WebhookNotifier(
             config.webhooks if config else None
         )
@@ -387,6 +412,7 @@ class WorkflowEngine:
             config=config,
             registry=registry,
             knowledge_base=knowledge_base,
+            memory_store=self._memory_store,
             personality_registry=personality_registry,
             policy_engine=self._policy_engine,
             db_lock=self._db_lock,
@@ -424,19 +450,25 @@ class WorkflowEngine:
             # Step templates can use: {{ steps.input.context }}
         """
         run_id = f"wf_{uuid.uuid4().hex[:12]}"
-        self._cancel_event = threading.Event()
-        self._resolver = DAGResolver(workflow)
-        self._workflow = workflow
+        resolver = DAGResolver(workflow)
 
-        # Build parallel group lookup: group_id -> max_concurrent
-        self._parallel_group_map: dict[str, int] = {
+        # Build per-run context
+        parallel_group_map: dict[str, int] = {
             g.id: g.max_concurrent for g in workflow.parallel_groups
         }
-        # Build step_id -> parallel_group_id lookup
-        self._step_group_map: dict[str, str] = {}
+        step_group_map: dict[str, str] = {}
         for g in workflow.parallel_groups:
             for sid in g.steps:
-                self._step_group_map[sid] = g.id
+                step_group_map[sid] = g.id
+
+        ctx = WorkflowRunContext(
+            run_id=run_id,
+            workflow=workflow,
+            resolver=resolver,
+            parallel_group_map=parallel_group_map,
+            step_group_map=step_group_map,
+        )
+        self._run_contexts[run_id] = ctx
 
         # Create trace
         trace_span = self._tracer.start_span(
@@ -455,7 +487,7 @@ class WorkflowEngine:
         )
 
         # Persist run
-        self._db.get_conn().execute(
+        self._db.execute(
             """INSERT INTO workflow_runs (id, workflow_name, workflow_content, status)
                VALUES (?, ?, ?, 'running')""",
             (run_id, workflow.name, yaml.dump(asdict(workflow))),
@@ -480,21 +512,21 @@ class WorkflowEngine:
                             workflow_name=workflow.name, status="running")
 
         try:
-            layers = self._resolver.get_execution_order()
+            layers = ctx.resolver.get_execution_order()
             start_time = datetime.now(timezone.utc)
 
             for layer_idx, layer in enumerate(layers):
                 if len(layer) == 1:
                     # Single step -- execute directly, no thread overhead
-                    step = self._resolver.get_step(layer[0])
+                    step = ctx.resolver.get_step(layer[0])
                     self._step_executor.execute_with_retry(
                         run_id, step, step_outputs, trace_span.span_id,
-                        cancel_event=self._cancel_event,
+                        cancel_event=ctx.cancel_event,
                     )
                 else:
                     # Multiple steps -- execute layer in parallel
                     self._execute_layer_parallel(
-                        run_id, layer, step_outputs, trace_span.span_id
+                        run_id, layer, step_outputs, trace_span.span_id, ctx
                     )
 
                 self._db.get_conn().commit()
@@ -502,7 +534,7 @@ class WorkflowEngine:
             # Mark run as completed
             end_time = datetime.now(timezone.utc)
             self._tracer.end_span(trace_span.span_id, status="ok")
-            self._db.get_conn().execute(
+            self._db.execute(
                 """UPDATE workflow_runs SET status = 'completed',
                    finished_at = ? WHERE id = ?""",
                 (end_time.isoformat(), run_id),
@@ -518,7 +550,7 @@ class WorkflowEngine:
 
         except Exception as e:
             self._tracer.end_span(trace_span.span_id, status="error")
-            self._db.get_conn().execute(
+            self._db.execute(
                 """UPDATE workflow_runs SET status = 'failed', error = ?
                    WHERE id = ?""",
                 (str(e), run_id),
@@ -534,26 +566,31 @@ class WorkflowEngine:
 
             raise WorkflowExecutionError(f"Workflow '{workflow.name}' failed: {e}")
 
+        finally:
+            # Clean up per-run context (thread-safe)
+            self._run_contexts.pop(run_id, None)
+
         return run_id
 
-    def _get_max_concurrent(self, layer: list[str]) -> int:
+    def _get_max_concurrent(self, layer: list[str],
+                            ctx: WorkflowRunContext) -> int:
         """Determine max concurrency for a layer.
 
         Checks parallel_groups for explicit constraints; otherwise
         defaults to running all steps in the layer concurrently.
         """
         # Check if all steps in the layer belong to the same parallel group
-        group_ids = {self._step_group_map.get(sid) for sid in layer}
+        group_ids = {ctx.step_group_map.get(sid) for sid in layer}
         group_ids.discard(None)  # Steps not in any group
 
         if len(group_ids) == 1:
             # All steps belong to the same group -- use group's max_concurrent
             gid = group_ids.pop()
-            return self._parallel_group_map.get(gid, 3)
+            return ctx.parallel_group_map.get(gid, 3)
         elif len(group_ids) > 1:
             # Multiple groups in same layer -- use the most restrictive
             return min(
-                self._parallel_group_map.get(gid, 3) for gid in group_ids
+                ctx.parallel_group_map.get(gid, 3) for gid in group_ids
             )
         else:
             # No groups defined -- run all in parallel (up to 5)
@@ -563,13 +600,14 @@ class WorkflowEngine:
         self, run_id: str, layer: list[str],
         step_outputs: dict[str, dict],
         parent_span_id: str,
+        ctx: WorkflowRunContext,
     ) -> None:
         """Execute a DAG layer's steps in parallel using a thread pool."""
         # Check cancellation before starting a new layer
-        if self._cancel_event and self._cancel_event.is_set():
+        if ctx.cancel_event and ctx.cancel_event.is_set():
             raise WorkflowExecutionError("Workflow cancelled")
 
-        max_workers = self._get_max_concurrent(layer)
+        max_workers = self._get_max_concurrent(layer, ctx)
 
         with concurrent.futures.ThreadPoolExecutor(
             max_workers=max_workers, thread_name_prefix="wf_step"
@@ -577,15 +615,15 @@ class WorkflowEngine:
             future_to_step: dict[concurrent.futures.Future, str] = {}
             for step_id in layer:
                 # Check cancellation before submitting each step
-                if self._cancel_event and self._cancel_event.is_set():
+                if ctx.cancel_event and ctx.cancel_event.is_set():
                     for f in future_to_step:
                         f.cancel()
                     raise WorkflowExecutionError("Workflow cancelled")
-                step = self._resolver.get_step(step_id)
+                step = ctx.resolver.get_step(step_id)
                 future = executor.submit(
                     self._step_executor.execute_with_retry,
                     run_id, step, step_outputs, parent_span_id,
-                    cancel_event=self._cancel_event,
+                    cancel_event=ctx.cancel_event,
                 )
                 future_to_step[future] = step_id
 
@@ -615,26 +653,33 @@ class WorkflowEngine:
                     f"Parallel step(s) failed: {error_msg}"
                 )
 
-    def _execute_step(self, run_id: str, step: WorkflowStepDef,
-                      step_outputs: dict[str, dict],
-                      parent_span_id: str = "") -> None:
-        """Execute a single workflow step (delegates to StepExecutor)."""
-        self._step_executor.execute_with_retry(
-            run_id, step, step_outputs, parent_span_id,
-            cancel_event=self._cancel_event,
-        )
+    def get_run_status(self, run_id: str,
+                       tenant_id: Optional[str] = None) -> dict:
+        """Get the status of a workflow run.
 
-    def get_run_status(self, run_id: str) -> dict:
-        """Get the status of a workflow run."""
-        row = self._db.get_conn().execute(
-            "SELECT * FROM workflow_runs WHERE id = ?", (run_id,)
-        ).fetchone()
+        Args:
+            run_id: Workflow run ID.
+            tenant_id: Optional tenant ID filter for multi-tenant isolation.
+
+        Returns:
+            Run status dict with step details.
+        """
+        if tenant_id:
+            row = self._db.fetchone(
+                """SELECT * FROM workflow_runs
+                   WHERE id = ? AND tenant_id = ?""",
+                (run_id, tenant_id),
+            )
+        else:
+            row = self._db.fetchone(
+                "SELECT * FROM workflow_runs WHERE id = ?", (run_id,)
+            )
         if not row:
             raise KeyError(f"Workflow run '{run_id}' not found")
         result = dict(row)
 
         # Get step statuses
-        steps = self._db.get_conn().execute(
+        steps = self._db.execute(
             "SELECT * FROM workflow_steps WHERE run_id = ? ORDER BY id",
             (run_id,)
         ).fetchall()
@@ -643,10 +688,11 @@ class WorkflowEngine:
 
     def cancel_run(self, run_id: str) -> None:
         """Cancel a running workflow."""
-        # Signal cancellation to running threads
-        if self._cancel_event:
-            self._cancel_event.set()
-        self._db.get_conn().execute(
+        # Signal cancellation to running threads via per-run context
+        ctx = self._run_contexts.get(run_id)
+        if ctx is not None:
+            ctx.cancel_event.set()
+        self._db.execute(
             """UPDATE workflow_runs SET status = 'cancelled',
                finished_at = datetime('now') WHERE id = ?""",
             (run_id,),
@@ -655,7 +701,7 @@ class WorkflowEngine:
 
     def list_runs(self, limit: int = 20) -> list[dict]:
         """List recent workflow runs."""
-        rows = self._db.get_conn().execute(
+        rows = self._db.execute(
             "SELECT * FROM workflow_runs ORDER BY started_at DESC LIMIT ?",
             (limit,),
         ).fetchall()

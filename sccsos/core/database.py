@@ -8,8 +8,12 @@ from __future__ import annotations
 
 import sqlite3
 import threading
+import logging
 from pathlib import Path
 from typing import Optional
+
+
+logger = logging.getLogger("sccsos.database")
 
 
 # ── Schema DDL ─────────────────────────────────────────────────────
@@ -120,6 +124,7 @@ CREATE TABLE IF NOT EXISTS memory_store (
     value TEXT NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    ttl_seconds INTEGER DEFAULT 0,
     UNIQUE(tenant_id, agent_name, key)
 );
 """
@@ -172,6 +177,20 @@ class Database:
         """
         return self.get_conn().execute(sql, params)
 
+    def fetchone(self, sql: str, params: tuple = ()) -> Optional[sqlite3.Row]:
+        """Execute and fetch one row. Returns None if no results.
+
+        Convenience method combining execute + fetchone.
+        """
+        return self.execute(sql, params).fetchone()
+
+    def fetchall(self, sql: str, params: tuple = ()) -> list[sqlite3.Row]:
+        """Execute and fetch all rows.
+
+        Convenience method combining execute + fetchall.
+        """
+        return self.execute(sql, params).fetchall()
+
     def executescript(self, sql: str) -> None:
         """Execute a multi-statement SQL script with commit."""
         conn = self.get_conn()
@@ -218,8 +237,18 @@ class Database:
                     )
                 """)
                 conn.commit()
-        except Exception:
-            pass  # Migration failed — schema may already be compatible
+            # Migration v3: Add ttl_seconds to memory_store
+            col_info = conn.execute(
+                "PRAGMA table_info(memory_store)"
+            ).fetchall()
+            col_names = [c[1] for c in col_info]
+            if 'ttl_seconds' not in col_names:
+                conn.execute(
+                    "ALTER TABLE memory_store ADD COLUMN ttl_seconds INTEGER DEFAULT 0"
+                )
+                conn.commit()
+        except Exception as e:
+            logger.warning("Migration failed (schema may be compatible): %s", e)
 
     def close(self) -> None:
         """Close the connection."""

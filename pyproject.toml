@@ -1,6 +1,6 @@
 [project]
 name = "sccsos"
-version = "0.6.0"
+version = "0.7.0"
 description = "SCCS Operating System — Smart Agent Runtime Platform for SCCS-T Product Ecosystem"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -21,6 +21,7 @@ dev = [
 
 [project.scripts]
 sccsos = "sccsos.cli:main"
+sc = "sccsos.cli:main"
 
 [build-system]
 requires = ["setuptools>=68.0"]

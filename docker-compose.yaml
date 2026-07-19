@@ -3,7 +3,7 @@ version: "3.8"
 services:
   sccsos:
     build: .
-    image: sccsos:0.6.0
+    image: sccsos:0.6.4
     container_name: sccsos
     ports:
       - "8765:8765"

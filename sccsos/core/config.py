@@ -147,7 +147,7 @@ class WebhooksConfig:
 @dataclass
 class ProjectConfig:
     name: str = "sccsos"
-    version: str = "0.6.0"
+    version: str = "0.7.0"
 
 
 @dataclass

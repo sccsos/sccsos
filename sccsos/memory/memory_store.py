@@ -4,6 +4,9 @@ Provides per-tenant, per-agent persistent storage for user preferences,
 session data, and learned facts. Unlike KnowledgeBase (read-only wiki),
 MemoryStore supports read-write operations.
 
+Supports optional TTL (time-to-live) expiration: entries older than
+their ttl_seconds are treated as expired and auto-deleted on read.
+
 Usage:
     store = MemoryStore(db)
     store.save("architect", "preferred_language", "Python", tenant_id="t1")
@@ -24,40 +27,84 @@ class MemoryStore:
 
     Data is stored in the ``memory_store`` SQLite table with
     UNIQUE constraint on (tenant_id, agent_name, key).
+
+    Supports optional TTL: entries with ``ttl_seconds > 0``
+    expire that many seconds after ``updated_at``.
     """
 
-    def __init__(self, db: Database):
+    def __init__(self, db: Database, default_ttl_seconds: int = 0):
         self._db = db
+        self._default_ttl = default_ttl_seconds
 
     # ── Public API ───────────────────────────────────────────────
 
     def save(self, agent_name: str, key: str, value: str,
-             tenant_id: str = "default") -> None:
+             tenant_id: str = "default",
+             ttl_seconds: Optional[int] = None) -> None:
         """Save or update a memory entry.
 
         Uses INSERT OR REPLACE to handle both create and update.
+
+        Args:
+            agent_name: Agent name.
+            key: Memory key.
+            value: Memory value.
+            tenant_id: Tenant ID (default: "default").
+            ttl_seconds: Time-to-live in seconds. 0 = no expiry.
+                Defaults to the store's ``default_ttl_seconds``.
         """
         now = datetime.now(timezone.utc).isoformat()
+        ttl = ttl_seconds if ttl_seconds is not None else self._default_ttl
         conn = self._db.get_conn()
         conn.execute(
             """INSERT OR REPLACE INTO memory_store
-               (tenant_id, agent_name, key, value, updated_at)
-               VALUES (?, ?, ?, ?, ?)""",
-            (tenant_id, agent_name, key, value, now),
+               (tenant_id, agent_name, key, value, updated_at, ttl_seconds)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (tenant_id, agent_name, key, value, now, ttl),
         )
         conn.commit()
 
     def get(self, agent_name: str, key: str,
             tenant_id: str = "default") -> Optional[str]:
-        """Retrieve a memory entry by key. Returns None if not found."""
+        """Retrieve a memory entry by key.
+
+        Returns None if the key is not found or has expired (TTL check).
+
+        Args:
+            agent_name: Agent name.
+            key: Memory key.
+            tenant_id: Tenant ID (default: "default").
+
+        Returns:
+            The value string, or None if not found or expired.
+        """
         conn = self._db.get_conn()
         row = conn.execute(
-            """SELECT value FROM memory_store
+            """SELECT value, updated_at, ttl_seconds FROM memory_store
                WHERE tenant_id = ? AND agent_name = ? AND key = ?
                ORDER BY updated_at DESC LIMIT 1""",
             (tenant_id, agent_name, key),
         ).fetchone()
-        return row[0] if row else None
+        if not row:
+            return None
+
+        value, updated_at, ttl = row
+        if ttl and ttl > 0 and updated_at:
+            try:
+                updated = datetime.fromisoformat(updated_at)
+                age = (datetime.now(timezone.utc) - updated).total_seconds()
+                if age > ttl:
+                    # Entry expired — delete and return None
+                    conn.execute(
+                        """DELETE FROM memory_store
+                           WHERE tenant_id = ? AND agent_name = ? AND key = ?""",
+                        (tenant_id, agent_name, key),
+                    )
+                    conn.commit()
+                    return None
+            except (ValueError, TypeError):
+                pass  # Can't parse timestamp — treat as still valid
+        return value
 
     def delete(self, agent_name: str, key: str,
                tenant_id: str = "default") -> bool:
@@ -73,27 +120,52 @@ class MemoryStore:
 
     def list_keys(self, agent_name: str,
                   tenant_id: str = "default") -> list[str]:
-        """List all keys for an agent in a tenant."""
+        """List all non-expired memory keys for an agent in a tenant."""
         conn = self._db.get_conn()
+        # Filter out expired entries at query time
         rows = conn.execute(
-            """SELECT key FROM memory_store
+            """SELECT key, updated_at, ttl_seconds FROM memory_store
                WHERE tenant_id = ? AND agent_name = ?
                ORDER BY updated_at DESC""",
             (tenant_id, agent_name),
         ).fetchall()
-        return [r[0] for r in rows]
+        now = datetime.now(timezone.utc)
+        valid_keys = []
+        for r in rows:
+            key, updated_at, ttl = r
+            if ttl and ttl > 0 and updated_at:
+                try:
+                    updated = datetime.fromisoformat(updated_at)
+                    if (now - updated).total_seconds() > ttl:
+                        continue  # Skip expired
+                except (ValueError, TypeError):
+                    pass
+            valid_keys.append(key)
+        return valid_keys
 
     def get_all(self, agent_name: str,
                 tenant_id: str = "default") -> dict[str, str]:
-        """Retrieve all memory entries for an agent as a dict."""
+        """Retrieve all non-expired memory entries for an agent as a dict."""
         conn = self._db.get_conn()
         rows = conn.execute(
-            """SELECT key, value FROM memory_store
+            """SELECT key, value, updated_at, ttl_seconds FROM memory_store
                WHERE tenant_id = ? AND agent_name = ?
                ORDER BY key""",
             (tenant_id, agent_name),
         ).fetchall()
-        return {r[0]: r[1] for r in rows}
+        now = datetime.now(timezone.utc)
+        result = {}
+        for r in rows:
+            key, value, updated_at, ttl = r
+            if ttl and ttl > 0 and updated_at:
+                try:
+                    updated = datetime.fromisoformat(updated_at)
+                    if (now - updated).total_seconds() > ttl:
+                        continue
+                except (ValueError, TypeError):
+                    pass
+            result[key] = value
+        return result
 
     def clear_agent(self, agent_name: str,
                     tenant_id: str = "default") -> int:
@@ -113,6 +185,25 @@ class MemoryStore:
         cursor = conn.execute(
             "DELETE FROM memory_store WHERE tenant_id = ?",
             (tenant_id,),
+        )
+        conn.commit()
+        return cursor.rowcount
+
+    def purge_expired(self) -> int:
+        """Delete all expired memory entries across all tenants.
+
+        Removes entries where ``ttl_seconds > 0`` and the elapsed time
+        since ``updated_at`` exceeds ``ttl_seconds``. Safe to call
+        periodically — does not affect entries without TTL.
+
+        Returns:
+            Number of expired entries purged.
+        """
+        conn = self._db.get_conn()
+        cursor = conn.execute(
+            """DELETE FROM memory_store
+               WHERE ttl_seconds > 0
+                 AND datetime(updated_at, '+' || ttl_seconds || ' seconds') < datetime('now')"""
         )
         conn.commit()
         return cursor.rowcount

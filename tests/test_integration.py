@@ -53,6 +53,10 @@ def config():
             default=PolicyDefaults(
                 max_cost_usd=5.0,
                 max_tokens_per_session=100000,
+                allowed_tools=[
+                    "read_file", "search_files", "web_search", "web_extract",
+                    "terminal", "delegate_task",
+                ],
             )
         ),
     )

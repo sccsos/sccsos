@@ -17,9 +17,12 @@ from __future__ import annotations
 import queue
 import threading
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
 from sccsos.core.hermes_adapter import HermesAdapter, TaskResult
+
+if TYPE_CHECKING:
+    from sccsos.memory.memory_store import MemoryStore
 
 
 @dataclass
@@ -43,19 +46,25 @@ class AgentProcess:
     The thread waits for tasks via an internal queue, executes them
     through the HermesAdapter, and puts the result back on the
     caller's result queue.
+
+    Supports pause/resume: when paused, ask() returns an error
+    immediately and the run loop skips processing new tasks.
     """
 
     def __init__(self, name: str, profile: str, adapter: HermesAdapter,
                  policy_engine=None, model: Optional[str] = None,
-                 cancel_event: "threading.Event | None" = None):
+                 cancel_event: "threading.Event | None" = None,
+                 memory_store: "MemoryStore | None" = None):
         self.name = name
         self.profile = profile
         self._adapter = adapter
         self._policy_engine = policy_engine
         self._model = model
         self._cancel_event = cancel_event
+        self._memory_store = memory_store
         self._task_queue: queue.Queue = queue.Queue()
         self._stop_event = threading.Event()
+        self._paused = threading.Event()  # Pause signal
         self._thread: Optional[threading.Thread] = None
 
     # ── Public API ───────────────────────────────────────────────
@@ -65,6 +74,7 @@ class AgentProcess:
         if self._thread is not None and self._thread.is_alive():
             return
         self._stop_event.clear()
+        self._paused.clear()
         self._thread = threading.Thread(
             target=self._run_loop,
             name=f"agent-{self.name}",
@@ -78,6 +88,14 @@ class AgentProcess:
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=timeout)
 
+    def pause(self) -> None:
+        """Pause this agent — set paused flag. Running ask() will return error."""
+        self._paused.set()
+
+    def resume(self) -> None:
+        """Resume this agent — clear paused flag."""
+        self._paused.clear()
+
     def ask(self, prompt: str, timeout: float = 300.0) -> AskResult:
         """Send a prompt to this agent and wait for a response.
 
@@ -88,6 +106,11 @@ class AgentProcess:
         Returns:
             AskResult with the agent's response.
         """
+        if self._paused.is_set():
+            return AskResult(
+                success=False,
+                error=f"Agent '{self.name}' is paused. Use 'sccsos agent resume {self.name}' to resume.",
+            )
         result_q: queue.Queue = queue.Queue()
         self._task_queue.put(_Task(prompt=prompt, result_queue=result_q))
 
@@ -104,20 +127,59 @@ class AgentProcess:
     def is_alive(self) -> bool:
         return self._thread is not None and self._thread.is_alive()
 
+    @property
+    def is_paused(self) -> bool:
+        return self._paused.is_set()
+
     # ── Internal ─────────────────────────────────────────────────
 
     def _run_loop(self) -> None:
         """Main loop: wait for tasks or stop signal."""
         while not self._stop_event.is_set():
+            # Check cancellation signal
+            if self._cancel_event is not None and self._cancel_event.is_set():
+                # Drain all pending tasks with cancellation error
+                while not self._task_queue.empty():
+                    try:
+                        task = self._task_queue.get_nowait()
+                        task.result_queue.put(AskResult(
+                            success=False,
+                            error=f"Agent '{self.name}' cancelled.",
+                        ))
+                    except queue.Empty:
+                        break
+                break  # Exit the loop
             try:
                 task = self._task_queue.get(timeout=1.0)
             except queue.Empty:
                 continue  # Check stop event again
 
+            # If paused, drain the task with an error response
+            if self._paused.is_set():
+                task.result_queue.put(AskResult(
+                    success=False,
+                    error=f"Agent '{self.name}' is paused. Task discarded.",
+                ))
+                continue
+
             try:
+                # Build prompt — inject memory context if available
+                prompt = task.prompt
+                if self._memory_store is not None:
+                    memory_data = self._memory_store.get_all(self.name)
+                    if memory_data:
+                        ctx_lines = [f"  {k}: {v}" for k, v in memory_data.items()]
+                        memory_context = "\n".join(ctx_lines)
+                        prompt = (
+                            f"[Persistent memory for {self.name}]\n"
+                            f"{memory_context}\n\n"
+                            f"---\n\n"
+                            f"{task.prompt}"
+                        )
+
                 result = self._adapter.delegate_task(
                     agent_name=self.name,
-                    prompt=task.prompt,
+                    prompt=prompt,
                     profile=self.profile,
                     model=self._model,
                     policy_engine=self._policy_engine,
@@ -145,8 +207,9 @@ class AgentRunner:
         runner.stop_agent("architect")
     """
 
-    def __init__(self, adapter: HermesAdapter):
+    def __init__(self, adapter: HermesAdapter, memory_store=None):
         self._adapter = adapter
+        self._memory_store = memory_store
         self._processes: dict[str, AgentProcess] = {}
         self._lock = threading.Lock()
 
@@ -169,7 +232,8 @@ class AgentRunner:
             if name in self._processes and self._processes[name].is_alive:
                 return False
             proc = AgentProcess(name, profile, self._adapter,
-                                policy_engine=policy_engine, model=model)
+                                policy_engine=policy_engine, model=model,
+                                memory_store=self._memory_store)
             proc.start()
             self._processes[name] = proc
             return True
@@ -195,7 +259,7 @@ class AgentRunner:
         """Send a prompt to a running agent.
 
         Args:
-            name: Agent name (must be running).
+            name: Agent name (must be running and not paused).
             prompt: Prompt text.
             timeout: Max seconds to wait.
 
@@ -208,12 +272,52 @@ class AgentRunner:
                 success=False,
                 error=f"Agent '{name}' is not running. Use 'sccsos agent start {name}' first.",
             )
+        if proc.is_paused:
+            return AskResult(
+                success=False,
+                error=f"Agent '{name}' is paused. Use 'sccsos agent resume {name}' first.",
+            )
         return proc.ask(prompt, timeout=timeout)
+
+    def pause_agent(self, name: str) -> bool:
+        """Pause a running agent.
+
+        Args:
+            name: Agent name.
+
+        Returns:
+            True if paused, False if not running.
+        """
+        proc = self._processes.get(name)
+        if proc is None or not proc.is_alive:
+            return False
+        proc.pause()
+        return True
+
+    def resume_agent(self, name: str) -> bool:
+        """Resume a paused agent.
+
+        Args:
+            name: Agent name.
+
+        Returns:
+            True if resumed, False if not running.
+        """
+        proc = self._processes.get(name)
+        if proc is None or not proc.is_alive:
+            return False
+        proc.resume()
+        return True
 
     def is_running(self, name: str) -> bool:
         """Check if an agent is currently running."""
         proc = self._processes.get(name)
         return proc is not None and proc.is_alive
+
+    def is_paused(self, name: str) -> bool:
+        """Check if an agent is currently paused."""
+        proc = self._processes.get(name)
+        return proc is not None and proc.is_paused
 
     def list_running(self) -> list[str]:
         """List names of currently running agents."""

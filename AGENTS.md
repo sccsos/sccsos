@@ -2,9 +2,9 @@
 
 > 构建在 Hermes Agent 之上的 Agent Runtime 平台
 >
-> **当前版本**: v0.6.0 (2026-07-19)
-> **架构基线**: 代码 ~7.8K 行 + 测试 152 用例 / 5 文件
-> **健康评分**: 7.8/10（按可行性方案标准）
+> **当前版本**: v0.7.0 (2026-07-20)
+> **架构基线**: 代码 ~7.8K 行 + 测试 157 用例 / 5 文件
+> **健康评分**: 8.5/10（P0+P1+P2 完成：PAUSED 空心修复 + MemoryStore 接线 agent ask + 线程安全 WorkflowRunContext + API 状态守卫 + 配置校验 + DB 统一操作）
 
 ## 项目概述
 
@@ -53,8 +53,8 @@ python -m sccsos.api.server --port 8765
 curl -H "X-Tenant-ID: my-tenant" http://localhost:8765/agents
 
 # Docker 部署
-docker build -t sccsos:0.6.0 .
-docker run -d -p 8765:8765 sccsos:0.6.0
+docker build -t sccsos:0.6.4 .
+docker run -d -p 8765:8765 sccsos:0.6.4
 ```
 
 ## 技术栈
@@ -112,25 +112,25 @@ sccsos/
     └── pricing.json            # LLM 定价数据
 ```
 
-## 新增特性 (v0.6.0)
+## 新增特性 (v0.7.0)
 
 | 特性 | 模块 | 说明 |
 |------|------|------|
-| **多租户隔离** | database.py, api/server.py | DB schema 级 tenant_id 隔离 + X-Tenant-ID API 头 |
-| **阈值告警** | alert_manager.py | 错误率/失败次数阈值评估 + Webhook 推送 |
-| **持久记忆** | memory_store.py | 跨会话 KV 存储 + per-tenant per-agent 隔离 |
-| **Personality 系统** | personality.py | YAML 定义角色 + system prompt 注入 |
-| **容器化部署** | Dockerfile, docker-compose.yaml | 多阶段构建 + 健康检查 |
-| **Schema 自动迁移** | database.py | 新增字段/表自动 ALTER TABLE |
-| **StepExecutor 拆分** | step_executor.py | WorkflowEngine 职责拆分 |
-| **Workflow Schema 校验** | orchestrator.py | from_yaml 完整字段校验 |
-| **危险模式可配置** | sandbox.py | dangerous_patterns 从配置加载 |
+| **PAUSED 真实化** | agent_runner.py, cli.py | AgentRunner pause/resume 同步停启后台线程, ask 暂停时返回错误 |
+| **agent ask 记忆注入** | agent_runner.py, agent_runtime.py | 直通路径在 delegate_task 前注入 {{ memory }} 上下文, MemoryStore 持久化 |
+| **线程安全编排引擎** | orchestrator.py | WorkflowRunContext 替代 per-run 实例变量, execute() 支持并发调用 |
+| **API 状态守卫** | api/server.py | pause/resume/restart/stop 按 AgentStatus 匹配实例, 注册自动创建 Lifecycle 实例 |
+| **统一 DB 操作** | database.py | 新增 fetchone/fetchall 便捷方法, 核心模块迁移至 db.execute() |
+| **模板引擎可注入** | step_executor.py | StepExecutor 接受 template_engine 参数, 测试可 mock 渲染器 |
+| **配置一致性检查** | agent_runtime.py | 启动时校验 pricing_path 文件存在性 |
+| **主动过期清理** | memory_store.py | purge_expired() 批量删除 TTL 过期的记忆条目 |
+| **agent list 暂停状态** | cli.py | agent list 显示 paused 列
 
 ## 开发约定
 
 - **代码风格**: PEP 8, Google-style docstrings
 - **测试框架**: pytest (152 tests, ~13s)
-- **版本管理**: 语义化版本 v0.6.0+
+- **版本管理**: 语义化版本 v0.6.4+
 - **决策记录**: ADR 格式记录在 wiki
 
 ## 相关链接

@@ -38,20 +38,20 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 from typing import Optional
 
-from sccsos.core.agent_runtime import AgentRuntime
+import yaml
+
+from sccsos.core.agent_runtime import AgentRuntime, get_runtime as _get_runtime
 from sccsos.core.registry import AgentSpec
 from sccsos.core.orchestrator import WorkflowDef
-
-
-_runtime: AgentRuntime | None = None
+from sccsos.core.lifecycle import AgentStatus
 
 
 def get_runtime() -> AgentRuntime:
-    global _runtime
-    if _runtime is None:
-        _runtime = AgentRuntime()
-        _runtime.initialize()
-    return _runtime
+    """Get the shared AgentRuntime singleton (shared with CLI)."""
+    runtime = _get_runtime()
+    if not runtime.is_initialized:
+        runtime.initialize()
+    return runtime
 
 
 class APIHandler(BaseHTTPRequestHandler):
@@ -191,6 +191,8 @@ class APIHandler(BaseHTTPRequestHandler):
         )
         runtime = get_runtime()
         runtime.register_agent(spec)
+        # Also create a lifecycle instance so API can manage state
+        runtime.lifecycle.create(spec)
         self._json_response({"registered": spec.name}, 201)
 
     def _handle_start_agent(self, name: str):
@@ -206,7 +208,9 @@ class APIHandler(BaseHTTPRequestHandler):
     def _handle_stop_agent(self, name: str):
         runtime = get_runtime()
         for inst in runtime.lifecycle.list_instances():
-            if inst.spec.name == name:
+            if inst.spec.name == name and inst.status in (
+                AgentStatus.RUNNING, AgentStatus.PAUSED, AgentStatus.FAILED
+            ):
                 runtime.lifecycle.stop(inst.id)
                 self._json_response({"stopped": name})
                 return
@@ -216,7 +220,7 @@ class APIHandler(BaseHTTPRequestHandler):
         """Pause a running agent: RUNNING → PAUSED."""
         runtime = get_runtime()
         for inst in runtime.lifecycle.list_instances():
-            if inst.spec.name == name:
+            if inst.spec.name == name and inst.status == AgentStatus.RUNNING:
                 runtime.lifecycle.pause(inst.id)
                 self._json_response({"paused": name, "id": inst.id})
                 return
@@ -226,21 +230,28 @@ class APIHandler(BaseHTTPRequestHandler):
         """Resume a paused agent: PAUSED → RUNNING."""
         runtime = get_runtime()
         for inst in runtime.lifecycle.list_instances():
-            if inst.spec.name == name:
+            if inst.spec.name == name and inst.status == AgentStatus.PAUSED:
                 runtime.lifecycle.resume(inst.id)
                 self._json_response({"resumed": name, "id": inst.id})
                 return
         self._json_response({"error": f"No paused instance of '{name}'"}, 404)
 
     def _handle_restart_agent(self, name: str):
-        """Restart a failed agent: FAILED → RUNNING."""
+        """Restart an agent from RUNNING or FAILED state."""
         runtime = get_runtime()
         for inst in runtime.lifecycle.list_instances():
             if inst.spec.name == name:
-                runtime.lifecycle.restart(inst.id)
+                if inst.status == AgentStatus.FAILED:
+                    runtime.lifecycle.restart(inst.id)
+                elif inst.status == AgentStatus.RUNNING:
+                    runtime.lifecycle.fail(inst.id, "restart requested")
+                    runtime.lifecycle.restart(inst.id)
+                else:
+                    self._json_response({"error": f"Cannot restart agent in '{inst.status.value}' state"}, 400)
+                    return
                 self._json_response({"restarted": name, "id": inst.id})
                 return
-        self._json_response({"error": f"No failed instance of '{name}'"}, 404)
+        self._json_response({"error": f"No instance of '{name}' found"}, 404)
 
     def _handle_ask_agent(self, name: str, data: dict):
         """Send a prompt to a running agent and return the response."""
@@ -270,6 +281,21 @@ class APIHandler(BaseHTTPRequestHandler):
         wf = WorkflowDef.from_yaml(file_path)
         input_data = data.get("input")
         runtime = get_runtime()
+
+        # ── Policy pre-flight check ──────────────────────────────
+        pe = getattr(runtime.engine, '_policy_engine', None)
+        if pe is not None:
+            estimated_cost = max(0.001, len(yaml.dump(wf)) * 0.0001)
+            from sccsos.security.policy import PolicyViolation
+            result = pe.check_delegation(
+                agent_name="api",
+                model="deepseek-v4-flash",
+                estimated_cost=estimated_cost,
+            )
+            if not result.allowed:
+                self._json_response({"error": f"Policy rejected: {result.reason}"}, 403)
+                return
+
         run_id = runtime.engine.execute(wf, input_data=input_data)
         status = runtime.engine.get_run_status(run_id)
         self._json_response({"run_id": run_id, "status": status["status"]}, 201)

@@ -1,7 +1,8 @@
-# SCCS OS v0.6.0 — 测试验证指南
+# SCCS OS v0.6.4 — 测试验证指南
 
-> 版本: v0.6.0 | 更新: 2026-07-19
+> 版本: v0.6.4 | 更新: 2026-07-19
 > 涵盖：功能验证 · 集成测试 · 部署验证 · 操作案例
+> 别名：`sc` 等价于 `sccsos`（全部命令可用）
 
 ---
 
@@ -41,11 +42,17 @@ pip install -e .
 
 # 验证 CLI 可用
 sccsos version
-# 预期: sccsos v0.6.0
+# 预期: sccsos v0.6.4
 
 # 查看帮助
 sccsos --help
-# 预期: 显示 agent/workflow/trace/audit/health/init/version 8 个命令
+# 预期: 显示 agent/workflow/trace/audit/health/memory/init/version 9 个命令
+
+# 简写别名
+sc version
+# 预期: sccsos v0.6.4
+sc --help
+# 预期: 与 sccsos --help 输出一致
 ```
 
 ### 1.3 初始化验证
@@ -76,7 +83,7 @@ cat sccsos.yaml | head -5
 ```bash
 sccsos health
 # 预期输出示例:
-#   sccsos v0.6.0
+#   sccsos v0.6.4
 #   Database: ok (0 agents)
 #   Hermes:   OK
 #   Agents:   0 registered
@@ -96,6 +103,10 @@ sccsos agent create test-agent
 # 2.1.2 列出 Agent
 sccsos agent list
 # 预期: 显示 test-agent 及其状态
+
+# 按租户过滤
+sccsos agent list --tenant default
+# 预期: 仅显示 default 租户的 Agent
 
 # 2.1.3 启动 Agent（后台进程）
 sccsos agent start test-agent
@@ -145,6 +156,10 @@ sccsos workflow visualize workflows/冒烟测试.yaml
 sccsos workflow list
 # 预期: 显示工作流运行列表（可能为空）
 
+# 按租户过滤
+sccsos workflow list --tenant default
+# 预期: 仅显示 default 租户的运行记录
+
 # 2.2.4 取消工作流
 sccsos workflow cancel wf_nonexistent
 # 预期: Run 'wf_nonexistent' not found.
@@ -167,7 +182,49 @@ sccsos trace list
 
 # 版本查询
 sccsos version
-# 预期: sccsos v0.6.0
+# 预期: sccsos v0.6.4
+
+# 简写别名
+# sccsos 的全部命令均可通过 sc 简写执行
+sc version
+sc health
+sc agent list
+```
+
+### 2.4 持久记忆管理验证
+
+```bash
+# 2.4.1 保存记忆
+sccsos memory save architect language Python
+# 预期: Saved: architect/language = Python
+
+# 2.4.2 获取记忆
+sccsos memory get architect language
+# 预期: Python
+
+# 2.4.3 列出所有记忆 key
+sccsos memory list architect
+# 预期: Memory keys for 'architect': - language
+
+# 2.4.4 保存带 TTL 的记忆（3600 秒后过期）
+sccsos memory save architect temp_key temp_value --ttl 3600
+# 预期: Saved: architect/temp_key = temp_value
+
+# 2.4.5 删除单条记忆
+sccsos memory delete architect temp_key
+# 预期: Deleted: architect/temp_key
+
+# 2.4.6 清空 Agent 全部记忆
+sccsos memory clear architect
+# 预期: Cleared N entries for agent 'architect'
+
+# 2.4.7 跨租户隔离验证
+sccsos memory save architect greeting hello --tenant tenant-a
+sccsos memory save architect greeting bonjour --tenant tenant-b
+sccsos memory get architect greeting --tenant tenant-a
+# 预期: hello
+sccsos memory get architect greeting --tenant tenant-b
+# 预期: bonjour
 ```
 
 ---
@@ -284,9 +341,16 @@ curl -s http://localhost:8765/agents \
 # 预期: 显示 custom-tenant-agent
 ```
 
-### 4.3 CLI 租户隔离（通过 header）
+### 4.3 CLI 租户隔离
 
-CLI 当前不直接支持 `--tenant` 参数。可通过 API 端点验证租户隔离。
+```bash
+# CLI 现在支持 --tenant flag
+sccsos agent list --tenant tenant-a
+# 预期: 仅显示 tenant-a 的 Agent
+
+sccsos workflow list --tenant tenant-b
+# 预期: 仅显示 tenant-b 的工作流运行记录
+```
 
 ---
 
@@ -598,6 +662,41 @@ print('✅ MemoryStore 全部验证通过')
 "
 ```
 
+### 8.4 TTL 过期验证
+
+```bash
+python3 -c "
+from sccsos.core.database import Database
+from sccsos.memory.memory_store import MemoryStore
+import time
+
+db = Database('/tmp/sccsos-ttl-test.db')
+db.initialize()
+
+store = MemoryStore(db)
+
+# 写入带短 TTL 的记忆
+store.save('architect', 'temp_key', 'temp_value', 'tenant-a', ttl_seconds=1)
+
+# 立即读取 — 应存在
+val = store.get('architect', 'temp_key', 'tenant-a')
+assert val == 'temp_value', f'TTL 未到时不应过期: {val}'
+print(f'✅ TTL 未到时读取成功: {val}')
+
+# 等待 1.5 秒让 TTL 过期
+time.sleep(1.5)
+
+# 过期后读取 — 应返回 None
+val = store.get('architect', 'temp_key', 'tenant-a')
+assert val is None, f'TTL 过期后应返回 None, 实际: {val}'
+print(f'✅ TTL 过期后返回 None')
+
+# 清理
+store.clear_agent('architect', 'tenant-a')
+print('✅ TTL 过期验证通过')
+"
+```
+
 ### 8.3 Personality 注入验证
 
 ```bash
@@ -644,7 +743,7 @@ ps aux | grep sccsos.api.server | grep -v grep
 curl -s http://localhost:8765/health | python3 -m json.tool
 # 预期:
 # {
-#   "version": "0.6.0",
+#   "version": "0.6.4",
 #   "initialized": true,
 #   "database": {"status": "ok", ...},
 #   "hermes": true/false,
@@ -724,17 +823,17 @@ curl -s -I http://localhost:8765/health 2>&1 | grep -i "Access-Control"
 cd /path/to/sccsos
 
 # 构建镜像
-docker build -t sccsos:0.6.0 .
+docker build -t sccsos:0.6.4 .
 
 # 验证镜像
 docker images | grep sccsos
-# 预期: sccsos  0.6.0  ...  多阶段构建镜像
+# 预期: sccsos  0.6.4  ...  多阶段构建镜像
 
 # 运行容器
 docker run -d --name sccsos-test \
   -p 8765:8765 \
   -v sccsos_data:/sccsos/data \
-  sccsos:0.6.0
+  sccsos:0.6.4
 
 # 验证容器运行
 docker ps | grep sccsos
@@ -790,7 +889,7 @@ cd /path/to/sccsos
 # 全量测试
 python3 -m pytest tests/ -v
 
-# 预期: 152 passed（或更多，取决于新增用例）
+# 预期: 157 passed（或更多，取决于新增用例）
 # 测试用例分类:
 #   tests/test_integration.py       → 核心流程 + 策略引擎 + AgentRunner + Schema 验证 + 条件分支 + Personality
 #   tests/test_comprehensive.py     → 配置加载 + 沙箱 + 定价 + 模板 + 向量库 + 知识库
@@ -970,23 +1069,25 @@ sccsos init --force
 | TemplateEngine | test_comprehensive.py | 15 | 变量/点号/条件/循环/过滤器/默认值/未定义/空/算术 |
 | VectorStore | test_comprehensive.py | 8 | 空搜索/文档/排名/snippet/大量文档/删除/清空 |
 | KnowledgeBase | test_comprehensive.py | 6 | 空/加载/来源/上下文/向量/YAML frontmatter |
-| API Server | test_api_server.py | 17 | 健康/Agent/工作流/Trace/审计/404/CORS |
+| MemoryStore | test_integration.py + memory_store.py | — | **CLI 命令 save/get/list/delete/clear + TTL 过期** |
+| API Server | test_api_server.py | 22 | 健康/Agent/工作流/Trace/审计/404/CORS + **pause/resume/restart/ask/visualize** |
 | Workflow Validate | test_workflow_validate.py | 4 | YAML 验证/Mermaid/Visualize CLI |
 | Agent Definition | test_agent_definition.py | 1 | YAML 定义完整性 |
-| **合计** | **5 文件** | **152** | — |
+| **合计** | **5 文件** | **157** | — |
 
 ### B. 验收检查清单
 
-- [ ] 所有 152 测试通过
-- [ ] CLI 8 个命令可用（agent/workflow/trace/audit/health/init/version）
+- [ ] 所有 157 测试通过
+- [ ] CLI 9 个命令可用（agent/workflow/trace/audit/health/memory/init/version + **`sc` 别名**）
 - [ ] Agent 创建/启动/停止/对话全链路可用
 - [ ] 工作流 DAG 执行 + 条件分支正常
-- [ ] 多租户隔离（X-Tenant-ID header）
+- [ ] 多租户隔离（X-Tenant-ID header + CLI `--tenant` flag）
 - [ ] 安全策略生效（预算/工具 ACL/命令白名单）
 - [ ] 审计追踪可用
 - [ ] Webhook 通知可推送
 - [ ] AlertManager 告警评估
-- [ ] MemoryStore 持久记忆读写
-- [ ] Personality 注入正常
-- [ ] API Server 全部端点正常
+- [ ] MemoryStore 持久记忆读写（save/get/list/delete/clear + **TTL 过期**）
+- [ ] Personality 注入正常（3 个角色：architect/doc-writer/code-reviewer）
+- [ ] API Server 全部端点正常（含 pause/resume/restart/ask）
+- [ ] `{{ memory }}` 模板变量在工作流步骤中可用
 - [ ] Docker 构建 + 运行正常

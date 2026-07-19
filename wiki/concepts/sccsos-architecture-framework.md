@@ -1,7 +1,7 @@
 # SCCS OS Architecture Framework — 7-Domain Design
 
-> 版本: v0.6.0 | 最后更新: 2026-07-19
-> 对应: ADR-003, ADR-004
+> 版本: v0.7.0 | 最后更新: 2026-07-20
+> 对应: ADR-003, ADR-004 (v0.6.4→v0.7.0 重构)
 
 ## 核心原则
 
@@ -15,72 +15,133 @@
 
 | # | 域 | 职责 | 关键接口 |
 |---|-----|------|---------|
-| 1 | 多智能体编排 | DAG 拓扑排序、并行 ThreadPool 执行、Jinja2 模板引擎、条件分支 | `WorkflowEngine`, `StepExecutor`, `DAGResolver`, `WorkflowDef` |
-| 2 | 工具增强型 LLM | ABC 适配层、子进程桥接 Hermes CLI、策略注入、Personality 注入 | `HermesAdapter(ABC)`, `HermesSubprocessAdapter`, `PersonalityRegistry` |
-| 3 | Agent 生命周期 | 5 状态状态机、DB 持久化、从 DB 恢复、后台进程管理 | `LifecycleManager`, `AgentStatus`, `AgentInstance`, `AgentRunner` |
-| 4 | 可观测性 | Span 链路追踪、JSON 结构化日志、Token 审计、成本报告、Webhook 通知、阈值告警 | `Tracer`, `Logger`, `Auditor`, `PricingTable`, `WebhookNotifier`, `AlertManager` |
-| 5 | 安全沙箱 | Budget 预算、工具 ACL、命令白名单、per-agent 策略覆盖、危险模式可配置 | `PolicyEngine`, `CommandWhitelist`, `BudgetTracker` |
-| 6 | 记忆系统 | 冷记忆桥接、TF-IDF 向量检索、KB → 模板注入、跨会话 KV 持久记忆 | `KnowledgeBase`, `VectorStore`, `MemoryStore` |
-| 7 | 提示工程 | Agent 定义（personality/profile/model/tenant）、模板变量注入、Personality 系统提示 | `AgentSpec`, `Jinja2`, `PersonalityRegistry` |
+| 1 | **多智能体编排** | DAG 拓扑排序、并行 ThreadPool 执行、Jinja2 模板引擎、条件分支、WorkflowRunContext 线程安全 | `WorkflowEngine`, `StepExecutor`, `DAGResolver`, `WorkflowRunContext` |
+| 2 | **工具增强型 LLM** | ABC 适配层、子进程桥接 Hermes CLI、策略注入、Personality 注入、retry 瞬态重试 | `HermesAdapter(ABC)`, `HermesSubprocessAdapter`, `PersonalityRegistry` |
+| 3 | **Agent 生命周期** | 5 状态状态机 + DB 持久化 + 从 DB 恢复 + AgentRunner 后台线程 + PAUSED 真实停启 | `LifecycleManager`, `AgentStatus`, `AgentInstance`, `AgentRunner`, `AgentProcess` |
+| 4 | **可观测性** | Span 追踪、JSON 日志、Token 审计、成本报告、Webhook 通知、阈值告警、trace 合并导出 | `Tracer`, `Logger`, `Auditor`, `PricingTable`, `WebhookNotifier`, `AlertManager` |
+| 5 | **安全沙箱** | Budget 预算引擎、工具 ACL 白名单、命令白名单 2 层守卫、per-agent 策略覆盖、危险模式可配置 | `PolicyEngine`, `CommandWhitelist`, `BudgetTracker` |
+| 6 | **记忆系统** | 冷记忆桥接(wiki)、TF-IDF 向量检索、KB → 模板注入、跨会话 KV 持久记忆、TTL 过期清理 | `KnowledgeBase`, `VectorStore`, `MemoryStore` |
+| 7 | **提示工程** | Agent YAML 定义(personality/profile/model/tenant)、Jinja2 沙箱模板渲染、Personality 系统提示注入、模板引擎可 mock | `AgentSpec`, `Jinja2 SandboxedEnvironment`, `PersonalityRegistry`, `templates.py` |
 
-## 当前评分（v0.6.0）
+## 当前评分（v0.7.0 — P0+P1+P2 架构重构后）
 
 | 域 | 权重 | 评分 | 说明 |
-|----|------|------|------|
-| 多智能体编排 | 20% | 9.0 | StepExecutor 拆分 + Schema 校验 + 条件分支 |
-| 工具增强型 LLM | 15% | 7.5 | Personality 注入 + timeout 参数化，缺容器化 Hermes |
-| Agent 生命周期 | 15% | 9.5 | 5状态FSM + 后台进程管理 + 策略/模型透传 |
-| 可观测性 | 15% | 9.5 | 追踪/审计/日志/Webhook/告警 五维一体 |
-| 安全沙箱 | 10% | 8.5 | 三层防线 + per-agent 覆盖 + 危险模式可配置 |
-| 记忆系统 | 10% | 8.0 | 知识库 + 向量检索 + 跨会话 KV 持久化 |
-| 提示工程 | 5% | 8.0 | Personality 系统 + AgentSpec 完整字段 |
-| 多租户隔离 | 10% | 6.0 | Schema + API 就绪，缺 Web UI 和 CLI flag |
-| 测试质量 | 10% | 9.5 | 152 用例覆盖核心+边缘场景 |
-| **总分** | 100% | **~8.3/10** | — |
+|----|------|:----:|------|
+| 多智能体编排 | 20% | **9.5** | WorkflowRunContext 线程安全、StepExecutor 拆分、Schema 校验、条件分支 |
+| 工具增强型 LLM | 15% | **8.0** | 三层安全防线、retry 包裹、Mock 一致性、模板引擎可注入 |
+| Agent 生命周期 | 15% | **9.0** | 5 状态 FSM + 后台进程 + PAUSED 真实化、Runner pause/resume/cancel |
+| 可观测性 | 15% | **8.5** | 追踪/审计/日志/Webhook/告警 五维一体、trace 合并导出 |
+| 安全沙箱 | 10% | **7.5** | 三层防线 + per-agent 覆盖 + 正则化危险模式 + API 策略校验 |
+| 记忆系统 | 10% | **8.5** | 知识库 + 向量检索 + 跨会话 KV + agent ask 路径接线 + TTL + purge_expired |
+| 提示工程 | 5% | **8.0** | 3 personality 文件 + AgentSpec 完整字段 + 模板引擎可注入 |
+| 多租户隔离 | 5% | **6.5** | Schema + API 就绪、get_run_status tenant 过滤、缺 CLI flag 全面覆盖 |
+| 测试质量 | 5% | **9.5** | 157 用例覆盖核心+边缘场景+API+版本验证 |
+| **综合** | **100%** | **8.5/10** | |
 
 ## 数据流
 
+```mermaid
+flowchart TD
+    CLI["CLI (Click)"]
+    API["HTTP API (X-Tenant-ID)"]
+    RT["AgentRuntime"]
+    REG["AgentRegistry: YAML 加载"]
+    LM["LifecycleManager: 5 状态 FSM"]
+    WFE["WorkflowEngine: DAG 解析 + 并行"]
+    SE["StepExecutor: 模板/条件/重试/审计"]
+    PR["PersonalityRegistry: system prompt"]
+    AD["HermesAdapter: subprocess/mock"]
+    TR["Tracer: 链路追踪"]
+    AU["Auditor: Token 审计"]
+    PE["PolicyEngine: 预算 + 工具 ACL"]
+    CW["CommandWhitelist: 命令沙箱"]
+    KB["KnowledgeBase: wiki 上下文"]
+    MS["MemoryStore: 跨会话 KV"]
+    AL["AlertManager: 阈值告警"]
+    WH["WebhookNotifier: 事件通知"]
+
+    CLI --> RT
+    API --> RT
+    RT --> REG
+    RT --> LM
+    RT --> WFE
+    RT --> TR
+    RT --> AU
+    WFE --> SE
+    SE --> AD
+    SE --> TR
+    SE --> AU
+    SE --> PR
+    AD --> PE
+    AD --> CW
+    SE --> KB
+    SE --> MS
+    WFE --> AL
+    WFE --> WH
 ```
-CLI / API (X-Tenant-ID)
-  └→ AgentRuntime
-       ├→ AgentRegistry — 加载 YAML Agent 定义 (tenant-aware)
-       ├→ LifecycleManager — 5 状态状态机 + DB 持久化
-       ├→ WorkflowEngine — DAG 解析 + 并行执行
-       │    ├→ StepExecutor — 单步执行 (模板/条件/重试/Personality/审计)
-       │    │    └→ PersonalityRegistry — system prompt 注入
-       │    └→ HermesAdapter.delegate_task
-       │         ├→ PolicyEngine (budget + tool_access, tenant-aware)
-       │         ├→ CommandWhitelist (危险模式 + 白名单 + 扩展模式)
-       │         └→ subprocess.run("hermes -p ... -z ...")
-       ├→ AlertManager — 阈值评估 → Webhook 告警
-       ├→ KnowledgeBase — TF-IDF 语义检索 → {{ knowledge }}
-       ├→ MemoryStore — KV 持久记忆 → {{ memory }}
-       ├→ Tracer / Auditor — Span 追踪 + JSON 导出 + 审计报告
-       └→ WebhookNotifier — 工作流事件 + 告警事件推送
+
+## 模块依赖图
+
+```mermaid
+flowchart TD
+    cli["cli.py"] --> runtime["agent_runtime.py"]
+    api["api/server.py"] --> runtime
+    runtime --> db["core/database.py"]
+    runtime --> reg["core/registry.py"]
+    runtime --> lm["core/lifecycle.py"]
+    runtime --> adp["core/hermes_adapter.py"]
+    runtime --> runner["core/agent_runner.py"]
+    runtime --> wfe["core/orchestrator.py"]
+    runtime --> tr["observability/tracer.py"]
+    runtime --> au["observability/auditor.py"]
+    runtime --> kb["memory/knowledge_base.py"]
+    runtime --> ms["memory/memory_store.py"]
+    runtime --> pr["core/personality.py"]
+    runtime --> sbox["security/sandbox.py"]
+    wfe --> se["core/step_executor.py"]
+    wfe --> tmpl["core/templates.py"]
+    wfe --> al["observability/alert_manager.py"]
+    wfe --> wh["observability/webhook.py"]
+    se --> tmpl
+    se --> ms
+    se --> pr
+    adp --> pe["security/policy.py"]
+    adp --> sbox
+    runner --> adp
+    runner --> ms
+    au --> prc["observability/pricing.py"]
+    lm --> reg
+    lm --> db
 ```
 
-## 配置层次
+## 当前技术栈
 
-```yaml
-sccsos.yaml
-  ├── project: name / version
-  ├── database: path
-  ├── defaults: hermes_profile / max_turns / timeout
-  ├── logging: level / format / directory / retention_days
-  ├── tracing: enabled / export_path / pricing_path
-  ├── agents: path / wiki_path / personalities_path
-  └── policies:
-       ├── default: 全局默认策略 (dangerous_patterns)
-       └── named: 命名策略
-```
+| 层 | 技术 | 版本约束 |
+|----|------|---------|
+| 语言 | Python | ≥3.11 |
+| 运行时 | Hermes Agent | 通过 CLI subprocess |
+| 持久化 | SQLite (WAL + thread-local) | 零外部依赖 |
+| 模板 | Jinja2 (SandboxedEnvironment) | ≥3.1 |
+| CLI | Click | ≥8.0 |
+| 序列化 | PyYAML | ≥6.0 |
+| 测试 | pytest | ≥7.0 |
 
-## 新增模块 (v0.6.0)
+## 架构演进里程碑
 
-| 模块 | 文件 | 行数 | 职责 |
-|------|------|------|------|
-| StepExecutor | `core/step_executor.py` | ~295 | 从 WorkflowEngine 拆分出的单步执行器 |
-| Personality | `core/personality.py` | ~138 | 角色定义、YAML 加载、system prompt 注入 |
-| AlertManager | `observability/alert_manager.py` | ~195 | 错误率/失败数阈值评估 + Webhook 告警推送 |
-| MemoryStore | `memory/memory_store.py` | ~130 | 跨会话 KV 持久记忆，per-tenant per-agent 隔离 |
-| 容器化 | `Dockerfile` + `docker-compose.yaml` | ~74 | 多阶段构建 + 健康检查 + 编排 |
-| 测试验证指南 | `输出/SCCS OS 测试验证与操作手册.md` | ~700 | 完整操作手册 + 验证案例 |
+| 版本 | 日期 | 关键变化 | 健康评分 |
+|------|------|---------|:--------:|
+| v0.1 | 2026-06 | 原型：CLI + 基础生命周期 | — |
+| v0.2 | 2026-06 | 编排引擎 + DAG 解析 | — |
+| v0.3 | 2026-07 | 可观测性 + 安全策略 | — |
+| v0.4 | 2026-07-18 | AgentRuntime 统一入口 + 架构审计 | 4.9→6.2 |
+| v0.5 | 2026-07-19 | P0+P1+P2 安全加固 + 架构改进 | 7.5 |
+| v0.6 | 2026-07-19 | 多租户 + 告警 + Personality + MemoryStore | 8.0 |
+| **v0.7** | **2026-07-20** | **PAUSED 真实化 + agent ask 记忆 + 线程安全 + DB 统一 + API 守卫** | **8.5** |
+| v0.8 (规划) | — | 会话持久化 + OTel + 沙箱增强 | 目标 9.0+ |
+
+## 相关 ADR
+
+- [[ADR-003-sccsos-p0-p1-p2-evolution]] — 前序架构演进
+- [[ADR-004-sccsos-v0.7.0-architecture-refactor]] — 本轮架构重构
+- [[ADR-004-SCCS-OS-深度架构设计]] — 深度设计方案
+- [[需求分析-SCCS-OS-需求规格说明书]] — 原始需求
