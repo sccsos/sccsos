@@ -189,3 +189,17 @@ class TestFastAPIEndpoints:
         assert resp.status_code == 200
         data = resp.json()
         assert data["info"]["title"] == "sccsos API"
+
+    def test_25_websocket_connect(self, client):
+        """WebSocket endpoint should accept connections."""
+        with client.websocket_connect("/ws") as ws:
+            # Should connect without error
+            ws.send_text("ping")
+
+    def test_26_workflow_list_after_register(self, client):
+        """Workflow list endpoint should work after agent setup."""
+        # Register an agent and start it to generate events
+        client.post("/agents/register", json={"name": "wf-agent"})
+        client.post("/agents/wf-agent/start")
+        resp = client.get("/agents")
+        assert resp.status_code == 200

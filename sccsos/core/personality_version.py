@@ -85,8 +85,8 @@ class PersonalityVersionManager:
                 personality_name=r["personality_name"],
                 version=r["version"],
                 content=r["content"],
-                change_log=r.get("change_log", ""),
-                created_at=r.get("created_at", ""),
+                change_log=r["change_log"] or "",
+                created_at=r["created_at"] or "",
             )
             for r in rows
         ]
