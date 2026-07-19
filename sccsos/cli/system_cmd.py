@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import click
 
 from sccsos.core.agent_runtime import get_runtime as _get_runtime
@@ -359,3 +361,132 @@ def session_close(session_id, force):
 
     runtime.session_manager.close_session(session_id, new_status="closed")
     click.echo(f"Session '{session_id}' closed.")
+
+
+# ── personality commands ──────────────────────────────────────────
+
+
+@click.group()
+def personality():
+    """Manage personality version history."""
+    pass
+
+
+@personality.command("list")
+def personality_list():
+    """List all personalities with version history."""
+    runtime = _get_runtime()
+    if not runtime.initialize():
+        click.echo("Not initialized.")
+        return
+    from sccsos.core.personality_version import PersonalityVersionManager
+    mgr = PersonalityVersionManager(runtime.db)
+    names = mgr.list_all_personalities()
+    if not names:
+        click.echo("No personality versions found.")
+        return
+    click.echo("Personalities with version history:")
+    for name in names:
+        versions = mgr.list_versions(name)
+        click.echo(f"  {name}: {len(versions)} version(s) (latest: {versions[0].version})")
+
+
+@personality.command()
+@click.argument("name")
+@click.argument("change_log", default="")
+def save(name, change_log):
+    """Snapshot the current personality file as a new version.
+    
+    Usage:
+        sccsos personality save agent-architect "Updated system prompt"
+    """
+    runtime = _get_runtime()
+    if not runtime.initialize():
+        click.echo("Not initialized.")
+        return
+    from sccsos.core.personality_version import PersonalityVersionManager
+    personalities_dir = runtime.config.agents.personalities_path
+    mgr = PersonalityVersionManager(runtime.db, personalities_dir)
+    try:
+        version = mgr.save_version(name, change_log=change_log)
+        click.echo(f"Saved version {version} for personality '{name}'")
+    except FileNotFoundError as e:
+        click.echo(f"Error: {e}", err=True)
+
+
+@personality.command("show")
+@click.argument("name")
+@click.option("--version", "-v", "ver", default="", help="Specific version (default: latest)")
+def personality_show(name, ver):
+    """Show a personality version's content.
+    
+    Usage:
+        sccsos personality show agent-architect
+        sccsos personality show agent-architect --version 1.0
+    """
+    runtime = _get_runtime()
+    if not runtime.initialize():
+        click.echo("Not initialized.")
+        return
+    from sccsos.core.personality_version import PersonalityVersionManager
+    mgr = PersonalityVersionManager(runtime.db)
+
+    if ver:
+        pv = mgr.get_version(name, ver)
+    else:
+        versions = mgr.list_versions(name)
+        if not versions:
+            click.echo(f"No versions found for '{name}'")
+            return
+        pv = versions[0]
+
+    if pv is None:
+        click.echo(f"Version '{ver or 'latest'}' not found for '{name}'")
+        return
+
+    click.echo(f"Personality: {pv.personality_name} v{pv.version}")
+    click.echo(f"  Created: {pv.created_at}")
+    click.echo(f"  Change:  {pv.change_log}")
+    click.echo("---")
+    click.echo(pv.content)
+
+
+@personality.command()
+@click.argument("name")
+@click.argument("version")
+def rollback(name, version):
+    """Rollback a personality to a previous version.
+    
+    Restores the YAML file content from the specified version.
+    The current content is auto-saved as a new version before rollback.
+    
+    Usage:
+        sccsos personality rollback agent-architect 1.0
+    """
+    runtime = _get_runtime()
+    if not runtime.initialize():
+        click.echo("Not initialized.")
+        return
+    from sccsos.core.personality_version import PersonalityVersionManager
+    personalities_dir = runtime.config.agents.personalities_path
+    mgr = PersonalityVersionManager(runtime.db, personalities_dir)
+
+    pv = mgr.get_version(name, version)
+    if pv is None:
+        click.echo(f"Version '{version}' not found for '{name}'")
+        return
+
+    # Auto-save current before rollback
+    try:
+        mgr.save_version(name, change_log=f"Auto-save before rollback to v{version}")
+    except FileNotFoundError:
+        click.echo(f"Warning: could not save current version (file not found)", err=True)
+
+    # Write the version content to disk
+    target = Path(personalities_dir) / f"{name}.yaml"
+    if not target.parent.exists():
+        target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(pv.content, encoding="utf-8")
+    click.echo(f"Rolled back '{name}' to version {version}")
+    click.echo(f"  File: {target}")
+    click.echo(f"  Change: {pv.change_log}")

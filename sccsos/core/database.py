@@ -154,6 +154,17 @@ CREATE TABLE IF NOT EXISTS memory_store (
     ttl_seconds INTEGER DEFAULT 0,
     UNIQUE(tenant_id, agent_name, key)
 );
+
+-- Personality version management
+CREATE TABLE IF NOT EXISTS personality_versions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    personality_name TEXT NOT NULL,
+    version TEXT NOT NULL,
+    content TEXT NOT NULL,
+    change_log TEXT DEFAULT '',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(personality_name, version)
+);
 """
 
 

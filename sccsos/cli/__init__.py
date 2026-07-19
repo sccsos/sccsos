@@ -10,7 +10,7 @@ from sccsos.core.agent_runtime import get_runtime as _get_runtime
 from sccsos.core.config import get_config
 from sccsos.cli.agent_cmd import agent
 from sccsos.cli.workflow_cmd import workflow
-from sccsos.cli.system_cmd import trace, audit, memory, session
+from sccsos.cli.system_cmd import trace, audit, memory, session, personality
 
 
 # ── version ────────────────────────────────────────────────────────
@@ -119,6 +119,46 @@ def health():
         click.echo(f"  Agents:   0 registered")
 
 
+# ── serve ──────────────────────────────────────────────────────────
+
+
+@click.command()
+@click.option("--port", "-p", default=8765, help="Port (default: 8765)")
+@click.option("--host", default="0.0.0.0", help="Host (default: 0.0.0.0)")
+@click.option("--legacy", is_flag=True, help="Use legacy http.server instead of FastAPI")
+def serve(port, host, legacy):
+    """Start the sccsos HTTP API server.
+
+    By default uses the FastAPI server (requires ``pip install sccsos[api]``).
+    Falls back to the legacy ``http.server`` implementation if FastAPI is
+    not available, or if ``--legacy`` is specified.
+
+    Endpoints:
+      GET  /health          — System health
+      GET  /agents          — List agents
+      POST /agents/{n}/ask  — Send prompt to agent
+      POST /workflows/run   — Execute a workflow
+      GET  /docs            — OpenAPI docs (FastAPI only)
+      WS   /ws              — Workflow progress stream (FastAPI only)
+    """
+    if not legacy:
+        try:
+            from sccsos.api.fastapi_app import run_server as run_fastapi
+            click.echo(f"Starting sccsos API server (FastAPI) on {host}:{port}")
+            run_fastapi(host=host, port=port)
+            return
+        except ImportError:
+            click.echo(
+                "FastAPI not available. Install with: pip install sccsos[api]\n"
+                "Falling back to legacy server..."
+            )
+
+    # Legacy server fallback
+    from sccsos.api.server import run_server as run_legacy
+    click.echo(f"Starting sccsos API server (legacy) on {host}:{port}")
+    run_legacy(host=host, port=port)
+
+
 # ── main entry point ──────────────────────────────────────────────
 
 
@@ -137,16 +177,18 @@ main.add_command(trace)
 main.add_command(audit)
 main.add_command(memory)
 main.add_command(session)
+main.add_command(personality)
 main.add_command(health)
+main.add_command(serve)
 
 
 # ── template constants ────────────────────────────────────────────
 
 
-_DEFAULT_YAML = """# sccsos v0.8.1 project configuration
+_DEFAULT_YAML = """# sccsos v0.9.0 project configuration
 project:
   name: sccsos
-  version: 0.8.1
+  version: 0.9.0
 database:
   path: ./data/sccsos.db
 defaults:

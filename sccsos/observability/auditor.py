@@ -150,14 +150,15 @@ class Auditor:
             params,
         ).fetchall()
 
-        # By model
+        # By model (with llm_call filter appended as extra condition)
+        model_conditions = list(conditions) + ["event_type = 'llm_call'"]
+        model_where = "WHERE " + " AND ".join(model_conditions)
         by_model = self._db.execute(
             f"""SELECT model_name,
                        COUNT(*) as count,
                        COALESCE(SUM(tokens_used), 0) as tokens,
                        COALESCE(SUM(cost_usd), 0) as cost
-               FROM audit_log {where}
-               WHERE event_type = 'llm_call'
+               FROM audit_log {model_where}
                GROUP BY model_name ORDER BY cost DESC""",
             params,
         ).fetchall()

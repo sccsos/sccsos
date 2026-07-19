@@ -1,4 +1,4 @@
-# SCCS OS v0.8.1
+# SCCS OS v0.9.0
 
 **Smart Agent Runtime Platform for SCCS-T Product Ecosystem**
 
