@@ -15,9 +15,12 @@ import uuid
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from sccsos.core.database import Database
+
+if TYPE_CHECKING:
+    from sccsos.observability.otel_tracer import OTelTracerBridge
 
 
 @dataclass
@@ -51,6 +54,9 @@ class Tracer:
     Optionally exports completed trace trees to a single merged JSON
     file per trace (configured via ``export_path`` in sccsos.yaml).
 
+    When an ``otel_bridge`` is provided, spans are also mirrored to
+    OpenTelemetry for export to Jaeger / Grafana / SigNoz.
+
     Usage:
         tracer = Tracer(db)
         span = tracer.start_span("architecture-review", agent="architect")
@@ -58,7 +64,8 @@ class Tracer:
         tracer.end_span(span.span_id)
     """
 
-    def __init__(self, db: Database, export_path: Optional[str | Path] = None):
+    def __init__(self, db: Database, export_path: Optional[str | Path] = None,
+                 otel_bridge: Optional["OTelTracerBridge"] = None):
         self._db = db
         self._export_path = Path(export_path) if export_path else None
         if self._export_path:
@@ -66,6 +73,8 @@ class Tracer:
         self._active_spans: dict[str, Span] = {}
         # Accumulated completed spans per trace (for merged JSON export)
         self._trace_spans: dict[str, list[dict]] = {}
+        # Optional OpenTelemetry bridge
+        self._otel_bridge = otel_bridge
 
     def start_span(self, name: str,
                    agent: str = "",
@@ -85,6 +94,16 @@ class Tracer:
             status="running",
         )
         self._active_spans[span_id] = span
+
+        # Mirror to OpenTelemetry if bridge is active
+        if self._otel_bridge and self._otel_bridge.enabled:
+            self._otel_bridge.start_span(
+                name=name,
+                trace_id=tid,
+                parent_span_id=parent_span_id or "",
+                attributes={"agent": agent} if agent else None,
+            )
+
         return span
 
     def end_span(self, span_id: str, status: str = "ok") -> Optional[Span]:

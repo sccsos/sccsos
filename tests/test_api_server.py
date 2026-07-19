@@ -73,7 +73,7 @@ class TestAPIEndpoints:
     def test_01_health(self):
         status, data = _get("/health")
         assert status == 200
-        assert data.get("version") == "0.9.0"
+        assert data.get("version") == "0.10.0"
         assert "initialized" in data
 
     def test_02_agents_list(self):

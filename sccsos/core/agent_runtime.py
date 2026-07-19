@@ -182,9 +182,24 @@ class AgentRuntime:
         self._supervisor.start()
 
         # ── Tracer & Auditor ──────────────────────────────────────
+        # Optional OpenTelemetry bridge (requires sccsos[otel] extras)
+        otel_bridge = None
+        otlp_endpoint = getattr(cfg.tracing, 'otlp_endpoint', '')
+        if cfg.tracing.enabled and otlp_endpoint:
+            try:
+                from sccsos.observability.otel_tracer import OTelTracerBridge
+                otel_headers = getattr(cfg.tracing, 'otlp_headers', [])
+                otel_bridge = OTelTracerBridge(
+                    otlp_endpoint=otlp_endpoint,
+                    otlp_headers=otel_headers or [],
+                )
+            except Exception:
+                pass  # OTel not available — fall back to SQLite-only
+
         self._tracer = Tracer(
             self._db,
             export_path=cfg.tracing.export_path if cfg.tracing.enabled else None,
+            otel_bridge=otel_bridge,
         )
         # Create PricingTable from config (new pricing.path, fallback to deprecated tracing.pricing_path)
         pricing_path = cfg.pricing.path or cfg.tracing.pricing_path

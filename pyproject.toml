@@ -1,6 +1,6 @@
 [project]
 name = "sccsos"
-version = "0.9.0"
+version = "0.10.0"
 description = "SCCS Operating System — Smart Agent Runtime Platform for SCCS-T Product Ecosystem"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -24,9 +24,15 @@ api = [
     "uvicorn[standard]>=0.29,<1",
     "pydantic>=2.5,<3",
 ]
+otel = [
+    "opentelemetry-api>=1.20,<2",
+    "opentelemetry-sdk>=1.20,<2",
+    "opentelemetry-exporter-otlp-proto-http>=1.20,<2",
+]
 all = [
     "sccsos[dev]",
     "sccsos[api]",
+    "sccsos[otel]",
 ]
 
 [project.scripts]

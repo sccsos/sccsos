@@ -185,10 +185,10 @@ main.add_command(serve)
 # ── template constants ────────────────────────────────────────────
 
 
-_DEFAULT_YAML = """# sccsos v0.9.0 project configuration
+_DEFAULT_YAML = """# sccsos v0.10.0 project configuration
 project:
   name: sccsos
-  version: 0.9.0
+  version: 0.10.0
 database:
   path: ./data/sccsos.db
 defaults:

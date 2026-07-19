@@ -89,7 +89,7 @@ def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
     app = FastAPI(
         title="sccsos API",
-        version="0.9.0",
+        version="0.10.0",
         description="SCCS Operating System — Smart Agent Runtime API",
         docs_url="/docs",
     )

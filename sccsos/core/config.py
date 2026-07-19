@@ -153,7 +153,7 @@ class WebhooksConfig:
 @dataclass
 class ProjectConfig:
     name: str = "sccsos"
-    version: str = "0.9.0"
+    version: str = "0.10.0"
 
 
 # ── Auto-merge helper ──────────────────────────────────────────────
