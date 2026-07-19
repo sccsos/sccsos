@@ -1,4 +1,5 @@
 name: architecture-review
+schema_version: '1.1'
 version: "1.0"
 description: 多 Agent 协同架构评审工作流 — 需求分析、方案设计、风险评估三步走
 

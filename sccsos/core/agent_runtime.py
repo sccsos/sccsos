@@ -16,18 +16,23 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from sccsos.core.config import AgentOSConfig, get_config
 from sccsos.core.database import Database
+from sccsos.core.event_bus import EventBus, WORKFLOW_STARTED, WORKFLOW_COMPLETED, WORKFLOW_FAILED
 from sccsos.core.registry import AgentRegistry, AgentSpec
 from sccsos.core.lifecycle import LifecycleManager
 from sccsos.core.hermes_adapter import HermesAdapter, create_adapter
 from sccsos.core.agent_runner import AgentRunner
 from sccsos.core.orchestrator import WorkflowEngine
+from sccsos.core.session import AgentSessionManager
+from sccsos.core.supervisor import Supervisor
 from sccsos.observability.tracer import Tracer
 from sccsos.observability.auditor import Auditor
 from sccsos.observability.pricing import PricingTable
+from sccsos.observability.webhook import WebhookNotifier
+from sccsos.observability.alert_manager import AlertManager
 
 
 class AgentRuntime:
@@ -48,6 +53,8 @@ class AgentRuntime:
         self._tracer: Optional[Tracer] = None
         self._auditor: Optional[Auditor] = None
         self._runner: Optional[AgentRunner] = None
+        self._session_manager: Optional[AgentSessionManager] = None
+        self._supervisor: Optional[Supervisor] = None
         self._initialized: bool = False
 
     # ── Properties (lazy accessors) ───────────────────────────────
@@ -112,6 +119,12 @@ class AgentRuntime:
         return self._memory_store
 
     @property
+    def session_manager(self) -> AgentSessionManager:
+        """Access the AgentSessionManager (conversation history)."""
+        self._ensure_initialized()
+        return self._session_manager
+
+    @property
     def is_initialized(self) -> bool:
         return self._initialized
 
@@ -158,8 +171,15 @@ class AgentRuntime:
         from sccsos.memory.memory_store import MemoryStore
         self._memory_store = MemoryStore(self._db)
 
+        # ── Session manager (conversation history persistence) ─────
+        self._session_manager = AgentSessionManager(self._db)
+
         # ── Agent Runner (manages running agent processes) ─────────
-        self._runner = AgentRunner(self._adapter, memory_store=self._memory_store)
+        self._supervisor = Supervisor(max_restarts=3, heartbeat_timeout=30.0)
+        self._runner = AgentRunner(self._adapter, memory_store=self._memory_store,
+                                   session_manager=self._session_manager,
+                                   supervisor=self._supervisor)
+        self._supervisor.start()
 
         # ── Tracer & Auditor ──────────────────────────────────────
         self._tracer = Tracer(
@@ -217,6 +237,37 @@ class AgentRuntime:
             personality_registry=self._personality_registry,
         )
 
+        # ── EventBus — decoupled workflow lifecycle observers ─────
+        bus = EventBus.get_instance()
+        self._webhook = WebhookNotifier(cfg.webhooks if cfg else None)
+        self._alert_manager = AlertManager(
+            self._db, cfg, self._webhook,
+        )
+
+        def _on_workflow_event(event_label: str, **kw: Any) -> None:
+            """Generic handler: forward workflow events to webhook."""
+            self._webhook.fire(
+                event=event_label,
+                run_id=kw.get("run_id", ""),
+                workflow_name=kw.get("workflow_name", ""),
+                status=kw.get("status", ""),
+                error=kw.get("error"),
+                steps=kw.get("steps"),
+            )
+
+        bus.on(WORKFLOW_STARTED,
+               lambda **kw: _on_workflow_event("started", **kw))
+        bus.on(WORKFLOW_COMPLETED,
+               lambda **kw: _on_workflow_event("completed", **kw))
+        bus.on(WORKFLOW_COMPLETED,
+               lambda **kw: self._alert_manager.evaluate_after_run(
+                   run_id=kw.get("run_id", "")))
+        bus.on(WORKFLOW_FAILED,
+               lambda **kw: _on_workflow_event("failed", **kw))
+        bus.on(WORKFLOW_FAILED,
+               lambda **kw: self._alert_manager.evaluate_after_run(
+                   run_id=kw.get("run_id", "")))
+
         self._initialized = True
         # Optional: config consistency checks
         self._check_config(cfg)
@@ -230,7 +281,7 @@ class AgentRuntime:
             pp = Path(pricing_path)
             if not pp.exists():
                 from sccsos.observability.logger import get_logger
-                get_logger().warning(
+                get_logger().info(
                     "Pricing file '%s' not found. Using default pricing.",
                     pricing_path,
                 )
@@ -335,6 +386,11 @@ class AgentRuntime:
 
     def close(self) -> None:
         """Release resources (DB connections, stop agents, etc.)."""
+        if self._supervisor:
+            try:
+                self._supervisor.stop()
+            except Exception:
+                pass
         if self._runner:
             try:
                 self._runner.stop_all()

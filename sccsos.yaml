@@ -1,7 +1,7 @@
-# sccsos v0.7.1 project configuration
+# sccsos v0.8.1 project configuration
 project:
   name: sccsos
-  version: 0.7.1
+  version: 0.8.1
 
 database:
   path: ./data/sccsos.db

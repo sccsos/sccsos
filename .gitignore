@@ -33,3 +33,6 @@ config/multi-profile-config.yaml
 # OS
 .DS_Store
 Thumbs.db
+
+# Debug scratch
+_debug_session.py

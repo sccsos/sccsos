@@ -60,14 +60,13 @@ class BudgetTracker:
         Args:
             agent_name: If provided, only count costs for this agent.
         """
-        conn = self._db.get_conn()
         if agent_name:
-            row = conn.execute(
+            row = self._db.execute(
                 "SELECT COALESCE(SUM(cost_usd), 0) FROM audit_log WHERE agent_id = ?",
                 (agent_name,),
             ).fetchone()
         else:
-            row = conn.execute(
+            row = self._db.execute(
                 "SELECT COALESCE(SUM(cost_usd), 0) FROM audit_log"
             ).fetchone()
         return float(row[0]) if row else 0.0

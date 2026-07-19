@@ -46,8 +46,7 @@ class Auditor:
 
     def record(self, entry: AuditEntry) -> int:
         """Record an audit entry. Returns entry ID."""
-        conn = self._db.get_conn()
-        cursor = conn.execute(
+        cursor = self._db.execute(
             """INSERT INTO audit_log
                (tenant_id, agent_id, event_type, tool_name, model_name,
                 tokens_used, cost_usd, duration_ms, success, detail)
@@ -65,7 +64,7 @@ class Auditor:
                 entry.detail[:500],
             ),
         )
-        conn.commit()
+        self._db.commit()
         return cursor.lastrowid
 
     def record_llm_call(self, agent_id: str, model: str,
@@ -116,8 +115,6 @@ class Auditor:
         Returns:
             Report dict with totals and breakdowns.
         """
-        conn = self._db.get_conn()
-
         conditions = []
         params = []
         if since:
@@ -130,7 +127,7 @@ class Auditor:
         where = "WHERE " + " AND ".join(conditions) if conditions else ""
 
         # Summary
-        summary = conn.execute(
+        summary = self._db.execute(
             f"""SELECT
                    COUNT(*) as total_calls,
                    COALESCE(SUM(tokens_used), 0) as total_tokens,
@@ -143,7 +140,7 @@ class Auditor:
         ).fetchone()
 
         # By event type
-        by_type = conn.execute(
+        by_type = self._db.execute(
             f"""SELECT event_type,
                        COUNT(*) as count,
                        COALESCE(SUM(tokens_used), 0) as tokens,
@@ -154,7 +151,7 @@ class Auditor:
         ).fetchall()
 
         # By model
-        by_model = conn.execute(
+        by_model = self._db.execute(
             f"""SELECT model_name,
                        COUNT(*) as count,
                        COALESCE(SUM(tokens_used), 0) as tokens,
@@ -166,7 +163,7 @@ class Auditor:
         ).fetchall()
 
         # Cost over time (daily)
-        by_day = conn.execute(
+        by_day = self._db.execute(
             f"""SELECT date(timestamp) as day,
                        COALESCE(SUM(cost_usd), 0) as cost
                FROM audit_log {where}
@@ -185,15 +182,14 @@ class Auditor:
     def list_recent(self, limit: int = 50,
                     agent_id: Optional[str] = None) -> list[dict]:
         """List recent audit entries."""
-        conn = self._db.get_conn()
         if agent_id:
-            rows = conn.execute(
+            rows = self._db.execute(
                 """SELECT * FROM audit_log
                    WHERE agent_id = ? ORDER BY timestamp DESC LIMIT ?""",
                 (agent_id, limit),
             ).fetchall()
         else:
-            rows = conn.execute(
+            rows = self._db.execute(
                 "SELECT * FROM audit_log ORDER BY timestamp DESC LIMIT ?",
                 (limit,),
             ).fetchall()

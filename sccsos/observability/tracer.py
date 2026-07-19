@@ -87,11 +87,16 @@ class Tracer:
         self._active_spans[span_id] = span
         return span
 
-    def end_span(self, span_id: str, status: str = "ok") -> Span:
-        """End a span, recording duration and persisting to DB."""
+    def end_span(self, span_id: str, status: str = "ok") -> Optional[Span]:
+        """End a span, recording duration and persisting to DB.
+
+        Returns the ended span, or ``None`` if the span was already
+        ended (defensive — prevents cascading KeyError when downstream
+        code raises after the span has already been closed).
+        """
         span = self._active_spans.get(span_id)
         if span is None:
-            raise KeyError(f"Span '{span_id}' not found")
+            return None  # Already ended — defensive
 
         end_time = datetime.now(timezone.utc)
         span.end_time = end_time.isoformat()
@@ -131,8 +136,7 @@ class Tracer:
 
     def get_trace(self, trace_id: str) -> list[dict]:
         """Get all spans for a trace."""
-        conn = self._db.get_conn()
-        rows = conn.execute(
+        rows = self._db.execute(
             "SELECT * FROM traces WHERE trace_id = ? ORDER BY id",
             (trace_id,),
         ).fetchall()
@@ -140,8 +144,7 @@ class Tracer:
 
     def list_traces(self, limit: int = 20) -> list[dict]:
         """List recent traces (one row per trace)."""
-        conn = self._db.get_conn()
-        rows = conn.execute(
+        rows = self._db.execute(
             """SELECT trace_id, count(*) as span_count,
                       min(start_time) as first_span,
                       sum(duration_ms) as total_duration_ms
@@ -179,8 +182,7 @@ class Tracer:
 
     def _persist_span(self, span: Span) -> None:
         """Write a completed span to the database."""
-        conn = self._db.get_conn()
-        conn.execute(
+        self._db.execute(
             """INSERT OR REPLACE INTO traces
                (trace_id, span_id, parent_span_id, name, agent_name,
                 start_time, end_time, duration_ms, status, events)
@@ -198,7 +200,7 @@ class Tracer:
                 json.dumps([asdict(e) for e in span.events], ensure_ascii=False),
             ),
         )
-        conn.commit()
+        self._db.commit()
 
     def _accumulate_span(self, span: Span) -> None:
         """Accumulate a completed span for merged JSON export.

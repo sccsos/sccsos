@@ -122,7 +122,7 @@ class StepExecutor:
                              f"Step '{step.id}' attempt {attempt + 1}/{max_attempts} "
                              f"failed, retrying in {delay}s: {str(e)[:200]}"),
                         )
-                        self._db.get_conn().commit()
+                        self._db.commit()
                     time.sleep(delay)
 
         # All attempts exhausted
@@ -202,7 +202,7 @@ class StepExecutor:
                         (run_id, step.id, step.agent, start_ts.isoformat(),
                          datetime.now(timezone.utc).isoformat()),
                     )
-                    self._db.get_conn().commit()
+                    self._db.commit()
                     # Inject empty output (thread-safe: under lock)
                     step_outputs[step.id] = {"response": "", "stdout": "", "skipped": True}
                 return
@@ -228,7 +228,7 @@ class StepExecutor:
                    VALUES (?, ?, ?, 'running', ?)""",
                 (run_id, step.id, step.agent, start_ts.isoformat()),
             )
-            self._db.get_conn().commit()
+            self._db.commit()
 
         try:
             # Resolve agent model from registry (if available)
@@ -276,7 +276,7 @@ class StepExecutor:
                            finished_at = ?, duration_ms = ?, error = ? WHERE run_id = ? AND step_id = ?""",
                         (end_ts.isoformat(), result.duration_ms, result.error[:500], run_id, step.id),
                     )
-                    self._db.get_conn().commit()
+                    self._db.commit()
                     raise WorkflowExecutionError(
                         f"Step '{step.id}' failed: {result.error}"
                     )
@@ -300,7 +300,7 @@ class StepExecutor:
                     (end_ts.isoformat(), result.duration_ms, result.response[:1000],
                      run_id, step.id),
                 )
-                self._db.get_conn().commit()
+                self._db.commit()
 
         except WorkflowExecutionError:
             raise
@@ -317,7 +317,7 @@ class StepExecutor:
                     (now.isoformat(), int((now - start_ts).total_seconds() * 1000),
                      error_msg[:500], run_id, step.id),
                 )
-                self._db.get_conn().commit()
+                self._db.commit()
 
                 if step.retry > 0:
                     # Retry is handled by execute_with_retry

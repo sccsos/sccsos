@@ -1,204 +1,161 @@
-# SCCS OS — Smart Agent Runtime Platform
+# SCCS OS v0.8.1
 
-> v0.7.1 | [测试验证与操作手册](输出/SCCS OS 测试验证与操作手册.md)
+**Smart Agent Runtime Platform for SCCS-T Product Ecosystem**
 
-SCCS OS 是一个轻量级智能体运行时环境，提供多 Agent 编排、生命周期管理、可观测性、安全策略和开发者接口。基于 Hermes Agent 构建，支持多租户隔离和容器化部署。
-
-## 快速开始
+SCCS OS is a multi-agent orchestration platform that manages, monitors, and
+coordinates AI agents through declarative YAML definitions, DAG-based
+workflows, and an extensible plugin architecture.
 
 ```bash
-# 安装
 pip install sccsos
+sccsos init
+sccsos agent list
+```
 
-# 初始化项目
+---
+
+## Quick Start
+
+```bash
+# Initialize a project
 sccsos init my-project
 cd my-project
 
-# 注册并启动 Agent
+# Register an agent
 sccsos agent create architect
+
+# Start an agent (background process)
 sccsos agent start architect
 
-# 对话
-sccsos agent ask architect "设计一个用户认证模块"
+# Ask the agent a question
+sccsos agent ask architect "Design a user authentication module"
 
-# 运行工作流
-sccsos workflow run workflows/架构评审.yaml -i "构建微服务架构"
-
-# 查看系统状态
-sccsos health
-sccsos audit report
-
-# Docker 部署
-docker build -t sccsos:0.6.4 .
-docker run -d -p 8765:8765 sccsos:0.6.4
+# Run a workflow
+sccsos workflow validate ./workflows/my-workflow.yaml
+sccsos workflow run ./workflows/my-workflow.yaml
 ```
 
-## 特性
+---
 
-| 特性 | 说明 |
-|------|------|
-| **多 Agent 编排** | DAG 工作流引擎，支持并行执行、条件分支、重试和取消 |
-| **Agent 生命周期** | 5 状态状态机 (CREATED/RUNNING/PAUSED/FAILED/TERMINATED) |
-| **后台进程管理** | `agent start` 启动后台进程，`agent ask` 发送 prompt 并等待响应 |
-| **安全沙箱** | 命令白名单 + 危险模式拦截 + Budget 预算 + 工具 ACL |
-| **可观测性** | Span 链路追踪 + JSON 结构化日志 + Token 审计 + Webhook 通知 + 阈值告警 |
-| **记忆系统** | TF-IDF 语义检索 + Wiki 知识库 + 模板注入 + 跨会话持久 KV 存储 |
-| **Personality 系统** | 为每个 Agent 定义角色和系统提示词 |
-| **多租户隔离** | DB schema 级 tenant_id + X-Tenant-ID API 头 |
-| **容器化部署** | Docker 多阶段构建 + docker-compose |
-| **HTTP API** | 零依赖 REST API 服务器，全部端点覆盖 |
+## Architecture
 
-## CLI 命令
-
-```bash
-sccsos init             # 初始化项目
-sccsos version          # 显示版本
-sccsos health           # 系统健康检查
-
-sccsos agent list       # 列出所有 Agent
-sccsos agent create     # 创建新的 Agent
-sccsos agent start      # 启动 Agent（后台进程）
-sccsos agent stop       # 停止 Agent
-sccsos agent pause      # 暂停 Agent
-sccsos agent resume     # 恢复 Agent
-sccsos agent restart    # 重启失败的 Agent
-sccsos agent status     # 查看 Agent 状态
-sccsos agent ask        # 向 Agent 发送 prompt
-sccsos agent logs       # 查看 Agent 日志
-
-sccsos workflow run       # 运行工作流
-sccsos workflow validate  # 验证工作流 YAML
-sccsos workflow visualize # 生成 Mermaid 流程图
-sccsos workflow status    # 查看工作流运行状态
-sccsos workflow list      # 列出最近工作流
-sccsos workflow cancel    # 取消运行中的工作流
-
-sccsos trace list       # 列出追踪记录
-sccsos trace show       # 查看追踪详情
-
-sccsos audit report     # 审计报告
-sccsos audit log        # 审计日志
+```
+┌─────────────────────────────────────────────────┐
+│  CLI (click, 10 commands)    API (http.server)  │
+├─────────────────────────────────────────────────┤
+│              AgentRuntime (singleton)             │
+├──────┬──────┬──────┬──────┬──────┬──────┬──────┤
+│Agent │Agent │Work- │DAG   │Step  │Herme │Sessi-│
+│Regis-│Runne │flow  │Resol │Execu │sAdap │onMgr │
+│try   │r     │Engine│ver   │tor   │ter   │      │
+├──────┴──────┼──────┴──────┼──────┴──────┴──────┤
+│  Supervisor │  EventBus   │  Database (SQLite)  │
+│  (monitor)  │  (pub/sub)  │  WAL + thread-safe  │
+├─────────────┴─────────────┴────────────────────┤
+│  PolicyEngine + CommandWhitelist  (security)    │
+├─────────────────────────────────────────────────┤
+│  Tracer + Auditor + Webhook + Alert  (observability) │
+└─────────────────────────────────────────────────┘
 ```
 
-## 配置
+### Core Modules
 
-项目根目录的 `sccsos.yaml` 是配置文件：
+| Module | LOC | Description |
+|--------|-----|-------------|
+| `core/` | ~4,200 | Engine: runtime, runner, orchestrator, DAG resolver |
+| `cli/` | ~2,000 | CLI: agent, workflow, system, config subcommands |
+| `observability/` | ~1,000 | Tracing, auditing, pricing, webhooks, alerts |
+| `memory/` | ~650 | KV store, knowledge base, vector search |
+| `security/` | ~410 | Policy enforcement, command whitelist |
+| `api/` | ~530 | HTTP REST API server |
 
-```yaml
-project:
-  name: my-project
-  version: 1.0.0
+### Key Features
 
-database:
-  path: ./data/sccsos.db
+- **Multi-agent orchestration**: DAG-based workflows with parallel execution
+- **Declarative agents**: YAML-defined agent specs with lifecycle management
+- **Background processes**: Agents run as supervised daemon threads
+- **Event-driven**: EventBus decouples workflow engine from observers
+- **Observability**: Distributed tracing, cost tracking, webhook alerts
+- **Security**: Budget limits, tool whitelist, command sandbox
+- **Schema migration**: Versioned workflow defs with auto-migration
+- **Config hot-reload**: `sccsos config reload` applies changes without restart
 
-defaults:
-  hermes_profile: sccsos
-  max_turns: 90
-  timeout: 1800
+---
 
-logging:
-  level: INFO
-  format: json
-  directory: ./logs
+## CLI Commands
 
-tracing:
-  enabled: true
-  export_path: ./traces/
+| Command | Description |
+|---------|-------------|
+| `sccsos init` | Initialize a new project |
+| `sccsos agent list/start/stop/pause/resume/restart` | Agent lifecycle |
+| `sccsos agent ask <name> <prompt>` | Send prompt to running agent |
+| `sccsos workflow validate/run/status/cancel/list/visualize` | Workflow management |
+| `sccsos trace list/show` | View distributed traces |
+| `sccsos audit report/log` | Cost and usage reports |
+| `sccsos memory save/get/list/delete/clear` | Persistent KV store |
+| `sccsos session list/show/close` | Conversation history |
+| `sccsos config reload` | Hot-reload configuration |
+| `sccsos health` | System health check |
 
-pricing:
-  path: ./config/pricing.json
+---
 
-agents:
-  path: ./agents
-  wiki_path: ./wiki
-  personalities_path: ./personalities
-
-policies:
-  default:
-    max_tokens_per_session: 100000
-    max_cost_usd: 5.0
-    allowed_tools:
-      - read_file
-      - search_files
-      - web_search
-    blocked_tools: []
-    allowed_commands:
-      - hermes
-      - git
-      - ls
-      - python3
-```
-
-完整参考配置见 `config/sample-config.yaml`，详细操作指南见[测试验证与操作手册](输出/SCCS OS 测试验证与操作手册.md)。
-
-## 工作流示例
+## Workflow Example
 
 ```yaml
 name: architecture-review
-version: "1.0"
-description: 多 Agent 协同架构评审
-
+schema_version: '1.1'
 steps:
-  - id: requirements_analysis
-    name: 需求分析
+  - id: requirements
     agent: architect
-    prompt: |
-      分析以下项目需求：
+    prompt: >
+      Given the following requirements, create a detailed
+      architecture design:
       {{ steps.input.context }}
 
-  - id: architecture_design
-    name: 架构设计
-    agent: architect
-    prompt: |
-      基于需求分析设计架构：
-      {{ steps.requirements_analysis.response }}
+  - id: review
+    agent: reviewer
+    prompt: >
+      Review the architecture:
+      {{ steps.requirements.response }}
     depends_on:
-      - requirements_analysis
+      - requirements
 ```
 
-## 系统架构
+### Template Filters
 
-```
-CLI / API
-  └→ AgentRuntime
-       ├→ AgentRegistry — YAML Agent 定义
-       ├→ LifecycleManager — 5 状态状态机
-       ├→ WorkflowEngine — DAG 解析 + 并行执行
-       │    ├→ StepExecutor — 单步执行 (模板/条件/重试/审计)
-       │    └→ HermesAdapter — CLI 桥接 + 三层安全防线
-       │         ├→ PolicyEngine — 预算 + 工具 ACL
-       │         └→ CommandWhitelist — 危险模式 + 白名单
-       ├→ PersonalityRegistry — Agent 角色 + system prompt 注入
-       ├→ AlertManager — 阈值监控 + Webhook 告警
-       ├→ KnowledgeBase — TF-IDF 语义检索
-       ├→ MemoryStore — 跨会话 KV 持久记忆
-       └→ Tracer / Auditor — 追踪 + 审计
-```
+| Filter | Usage |
+|--------|-------|
+| `json_parse` | `{{ steps.api.response \| json_parse }}` |
+| `json_dumps` | `{{ data \| json_dumps(2) }}` |
+| `pick` | `{{ steps.result \| pick('data', default=[]) }}` |
+| `strptime` / `strftime` | `{{ date \| strptime \| strftime('%Y-%m-%d') }}` |
+| `truncate_cn` | `{{ text \| truncate_cn(80) }}` (CJK-aware) |
 
-## 技术栈
+---
 
-- **语言**: Python 3.11+
-- **运行时**: Hermes Agent (Nous Research)
-- **数据库**: SQLite (WAL 模式) + 自动 schema 迁移
-- **模板**: Jinja2 (Sandboxed)
-- **CLI**: Click
-- **部署**: Docker + docker-compose
-
-## 测试
+## Development
 
 ```bash
-# 全量测试
-python3 -m pytest tests/ -v
-
-# 按模块
-python3 -m pytest tests/test_integration.py -v --tb=short
-python3 -m pytest tests/test_api_server.py -v --tb=short
-
-# 完整测试验证指南
-cat '输出/SCCS OS 测试验证与操作手册.md'
+git clone https://github.com/your-org/sccsos
+cd sccsos
+pip install -e ".[dev]"
+python -m pytest tests/
 ```
 
-## 许可证
+### Tests
+
+- **246 tests**, all passing
+- 9 test files covering all modules
+- MockHermesAdapter for hermetic workflow testing
+
+### Build
+
+```bash
+python -m build
+```
+
+---
+
+## License
 
 MIT

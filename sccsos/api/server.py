@@ -24,6 +24,9 @@ Endpoints:
   GET  /traces/{id}     — Get trace details
   GET  /audit/report    — Audit summary report
   GET  /audit/log       — Recent audit log entries
+  GET  /sessions        — List sessions
+  GET  /sessions/{id}   — Session details with messages
+  POST /sessions/{id}/close — Close a session
 
 Usage:
     python -m sccsos.api.server --port 8080
@@ -96,6 +99,14 @@ class APIHandler(BaseHTTPRequestHandler):
                 self._handle_audit_report(params)
             elif path == "/audit/log":
                 self._handle_audit_log(params)
+            elif path == "/sessions":
+                self._handle_list_sessions(params, tenant_id=tenant_id)
+            elif path.startswith("/sessions/") and path.endswith("/messages"):
+                session_id = path.split("/")[2]
+                self._handle_session_messages(session_id)
+            elif path.startswith("/sessions/"):
+                session_id = path.split("/")[2]
+                self._handle_session_detail(session_id)
             else:
                 self._json_response({"error": "Not found"}, 404)
         except Exception as e:
@@ -135,6 +146,9 @@ class APIHandler(BaseHTTPRequestHandler):
                 self._handle_run_workflow(data)
             elif path == "/workflows/validate":
                 self._handle_validate_workflow(data)
+            elif path.startswith("/sessions/") and path.endswith("/close"):
+                session_id = path.split("/")[2]
+                self._handle_close_session(session_id)
             else:
                 self._json_response({"error": "Not found"}, 404)
         except Exception as e:
@@ -407,6 +421,77 @@ class APIHandler(BaseHTTPRequestHandler):
             agent_id=params.get("agent") or None,
         )
         self._json_response({"entries": entries, "count": len(entries)})
+
+    # ── Session handlers ─────────────────────────────────────────
+
+    def _handle_list_sessions(self, params: dict, tenant_id: str = "default"):
+        runtime = get_runtime()
+        sessions = runtime.session_manager.list_sessions(
+            agent_name=params.get("agent") or None,
+            tenant_id=tenant_id,
+            status=params.get("status") or None,
+        )
+        self._json_response({
+            "sessions": [
+                {
+                    "id": s.id,
+                    "agent_name": s.agent_name,
+                    "status": s.status,
+                    "created_at": s.created_at,
+                    "updated_at": s.updated_at,
+                    "context_summary": s.context_summary,
+                }
+                for s in sessions
+            ],
+            "count": len(sessions),
+        })
+
+    def _handle_session_detail(self, session_id: str):
+        runtime = get_runtime()
+        sessions = runtime.session_manager.list_sessions()
+        session_obj = next((s for s in sessions if s.id == session_id), None)
+        if session_obj is None:
+            self._json_response({"error": f"Session '{session_id}' not found"}, 404)
+            return
+        self._json_response({
+            "id": session_obj.id,
+            "agent_name": session_obj.agent_name,
+            "status": session_obj.status,
+            "created_at": session_obj.created_at,
+            "updated_at": session_obj.updated_at,
+            "context_summary": session_obj.context_summary,
+        })
+
+    def _handle_session_messages(self, session_id: str):
+        runtime = get_runtime()
+        messages = runtime.session_manager.get_history(session_id, limit=50)
+        self._json_response({
+            "session_id": session_id,
+            "messages": [
+                {
+                    "id": m.id,
+                    "role": m.role,
+                    "content": m.content,
+                    "tokens": m.tokens,
+                    "created_at": m.created_at,
+                }
+                for m in messages
+            ],
+            "count": len(messages),
+        })
+
+    def _handle_close_session(self, session_id: str):
+        runtime = get_runtime()
+        sessions = runtime.session_manager.list_sessions()
+        session_obj = next((s for s in sessions if s.id == session_id), None)
+        if session_obj is None:
+            self._json_response({"error": f"Session '{session_id}' not found"}, 404)
+            return
+        if session_obj.status == "closed":
+            self._json_response({"error": f"Session '{session_id}' is already closed"})
+            return
+        runtime.session_manager.close_session(session_id, new_status="closed")
+        self._json_response({"closed": session_id})
 
     # ── Response helpers ──────────────────────────────────────
 

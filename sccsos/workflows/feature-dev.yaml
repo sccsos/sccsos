@@ -1,5 +1,6 @@
 # Sample workflow: 架构评审→编码→测试→审查全流程
 name: feature-development
+schema_version: '1.1'
 version: 1.0
 description: 功能开发全流程 — 架构评审到代码审查
 

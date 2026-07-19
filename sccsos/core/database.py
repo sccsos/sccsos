@@ -20,6 +20,7 @@ logger = logging.getLogger("sccsos.database")
 
 SCHEMA_SQL = """
 PRAGMA journal_mode=WAL;
+PRAGMA busy_timeout=5000;
 PRAGMA foreign_keys=ON;
 
 CREATE TABLE IF NOT EXISTS agents (
@@ -115,6 +116,32 @@ CREATE INDEX IF NOT EXISTS idx_agents_status ON agents(status);
 CREATE INDEX IF NOT EXISTS idx_agents_tenant ON agents(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_audit_tenant ON audit_log(tenant_id);
 
+-- Session persistence (conversation history)
+CREATE TABLE IF NOT EXISTS agent_sessions (
+    id TEXT PRIMARY KEY,
+    agent_name TEXT NOT NULL,
+    tenant_id TEXT NOT NULL DEFAULT 'default',
+    status TEXT NOT NULL DEFAULT 'active',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    context_summary TEXT DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS session_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL,
+    role TEXT NOT NULL,
+    content TEXT NOT NULL,
+    tokens INTEGER DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (session_id) REFERENCES agent_sessions(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_session_messages_session
+    ON session_messages(session_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_agent_sessions_agent
+    ON agent_sessions(tenant_id, agent_name, status);
+
 -- Persistent memory store (key-value, per tenant)
 CREATE TABLE IF NOT EXISTS memory_store (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -147,55 +174,76 @@ class Database:
 
     def __init__(self, db_path: str | Path = "./data/sccsos.db"):
         self._db_path = Path(db_path)
-        self._local = threading.local()
         self._lock = threading.Lock()
+        self._conn: sqlite3.Connection | None = None
 
     @property
     def path(self) -> Path:
         return self._db_path
 
     def _get_conn(self) -> sqlite3.Connection:
-        """Get thread-local connection (internal use)."""
-        if not hasattr(self._local, "conn") or self._local.conn is None:
+        """Get the shared database connection (created once, thread-safe via _lock).
+
+        Uses ``check_same_thread=False`` so the same connection can be
+        used from background agent threads. All public methods hold
+        ``_lock`` to serialize access.
+        """
+        if self._conn is None:
             self._db_path.parent.mkdir(parents=True, exist_ok=True)
-            conn = sqlite3.connect(str(self._db_path))
+            conn = sqlite3.connect(str(self._db_path), check_same_thread=False)
             conn.row_factory = sqlite3.Row
             conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA busy_timeout=5000")
             conn.execute("PRAGMA foreign_keys=ON")
-            self._local.conn = conn
-        return self._local.conn
+            self._conn = conn
+        return self._conn
 
     def get_conn(self) -> sqlite3.Connection:
-        """Get a thread-local database connection (public API)."""
+        """Get the shared database connection (public API).
+
+        Warning: callers MUST hold ``_lock`` when using this connection
+        for anything beyond a single execute().
+        """
         return self._get_conn()
 
     def execute(self, sql: str, params: tuple = ()) -> sqlite3.Cursor:
         """Execute a single SQL statement and return cursor.
 
-        Thread-safe convenience wrapper over ``get_conn().execute()``.
-        For multi-statement scripts, use :meth:`executescript`.
+        Thread-safe: locked so background thread DB writes don't
+        conflict with main-thread DB writes.
         """
-        return self.get_conn().execute(sql, params)
+        with self._lock:
+            return self.get_conn().execute(sql, params)
 
     def fetchone(self, sql: str, params: tuple = ()) -> Optional[sqlite3.Row]:
         """Execute and fetch one row. Returns None if no results.
 
         Convenience method combining execute + fetchone.
+        Thread-safe: uses locked execute().
         """
-        return self.execute(sql, params).fetchone()
+        with self._lock:
+            return self.get_conn().execute(sql, params).fetchone()
 
     def fetchall(self, sql: str, params: tuple = ()) -> list[sqlite3.Row]:
         """Execute and fetch all rows.
 
         Convenience method combining execute + fetchall.
+        Thread-safe: uses locked execute().
         """
-        return self.execute(sql, params).fetchall()
+        with self._lock:
+            return self.get_conn().execute(sql, params).fetchall()
 
     def executescript(self, sql: str) -> None:
         """Execute a multi-statement SQL script with commit."""
-        conn = self.get_conn()
-        conn.executescript(sql)
-        conn.commit()
+        with self._lock:
+            conn = self._get_conn()
+            conn.executescript(sql)
+            conn.commit()
+
+    def commit(self) -> None:
+        """Commit the current transaction (thread-safe)."""
+        with self._lock:
+            self._get_conn().commit()
 
     def initialize(self) -> None:
         """Create schema if not exists. Applies migrations for existing DBs."""
@@ -247,14 +295,44 @@ class Database:
                     "ALTER TABLE memory_store ADD COLUMN ttl_seconds INTEGER DEFAULT 0"
                 )
                 conn.commit()
+            # Migration v4: Create agent_sessions and session_messages tables
+            tables = [r[0] for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()]
+            if 'agent_sessions' not in tables:
+                conn.executescript("""
+                    CREATE TABLE IF NOT EXISTS agent_sessions (
+                        id TEXT PRIMARY KEY,
+                        agent_name TEXT NOT NULL,
+                        tenant_id TEXT NOT NULL DEFAULT 'default',
+                        status TEXT NOT NULL DEFAULT 'active',
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        context_summary TEXT DEFAULT ''
+                    );
+                    CREATE TABLE IF NOT EXISTS session_messages (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        session_id TEXT NOT NULL,
+                        role TEXT NOT NULL,
+                        content TEXT NOT NULL,
+                        tokens INTEGER DEFAULT 0,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (session_id) REFERENCES agent_sessions(id)
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_session_messages_session
+                        ON session_messages(session_id, created_at);
+                    CREATE INDEX IF NOT EXISTS idx_agent_sessions_agent
+                        ON agent_sessions(tenant_id, agent_name, status);
+                """)
+                conn.commit()
         except Exception as e:
             logger.warning("Migration failed (schema may be compatible): %s", e)
 
     def close(self) -> None:
         """Close the connection."""
-        if hasattr(self._local, "conn") and self._local.conn:
-            self._local.conn.close()
-            self._local.conn = None
+        if self._conn is not None:
+            self._conn.close()
+            self._conn = None
 
     # ── Agent CRUD ──────────────────────────────────────────────
 

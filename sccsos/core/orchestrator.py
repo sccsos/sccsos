@@ -19,14 +19,13 @@ import yaml
 
 from sccsos.core.database import Database
 from sccsos.core.hermes_adapter import HermesAdapter
+from sccsos.core.event_bus import EventBus, WORKFLOW_STARTED, WORKFLOW_COMPLETED, WORKFLOW_FAILED
 from sccsos.core.config import AgentOSConfig
 from sccsos.core.personality import PersonalityRegistry
 from sccsos.core.step_executor import StepExecutor, WorkflowError, WorkflowExecutionError
 from sccsos.observability.tracer import Tracer
 from sccsos.observability.auditor import Auditor
 from sccsos.observability.pricing import PricingTable
-from sccsos.observability.webhook import WebhookNotifier
-from sccsos.observability.alert_manager import AlertManager
 from sccsos.memory.memory_store import MemoryStore
 
 
@@ -67,8 +66,19 @@ class ParallelGroupDef:
 
 @dataclass
 class WorkflowDef:
-    """Complete workflow definition loaded from YAML."""
+    """Complete workflow definition loaded from YAML.
+
+    Attributes:
+        name: Human-readable workflow name.
+        schema_version: Workflow schema version for migration support.
+            Current: "1.0" (original), "1.1" (adds schema_version field).
+        version: User-facing workflow version (for change tracking).
+        description: Description of the workflow's purpose.
+        steps: Ordered list of workflow steps.
+        parallel_groups: Optional parallel execution groups.
+    """
     name: str
+    schema_version: str = "1.1"
     version: str = "1.0"
     description: str = ""
     steps: list[WorkflowStepDef] = field(default_factory=list)
@@ -76,7 +86,7 @@ class WorkflowDef:
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> "WorkflowDef":
-        """Load a WorkflowDef from a YAML file with schema validation."""
+        """Load a WorkflowDef from a YAML file with schema validation and migration."""
         path = Path(path)
         with open(path, "r", encoding="utf-8") as f:
             data = yaml.safe_load(f)
@@ -85,6 +95,9 @@ class WorkflowDef:
             raise WorkflowValidationError(
                 f"Workflow YAML must have a 'name' field: {path}"
             )
+
+        # ── Schema migration ────────────────────────────────────
+        data = _migrate_workflow_schema(data)
 
         if not isinstance(data.get("steps"), list) or len(data["steps"]) == 0:
             raise WorkflowValidationError(
@@ -181,6 +194,7 @@ class WorkflowDef:
         """Serialize back to YAML."""
         data = {
             "name": self.name,
+            "schema_version": self.schema_version,
             "version": self.version,
             "description": self.description,
             "steps": [asdict(s) for s in self.steps],
@@ -241,6 +255,94 @@ class WorkflowDef:
 
         lines.append("```")
         return "\n".join(lines)
+
+
+# ── Schema Migration ─────────────────────────────────────────────────
+
+
+# Migration registry: (from_version, to_version) → migration function.
+# Each function receives the raw YAML dict and returns a migrated dict.
+# Migrations are chained: 1.0 → 1.1 → 1.2 → ...
+_MIGRATIONS: dict[tuple[str, str], callable] = {}
+
+
+def _register_migration(from_version: str, to_version: str):
+    """Decorator to register a schema migration."""
+    def decorator(fn):
+        _MIGRATIONS[(from_version, to_version)] = fn
+        return fn
+    return decorator
+
+
+def _migrate_workflow_schema(data: dict) -> dict:
+    """Migrate a workflow's raw YAML dict to the latest schema version.
+
+    Applies the chain of migrations from the data's current
+    ``schema_version`` (default ``"1.0"`` for legacy workflows) to
+    the latest version.  Returns the migrated copy without mutating
+    the input.
+
+    The migration is a no-op if the data is already at the latest
+    version.
+    """
+    LATEST = "1.1"
+    current = data.get("schema_version", "1.0")
+
+    if current == LATEST:
+        return data  # Already up-to-date
+
+    # Build migration chain from current → latest
+    versions = ["1.0", "1.1"]  # Ordered list of known versions
+    if current not in versions:
+        raise WorkflowValidationError(
+            f"Unknown workflow schema_version '{current}'. "
+            f"Expected one of: {versions}"
+        )
+
+    result = dict(data)  # Shallow copy
+    start_idx = versions.index(current)
+
+    for i in range(start_idx, len(versions) - 1):
+        from_v = versions[i]
+        to_v = versions[i + 1]
+        migrator = _MIGRATIONS.get((from_v, to_v))
+        if migrator is not None:
+            result = migrator(result)
+        result["schema_version"] = to_v
+
+    return result
+
+
+# ── Schema migrations ────────────────────────────────────────────────
+
+
+@_register_migration("1.0", "1.1")
+def _migrate_1_0_to_1_1(data: dict) -> dict:
+    """1.0 → 1.1: Add ``schema_version`` field.
+
+    Legacy workflows (v1.0) are implicitly ``schema_version: "1.0"``.
+    This migration adds the explicit field and normalizes step
+    definitions (ensuring all steps have ``name``, ``timeout``,
+    ``retry`` defaults).
+    """
+    result = dict(data)
+    result["schema_version"] = "1.1"
+
+    # Normalize step definitions
+    steps = []
+    for s in result.get("steps", []):
+        step = dict(s)
+        # Only set defaults if 'id' exists — steps missing 'id' will
+        # be caught by downstream schema validation.
+        if "id" in step:
+            step.setdefault("name", step["id"])
+        step.setdefault("timeout", 600)
+        step.setdefault("retry", 0)
+        step.setdefault("depends_on", [])
+        steps.append(step)
+    result["steps"] = steps
+
+    return result
 
 
 # ── DAG Resolver ────────────────────────────────────────────────────
@@ -390,13 +492,8 @@ class WorkflowEngine:
         self._db_lock = threading.Lock()
         # Per-run contexts (thread-safe: each execute() gets its own)
         self._run_contexts: dict[str, WorkflowRunContext] = {}
-        self._notifier = WebhookNotifier(
-            config.webhooks if config else None
-        )
-        # StepExecutor — isolated step execution
-        self._step_executor: Optional[StepExecutor] = None
-        # AlertManager — threshold monitoring
-        self._alert_manager = AlertManager(db, config, self._notifier)
+        # EventBus — decoupled notification for workflow lifecycle events
+        self._bus = EventBus.get_instance()
         if config is not None:
             from sccsos.security.policy import PolicyEngine
             try:
@@ -492,7 +589,7 @@ class WorkflowEngine:
                VALUES (?, ?, ?, 'running')""",
             (run_id, workflow.name, yaml.dump(asdict(workflow))),
         )
-        self._db.get_conn().commit()
+        self._db.commit()
 
         # Step results cache for template resolution
         step_outputs: dict[str, dict] = {}
@@ -507,9 +604,10 @@ class WorkflowEngine:
                 "stdout": input_data.get("context", ""),
             }
 
-        # Fire "started" event
-        self._notifier.fire("started", run_id=run_id,
-                            workflow_name=workflow.name, status="running")
+        # Fire "started" event via EventBus
+        self._bus.emit(WORKFLOW_STARTED,
+                       run_id=run_id, workflow_name=workflow.name,
+                       status="running")
 
         try:
             layers = ctx.resolver.get_execution_order()
@@ -529,24 +627,22 @@ class WorkflowEngine:
                         run_id, layer, step_outputs, trace_span.span_id, ctx
                     )
 
-                self._db.get_conn().commit()
+                self._db.commit()
 
-            # Mark run as completed
+            # All post-step operations — trace end_span goes LAST
+            # so if notification/alert raises, the span is still active
+            # for the error path.
             end_time = datetime.now(timezone.utc)
-            self._tracer.end_span(trace_span.span_id, status="ok")
             self._db.execute(
                 """UPDATE workflow_runs SET status = 'completed',
                    finished_at = ? WHERE id = ?""",
                 (end_time.isoformat(), run_id),
             )
-            self._db.get_conn().commit()
-
-            # Fire "completed" event
-            self._notifier.fire("completed", run_id=run_id,
-                                workflow_name=workflow.name, status="completed",
-                                steps=list(step_outputs.keys()))
-            # Evaluate alert thresholds
-            self._alert_manager.evaluate_after_run(run_id=run_id)
+            self._db.commit()
+            self._bus.emit(WORKFLOW_COMPLETED,
+                           run_id=run_id, workflow_name=workflow.name,
+                           status="completed", steps=list(step_outputs.keys()))
+            self._tracer.end_span(trace_span.span_id, status="ok")
 
         except Exception as e:
             self._tracer.end_span(trace_span.span_id, status="error")
@@ -555,14 +651,12 @@ class WorkflowEngine:
                    WHERE id = ?""",
                 (str(e), run_id),
             )
-            self._db.get_conn().commit()
+            self._db.commit()
 
-            # Fire "failed" event
-            self._notifier.fire("failed", run_id=run_id,
-                                workflow_name=workflow.name, status="failed",
-                                error=str(e)[:500])
-            # Evaluate alert thresholds (even on failure)
-            self._alert_manager.evaluate_after_run(run_id=run_id)
+            # Fire "failed" event via EventBus
+            self._bus.emit(WORKFLOW_FAILED,
+                           run_id=run_id, workflow_name=workflow.name,
+                           status="failed", error=str(e)[:500])
 
             raise WorkflowExecutionError(f"Workflow '{workflow.name}' failed: {e}")
 
@@ -712,7 +806,7 @@ class WorkflowEngine:
                finished_at = datetime('now') WHERE id = ?""",
             (run_id,),
         )
-        self._db.get_conn().commit()
+        self._db.commit()
 
     def list_runs(self, limit: int = 20,
                   tenant_id: Optional[str] = None) -> list[dict]:

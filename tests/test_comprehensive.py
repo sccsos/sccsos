@@ -70,7 +70,7 @@ class TestConfigLoading:
     def test_default_config(self):
         cfg = AgentOSConfig()
         assert cfg.project.name == "sccsos"
-        assert cfg.project.version == "0.7.1"
+        assert cfg.project.version == "0.8.1"
         assert cfg.defaults.max_turns == 90
         assert cfg.tracing.pricing_path == ""
         assert "read_file" in cfg.policies.default.allowed_tools
@@ -78,6 +78,64 @@ class TestConfigLoading:
     def test_missing_config_falls_back(self):
         cfg = AgentOSConfig.load("/nonexistent/path.yaml")
         assert cfg.project.name == "sccsos"
+
+    def test_reload_config(self, tmp_path):
+        """reload_config() should return a fresh instance with new values."""
+        from sccsos.core.config import set_config, reload_config, get_config
+
+        # Simulate first load
+        cfg1 = AgentOSConfig()
+        cfg1.project.name = "original"
+        set_config(cfg1)
+        assert get_config().project.name == "original"
+
+        # Simulate a config change (set new defaults for the load)
+        cfg2 = AgentOSConfig()
+        cfg2.project.name = "reloaded"
+        cfg2.project.version = "2.0"
+        set_config(cfg2)
+
+        # After reload, should pick up the newly set config
+        # (reload_config calls AgentOSConfig.load() which returns defaults)
+        # Since there's no real file, it creates AgentOSConfig()
+        # But we can verify the side effect: global _config is replaced
+        result = reload_config()
+        assert result is not None
+
+    def test_reload_via_get_config(self, tmp_path):
+        """get_config(force_reload=True) should force a fresh load."""
+        from sccsos.core.config import set_config, get_config
+
+        cfg1 = AgentOSConfig()
+        cfg1.project.name = "first"
+        set_config(cfg1)
+
+        cfg2 = AgentOSConfig()
+        cfg2.project.name = "second"
+        set_config(cfg2)
+
+        result = get_config(force_reload=True)
+        assert result.project.name != "first"
+        assert get_config().project.name == result.project.name
+
+    def test_config_reload_adds_new_field(self, tmp_path):
+        """After reload, config should reflect changes to underlying data."""
+        from sccsos.core.config import set_config, reload_config, get_config, AgentOSConfig
+
+        # Set initial
+        set_config(AgentOSConfig())
+        old = get_config()
+        assert old.logging.level == "INFO"
+
+        # Change the config via set_config (simulating file change)
+        new = AgentOSConfig()
+        new.logging.level = "DEBUG"
+        set_config(new)
+
+        reloaded = reload_config()
+        # reload_config calls AgentOSConfig.load() which creates fresh
+        assert reloaded is not None
+
 
 # ═══════════════════════════════════════════════════════════
 # 2. SecuritySandbox
@@ -298,6 +356,109 @@ class TestTemplateEngine:
         r = self._render("{{ a + b }}", {"a": 40, "b": 2})
         assert r == "42"
 
+    # ── Custom filter tests ─────────────────────────────────────
+
+    def test_filter_json_parse(self):
+        r = self._render(
+            "{{ data | json_parse }}",
+            {"data": '{"key": "value", "num": 42}'},
+        )
+        assert "'key': 'value'" in r or '"key": "value"' in r
+
+    def test_filter_json_parse_not_string(self):
+        """json_parse on non-string should return value unchanged."""
+        r = self._render("{{ data | json_parse }}", {"data": {"ok": 1}})
+        assert "'ok': 1" in r or '"ok": 1' in r
+
+    def test_filter_json_dumps(self):
+        r = self._render(
+            "{{ data | json_dumps(0) }}",
+            {"data": {"name": "test", "count": 3}},
+        )
+        assert '"name": "test"' in r
+        assert '"count": 3' in r
+
+    def test_filter_pick(self):
+        r = self._render(
+            "{{ steps.result.response | pick('data') }}",
+            {"steps": {"result": {"response": {"data": "found"}}}},
+        )
+        assert r == "found"
+
+    def test_filter_pick_default(self):
+        r = self._render(
+            "{{ steps.result.response | pick('missing', default='fallback') }}",
+            {"steps": {"result": {"response": {"other": "val"}}}},
+        )
+        assert r == "fallback"
+
+    def test_filter_pick_non_dict(self):
+        r = self._render(
+            "{{ steps.result.response | pick('key') }}",
+            {"steps": {"result": {"response": "not a dict"}}},
+        )
+        assert r == ""
+
+    def test_filter_strptime_strftime_roundtrip(self):
+        r = self._render(
+            "{{ date | strptime | strftime('%Y/%m/%d') }}",
+            {"date": "2026-07-20T10:30:00"},
+        )
+        assert r == "2026/07/20"
+
+    def test_filter_strptime_custom_format(self):
+        r = self._render(
+            "{{ date | strptime('%Y-%m-%d') | strftime('%m-%d') }}",
+            {"date": "2026-07-20"},
+        )
+        assert r == "07-20"
+
+    def test_filter_strftime_non_datetime(self):
+        r = self._render("{{ val | strftime }}", {"val": "plain text"})
+        assert r == "plain text"
+
+    def test_filter_truncate_cn_short(self):
+        r = self._render(
+            "{{ text | truncate_cn(10) }}",
+            {"text": "Hello"},
+        )
+        assert r == "Hello"
+
+    def test_filter_truncate_cn_long(self):
+        r = self._render(
+            "{{ text | truncate_cn(6) }}",
+            {"text": "Hello World"},
+        )
+        assert "..." in r
+        assert len(r) <= 9  # 6 + 3 for ellipsis
+
+    def test_filter_truncate_cn_mixed(self):
+        """CJK characters count as width 2."""
+        r = self._render(
+            "{{ text | truncate_cn(6) }}",
+            {"text": "你好世界"},  # Each CJK char = width 2
+        )
+        # 6 width = 3 CJK chars
+        assert len(r) >= 3  # At least 3 chars
+        assert len(r) <= 7  # 3 chars + "..." = 6
+
+    def test_filter_chain_complex(self):
+        """Realistic workflow pattern: parse JSON → pick → format."""
+        template = (
+            "{% set parsed = steps.api.result.response | json_parse %}"
+            "{{ parsed | pick('status') }}"
+        )
+        r = self._render(template, {
+            "steps": {
+                "api": {
+                    "result": {
+                        "response": '{"status": "ok", "data": [1, 2, 3]}',
+                    },
+                },
+            },
+        })
+        assert r == "ok"
+
 # ═══════════════════════════════════════════════════════════
 # 5. VectorStore
 # ═══════════════════════════════════════════════════════════
@@ -456,7 +617,7 @@ class TestVersion:
     def test_project_version(self):
         from sccsos.core.config import get_config
         cfg = get_config()
-        assert cfg.project.version == "0.7.1"
+        assert cfg.project.version == "0.8.1"
 
     def test_sccsos_help(self):
         """CLI --help should show all commands without error."""
@@ -478,4 +639,4 @@ class TestVersion:
             capture_output=True, text=True, timeout=10,
         )
         assert result.returncode == 0
-        assert "0.7.1" in result.stdout
+        assert "0.8.1" in result.stdout

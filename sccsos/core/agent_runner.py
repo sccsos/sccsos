@@ -17,12 +17,14 @@ from __future__ import annotations
 import queue
 import threading
 from dataclasses import dataclass, field
-from typing import Optional, TYPE_CHECKING
+from typing import Callable, Optional, TYPE_CHECKING
 
 from sccsos.core.hermes_adapter import HermesAdapter, TaskResult
 
 if TYPE_CHECKING:
+    from sccsos.core.session import AgentSessionManager
     from sccsos.memory.memory_store import MemoryStore
+    from sccsos.core.supervisor import Supervisor
 
 
 @dataclass
@@ -54,7 +56,9 @@ class AgentProcess:
     def __init__(self, name: str, profile: str, adapter: HermesAdapter,
                  policy_engine=None, model: Optional[str] = None,
                  cancel_event: "threading.Event | None" = None,
-                 memory_store: "MemoryStore | None" = None):
+                 memory_store: "MemoryStore | None" = None,
+                 session_manager: "AgentSessionManager | None" = None,
+                 heartbeat_callback: "Optional[Callable[[str], None]]" = None):
         self.name = name
         self.profile = profile
         self._adapter = adapter
@@ -62,6 +66,9 @@ class AgentProcess:
         self._model = model
         self._cancel_event = cancel_event
         self._memory_store = memory_store
+        self._session_manager = session_manager
+        self._heartbeat_callback = heartbeat_callback
+        self._session_id: str | None = None
         self._task_queue: queue.Queue = queue.Queue()
         self._stop_event = threading.Event()
         self._paused = threading.Event()  # Pause signal
@@ -70,9 +77,18 @@ class AgentProcess:
     # ── Public API ───────────────────────────────────────────────
 
     def start(self) -> None:
-        """Start the background thread."""
+        """Start the background thread and create session synchronously."""
         if self._thread is not None and self._thread.is_alive():
             return
+
+        # Create session synchronously before starting the thread
+        if self._session_manager is not None and self._session_id is None:
+            try:
+                session = self._session_manager.get_or_create(self.name)
+                self._session_id = session.id
+            except Exception:
+                pass  # Non-fatal — proceed without session
+
         self._stop_event.clear()
         self._paused.clear()
         self._thread = threading.Thread(
@@ -83,18 +99,68 @@ class AgentProcess:
         self._thread.start()
 
     def stop(self, timeout: float = 5.0) -> None:
-        """Signal the thread to stop and wait for it."""
+        """Signal the thread to stop and wait for it.
+
+        Closes the conversation session as 'closed'.
+        """
+        # Close session before stopping
+        if self._session_manager is not None and self._session_id is not None:
+            try:
+                self._session_manager.close_session(
+                    self._session_id, new_status="closed"
+                )
+            except Exception:
+                pass
         self._stop_event.set()
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=timeout)
 
     def pause(self) -> None:
-        """Pause this agent — set paused flag. Running ask() will return error."""
+        """Pause this agent — set paused flag and close session.
+
+        The session is marked as 'paused' for later context recovery
+        on resume. Running ask() will return error.
+        """
         self._paused.set()
+        # Close session as 'paused' for context recovery on resume
+        if self._session_manager is not None and self._session_id is not None:
+            try:
+                self._session_manager.close_session(
+                    self._session_id, new_status="paused"
+                )
+            except Exception:
+                pass  # Non-fatal
 
     def resume(self) -> None:
-        """Resume this agent — clear paused flag."""
+        """Resume this agent — clear paused flag and create new session.
+
+        The previous paused session's context summary is carried forward
+        into the new session.
+        """
+        # Capture paused session summary before clearing
+        prev_summary = ""
+        if self._session_manager is not None and self._session_id is not None:
+            try:
+                paused = self._session_manager.get_paused_session(self.name)
+                if paused is not None:
+                    prev_summary = paused.context_summary
+            except Exception:
+                pass
+
         self._paused.clear()
+
+        # Create a fresh session on resume
+        if self._session_manager is not None:
+            try:
+                session = self._session_manager.get_or_create(self.name)
+                self._session_id = session.id
+                # Carry forward the summary from the paused session
+                if prev_summary and not session.context_summary:
+                    self._session_manager.update_summary(
+                        session.id, prev_summary
+                    )
+            except Exception:
+                pass  # Non-fatal
 
     def ask(self, prompt: str, timeout: float = 300.0) -> AskResult:
         """Send a prompt to this agent and wait for a response.
@@ -133,9 +199,53 @@ class AgentProcess:
 
     # ── Internal ─────────────────────────────────────────────────
 
+    def _build_prompt(self, user_prompt: str) -> str:
+        """Build the full prompt with memory and session history injected.
+
+        Order:
+          1. Persistent memory (KV facts from MemoryStore)
+          2. Session history (recent conversation turns from AgentSessionManager)
+          3. User prompt
+
+        Args:
+            user_prompt: The raw user prompt.
+
+        Returns:
+            Enriched prompt string.
+        """
+        parts = []
+
+        # Layer 1: Persistent memory
+        if self._memory_store is not None:
+            memory_data = self._memory_store.get_all(self.name)
+            if memory_data:
+                ctx_lines = [f"  {k}: {v}" for k, v in memory_data.items()]
+                memory_context = "\n".join(ctx_lines)
+                parts.append(
+                    f"[Persistent memory for {self.name}]\n"
+                    f"{memory_context}"
+                )
+
+        # Layer 2: Session history
+        if self._session_manager is not None and self._session_id is not None:
+            history_block = self._session_manager.get_history_block(
+                self._session_id, limit=5
+            )
+            if history_block:
+                parts.append(history_block)
+
+        # Layer 3: User prompt
+        parts.append(user_prompt)
+
+        return "\n\n---\n\n".join(parts)
+
     def _run_loop(self) -> None:
         """Main loop: wait for tasks or stop signal."""
         while not self._stop_event.is_set():
+            # Heartbeat — signal the Supervisor we're alive
+            if self._heartbeat_callback is not None:
+                self._heartbeat_callback(self.name)
+
             # Check cancellation signal
             if self._cancel_event is not None and self._cancel_event.is_set():
                 # Drain all pending tasks with cancellation error
@@ -163,19 +273,8 @@ class AgentProcess:
                 continue
 
             try:
-                # Build prompt — inject memory context if available
-                prompt = task.prompt
-                if self._memory_store is not None:
-                    memory_data = self._memory_store.get_all(self.name)
-                    if memory_data:
-                        ctx_lines = [f"  {k}: {v}" for k, v in memory_data.items()]
-                        memory_context = "\n".join(ctx_lines)
-                        prompt = (
-                            f"[Persistent memory for {self.name}]\n"
-                            f"{memory_context}\n\n"
-                            f"---\n\n"
-                            f"{task.prompt}"
-                        )
+                # Build prompt with session history + memory
+                prompt = self._build_prompt(task.prompt)
 
                 result = self._adapter.delegate_task(
                     agent_name=self.name,
@@ -185,6 +284,24 @@ class AgentProcess:
                     policy_engine=self._policy_engine,
                     cancel_event=self._cancel_event,
                 )
+
+                # Record the conversation turn BEFORE putting result on queue
+                # so the session data is guaranteed to be persisted when caller returns.
+                if self._session_manager is not None and self._session_id is not None:
+                    try:
+                        self._session_manager.append_message(
+                            self._session_id, "user", task.prompt
+                        )
+                        self._session_manager.append_message(
+                            self._session_id, "assistant", result.response
+                        )
+                    except Exception as e:
+                        import logging as _logging
+                        _logging.getLogger("sccsos.session").warning(
+                            "Failed to record session message for '%s': %s",
+                            self.name, e,
+                        )  # Non-fatal
+
                 task.result_queue.put(AskResult(
                     response=result.response,
                     success=result.success,
@@ -207,9 +324,13 @@ class AgentRunner:
         runner.stop_agent("architect")
     """
 
-    def __init__(self, adapter: HermesAdapter, memory_store=None):
+    def __init__(self, adapter: HermesAdapter, memory_store=None,
+                 session_manager: "AgentSessionManager | None" = None,
+                 supervisor: "Optional[Supervisor]" = None):
         self._adapter = adapter
         self._memory_store = memory_store
+        self._session_manager = session_manager
+        self._supervisor = supervisor
         self._processes: dict[str, AgentProcess] = {}
         self._lock = threading.Lock()
 
@@ -231,11 +352,21 @@ class AgentRunner:
         with self._lock:
             if name in self._processes and self._processes[name].is_alive:
                 return False
+
+            # Wire heartbeat callback from Supervisor
+            heartbeat_cb = None
+            if self._supervisor is not None:
+                heartbeat_cb = self._supervisor.heartbeat
+
             proc = AgentProcess(name, profile, self._adapter,
                                 policy_engine=policy_engine, model=model,
-                                memory_store=self._memory_store)
+                                memory_store=self._memory_store,
+                                session_manager=self._session_manager,
+                                heartbeat_callback=heartbeat_cb)
             proc.start()
             self._processes[name] = proc
+            if self._supervisor is not None:
+                self._supervisor.register(name, proc)
             return True
 
     def stop_agent(self, name: str) -> bool:
@@ -252,6 +383,8 @@ class AgentRunner:
             if proc is None:
                 return False
         proc.stop()
+        if self._supervisor is not None:
+            self._supervisor.unregister(name)
         return True
 
     def ask_agent(self, name: str, prompt: str,

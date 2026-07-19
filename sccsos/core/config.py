@@ -153,7 +153,42 @@ class WebhooksConfig:
 @dataclass
 class ProjectConfig:
     name: str = "sccsos"
-    version: str = "0.7.1"
+    version: str = "0.8.1"
+
+
+# ── Auto-merge helper ──────────────────────────────────────────────
+
+
+def _auto_merge(target: object, data: dict) -> None:
+    """Auto-map YAML dict keys to dataclass fields using introspection.
+
+    Walks every field defined in ``target``'s ``__dataclass_fields__``.
+    If the field name exists in ``data`` and the value is:
+    - A dict and the current attribute value is a dataclass → recurse
+    - Anything else → assign directly (str, int, bool, list, etc.)
+
+    Fields not present in ``data`` are left at their default values.
+    This means adding a new config field only requires a new dataclass
+    field — no mapping code to write.
+
+    Note: uses ``getattr(current_value, ...)`` rather than field-type
+    introspection to handle ``from __future__ import annotations``,
+    which turns all type hints into strings at runtime.
+    """
+    for fname, fdef in target.__dataclass_fields__.items():
+        if fname not in data:
+            continue
+        value = data[fname]
+
+        # Check runtime attribute — is it already a dataclass instance?
+        # This is more reliable than checking the annotation string,
+        # which can be "PoliciesConfig" (string) under PEP 563.
+        current = getattr(target, fname, None)
+        if isinstance(value, dict) and hasattr(current, '__dataclass_fields__'):
+            _auto_merge(current, value)
+        else:
+            # Simple type (str, int, bool, list, dict, etc.) → direct assign
+            setattr(target, fname, value)
 
 
 @dataclass
@@ -186,82 +221,92 @@ class AgentOSConfig:
 
     @classmethod
     def _from_dict(cls, data: dict) -> "AgentOSConfig":
-        """Recursively build dataclass from dict, preserving defaults."""
-        project_data = data.get("project", {})
-        db_data = data.get("database", {})
-        defaults_data = data.get("defaults", {})
-        logging_data = data.get("logging", {})
-        tracing_data = data.get("tracing", {})
+        """Recursively build dataclass from dict using field introspection.
 
+        Eliminates the previous 60-line hand-mapped if/elif chain.
+        New config fields only need a dataclass field definition —
+        no mapping code to write.
+
+        Special cases (overridden by explicit ``from_dict`` methods):
+        - ``policies`` → ``PoliciesConfig.from_dict()``
+        - ``webhooks`` → ``WebhooksConfig.from_dict()``
+
+        Legacy fallback:
+        - ``tracing.pricing_path`` → ``pricing.path`` (deprecated)
+        """
         cfg = cls()
 
-        if "name" in project_data:
-            cfg.project.name = project_data["name"]
-        if "version" in project_data:
-            cfg.project.version = project_data["version"]
+        # Auto-merge: walk every dataclass field, recursively nest into
+        # sub-dicts, assign simple values directly.
+        _auto_merge(cfg, data)
 
-        if "path" in db_data:
-            cfg.database.path = db_data["path"]
-
-        if "hermes_profile" in defaults_data:
-            cfg.defaults.hermes_profile = defaults_data["hermes_profile"]
-        if "max_turns" in defaults_data:
-            cfg.defaults.max_turns = defaults_data["max_turns"]
-        if "timeout" in defaults_data:
-            cfg.defaults.timeout = defaults_data["timeout"]
-
-        if "level" in logging_data:
-            cfg.logging.level = logging_data["level"]
-        if "format" in logging_data:
-            cfg.logging.format = logging_data["format"]
-        if "directory" in logging_data:
-            cfg.logging.directory = logging_data["directory"]
-        if "retention_days" in logging_data:
-            cfg.logging.retention_days = logging_data["retention_days"]
-
-        if "enabled" in tracing_data:
-            cfg.tracing.enabled = tracing_data["enabled"]
-        if "export_path" in tracing_data:
-            cfg.tracing.export_path = tracing_data["export_path"]
-        if "pricing_path" in tracing_data:
-            cfg.tracing.pricing_path = tracing_data["pricing_path"]
-
+        # ── Special-case overrides ──────────────────────────────
         policies_data = data.get("policies", {})
         if policies_data:
             policies_parsed = PoliciesConfig.from_dict(policies_data)
             cfg.policies.default = policies_parsed.default
             cfg.policies.named = policies_parsed.named
 
-        # Parse independent pricing section (new config path)
-        pricing_data = data.get("pricing", {})
-        if "path" in pricing_data:
-            cfg.pricing.path = pricing_data["path"]
-
-        agents_data = data.get("agents", {})
-        if "path" in agents_data:
-            cfg.agents.path = agents_data["path"]
-        if "wiki_path" in agents_data:
-            cfg.agents.wiki_path = agents_data["wiki_path"]
-        if "personalities_path" in agents_data:
-            cfg.agents.personalities_path = agents_data["personalities_path"]
-
         webhooks_data = data.get("webhooks", {})
         if webhooks_data:
             cfg.webhooks = WebhooksConfig.from_dict(webhooks_data)
 
+        # Legacy fallback: tracing.pricing_path → pricing.path
+        tracing_data = data.get("tracing", {})
+        if not cfg.pricing.path and tracing_data.get("pricing_path"):
+            cfg.pricing.path = tracing_data["pricing_path"]
+
         return cfg
 
 
-# Global config singleton (loaded once)
+# Global config singleton (loaded once, refreshable)
 _config: Optional[AgentOSConfig] = None
+_config_mtime: float = 0.0  # File modification time at last load
+_config_path: Optional[str] = None  # Path of the loaded config file
 
 
-def get_config() -> AgentOSConfig:
-    """Get the global config, loading on first access."""
-    global _config
+def get_config(force_reload: bool = False) -> AgentOSConfig:
+    """Get the global config, loading on first access.
+
+    Args:
+        force_reload: If True, reload from disk even if already loaded.
+            Pass this when the config file is known to have changed
+            (e.g., after ``sccsos config reload``).
+
+    Returns:
+        The (possibly cached) ``AgentOSConfig``.
+    """
+    global _config, _config_mtime, _config_path
+
+    # First load
     if _config is None:
         _config = AgentOSConfig.load()
+        _config_path = os.environ.get("AGENTOS_CONFIG") or DEFAULT_CONFIG_PATH
+        if Path(_config_path).exists():
+            _config_mtime = Path(_config_path).stat().st_mtime
+        return _config
+
+    # Force reload
+    if force_reload:
+        _config = AgentOSConfig.load()
+        _config_path = os.environ.get("AGENTOS_CONFIG") or DEFAULT_CONFIG_PATH
+        if Path(_config_path).exists():
+            _config_mtime = Path(_config_path).stat().st_mtime
+        return _config
+
     return _config
+
+
+def reload_config() -> AgentOSConfig:
+    """Force-reload config from disk and return the new instance.
+
+    Equivalent to ``get_config(force_reload=True)``, provided as a
+    more explicit API for CLI and event handlers.
+
+    Returns:
+        Freshly loaded ``AgentOSConfig``.
+    """
+    return get_config(force_reload=True)
 
 
 def set_config(cfg: AgentOSConfig) -> None:

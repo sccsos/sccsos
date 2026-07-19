@@ -1218,3 +1218,111 @@ class TestStepTimeout:
         assert adapter.last_timeout == 999, (
             f"Expected timeout=999, got {adapter.last_timeout}"
         )
+
+
+class TestSchemaMigration:
+    """Workflow schema version migration."""
+
+    def test_legacy_workflow_auto_migrates(self):
+        """A YAML without schema_version should be treated as 1.0 and migrated."""
+        yaml_text = """name: legacy-test
+version: 1.0
+steps:
+  - id: step1
+    agent: architect
+    prompt: Do something
+"""
+        import yaml, tempfile, os
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            f.write(yaml_text)
+            path = f.name
+        try:
+            wf = WorkflowDef.from_yaml(path)
+            assert wf.name == "legacy-test"
+            assert wf.schema_version == "1.1"  # Auto-migrated
+            assert len(wf.steps) == 1
+            # Migration should add defaults
+            assert wf.steps[0].timeout == 600
+            assert wf.steps[0].retry == 0
+        finally:
+            os.unlink(path)
+
+    def test_v1_1_workflow_passes_through(self):
+        """A YAML with schema_version 1.1 should load without migration."""
+        yaml_text = """name: current-test
+schema_version: '1.1'
+version: 2.0
+steps:
+  - id: step1
+    agent: architect
+    prompt: Do something
+    timeout: 300
+    retry: 2
+"""
+        import yaml, tempfile, os
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            f.write(yaml_text)
+            path = f.name
+        try:
+            wf = WorkflowDef.from_yaml(path)
+            assert wf.schema_version == "1.1"
+            assert wf.version == 2.0  # YAML parses 2.0 as float
+            assert wf.steps[0].timeout == 300
+            assert wf.steps[0].retry == 2
+        finally:
+            os.unlink(path)
+
+    def test_migrate_preserves_steps(self):
+        """Migration should not change step count or agent assignments."""
+        yaml_text = """name: preserver
+steps:
+  - id: a
+    agent: arch
+    prompt: p1
+  - id: b
+    agent: rev
+    prompt: p2
+    depends_on:
+      - a
+"""
+        import yaml, tempfile, os
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            f.write(yaml_text)
+            path = f.name
+        try:
+            wf = WorkflowDef.from_yaml(path)
+            assert len(wf.steps) == 2
+            assert wf.steps[0].agent == "arch"
+            assert wf.steps[1].depends_on == ["a"]
+        finally:
+            os.unlink(path)
+
+    def test_to_yaml_includes_schema_version(self):
+        """Serialized YAML should include schema_version."""
+        wf = WorkflowDef(
+            name="test",
+            steps=[WorkflowStepDef(id="s1", agent="arch", prompt="hi")],
+        )
+        yaml_out = wf.to_yaml()
+        assert "schema_version: '1.1'" in yaml_out
+
+    def test_unknown_schema_version_raises(self):
+        """An unrecognized schema version should raise."""
+        yaml_text = """name: bad-version
+schema_version: '99.99'
+version: 1.0
+steps:
+  - id: s1
+    agent: arch
+    prompt: hi
+"""
+        import yaml, tempfile, os
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            f.write(yaml_text)
+            path = f.name
+        try:
+            import pytest
+            with pytest.raises(WorkflowValidationError, match="99.99"):
+                WorkflowDef.from_yaml(path)
+        finally:
+            os.unlink(path)

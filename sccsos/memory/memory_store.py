@@ -55,14 +55,13 @@ class MemoryStore:
         """
         now = datetime.now(timezone.utc).isoformat()
         ttl = ttl_seconds if ttl_seconds is not None else self._default_ttl
-        conn = self._db.get_conn()
-        conn.execute(
+        self._db.execute(
             """INSERT OR REPLACE INTO memory_store
                (tenant_id, agent_name, key, value, updated_at, ttl_seconds)
                VALUES (?, ?, ?, ?, ?, ?)""",
             (tenant_id, agent_name, key, value, now, ttl),
         )
-        conn.commit()
+        self._db.commit()
 
     def get(self, agent_name: str, key: str,
             tenant_id: str = "default") -> Optional[str]:
@@ -78,13 +77,12 @@ class MemoryStore:
         Returns:
             The value string, or None if not found or expired.
         """
-        conn = self._db.get_conn()
-        row = conn.execute(
+        row = self._db.fetchone(
             """SELECT value, updated_at, ttl_seconds FROM memory_store
                WHERE tenant_id = ? AND agent_name = ? AND key = ?
                ORDER BY updated_at DESC LIMIT 1""",
             (tenant_id, agent_name, key),
-        ).fetchone()
+        )
         if not row:
             return None
 
@@ -95,12 +93,12 @@ class MemoryStore:
                 age = (datetime.now(timezone.utc) - updated).total_seconds()
                 if age > ttl:
                     # Entry expired — delete and return None
-                    conn.execute(
+                    self._db.execute(
                         """DELETE FROM memory_store
                            WHERE tenant_id = ? AND agent_name = ? AND key = ?""",
                         (tenant_id, agent_name, key),
                     )
-                    conn.commit()
+                    self._db.commit()
                     return None
             except (ValueError, TypeError):
                 pass  # Can't parse timestamp — treat as still valid
@@ -109,26 +107,23 @@ class MemoryStore:
     def delete(self, agent_name: str, key: str,
                tenant_id: str = "default") -> bool:
         """Delete a memory entry. Returns True if deleted."""
-        conn = self._db.get_conn()
-        cursor = conn.execute(
+        cursor = self._db.execute(
             """DELETE FROM memory_store
                WHERE tenant_id = ? AND agent_name = ? AND key = ?""",
             (tenant_id, agent_name, key),
         )
-        conn.commit()
+        self._db.commit()
         return cursor.rowcount > 0
 
     def list_keys(self, agent_name: str,
                   tenant_id: str = "default") -> list[str]:
         """List all non-expired memory keys for an agent in a tenant."""
-        conn = self._db.get_conn()
-        # Filter out expired entries at query time
-        rows = conn.execute(
+        rows = self._db.fetchall(
             """SELECT key, updated_at, ttl_seconds FROM memory_store
                WHERE tenant_id = ? AND agent_name = ?
                ORDER BY updated_at DESC""",
             (tenant_id, agent_name),
-        ).fetchall()
+        )
         now = datetime.now(timezone.utc)
         valid_keys = []
         for r in rows:
@@ -146,13 +141,12 @@ class MemoryStore:
     def get_all(self, agent_name: str,
                 tenant_id: str = "default") -> dict[str, str]:
         """Retrieve all non-expired memory entries for an agent as a dict."""
-        conn = self._db.get_conn()
-        rows = conn.execute(
+        rows = self._db.fetchall(
             """SELECT key, value, updated_at, ttl_seconds FROM memory_store
                WHERE tenant_id = ? AND agent_name = ?
                ORDER BY key""",
             (tenant_id, agent_name),
-        ).fetchall()
+        )
         now = datetime.now(timezone.utc)
         result = {}
         for r in rows:
@@ -170,23 +164,21 @@ class MemoryStore:
     def clear_agent(self, agent_name: str,
                     tenant_id: str = "default") -> int:
         """Clear all memory for an agent. Returns count of deleted entries."""
-        conn = self._db.get_conn()
-        cursor = conn.execute(
+        cursor = self._db.execute(
             """DELETE FROM memory_store
                WHERE tenant_id = ? AND agent_name = ?""",
             (tenant_id, agent_name),
         )
-        conn.commit()
+        self._db.commit()
         return cursor.rowcount
 
     def clear_tenant(self, tenant_id: str = "default") -> int:
         """Clear all memory for a tenant. Use with caution."""
-        conn = self._db.get_conn()
-        cursor = conn.execute(
+        cursor = self._db.execute(
             "DELETE FROM memory_store WHERE tenant_id = ?",
             (tenant_id,),
         )
-        conn.commit()
+        self._db.commit()
         return cursor.rowcount
 
     def purge_expired(self) -> int:
@@ -199,11 +191,10 @@ class MemoryStore:
         Returns:
             Number of expired entries purged.
         """
-        conn = self._db.get_conn()
-        cursor = conn.execute(
+        cursor = self._db.execute(
             """DELETE FROM memory_store
                WHERE ttl_seconds > 0
                  AND datetime(updated_at, '+' || ttl_seconds || ' seconds') < datetime('now')"""
         )
-        conn.commit()
+        self._db.commit()
         return cursor.rowcount

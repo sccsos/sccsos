@@ -106,13 +106,12 @@ class AlertManager:
     def _evaluate_threshold(self, threshold: AlertThreshold,
                             tenant_id: str) -> AlertResult:
         """Evaluate a single threshold and return alert if triggered."""
-        conn = self._db.get_conn()
         since = (datetime.now(timezone.utc) -
                  timedelta(minutes=threshold.window_minutes)).isoformat()
 
         if threshold.metric == "error_rate":
             # Count total and failed calls in the window
-            total = conn.execute(
+            total = self._db.execute(
                 """SELECT COUNT(*) FROM audit_log
                    WHERE timestamp >= ? AND tenant_id = ?""",
                 (since, tenant_id),
@@ -121,7 +120,7 @@ class AlertManager:
             if total == 0:
                 return AlertResult()
 
-            failed = conn.execute(
+            failed = self._db.execute(
                 """SELECT COUNT(*) FROM audit_log
                    WHERE timestamp >= ? AND tenant_id = ? AND success = 0""",
                 (since, tenant_id),
@@ -146,7 +145,7 @@ class AlertManager:
                 )
 
         elif threshold.metric == "failure_count":
-            failed = conn.execute(
+            failed = self._db.execute(
                 """SELECT COUNT(*) FROM audit_log
                    WHERE timestamp >= ? AND tenant_id = ? AND success = 0""",
                 (since, tenant_id),
