@@ -2,9 +2,9 @@
 
 > 构建在 Hermes Agent 之上的 Agent Runtime 平台
 >
-> **当前版本**: v0.7.0 (2026-07-20)
-> **架构基线**: 代码 ~7.8K 行 + 测试 157 用例 / 5 文件
-> **健康评分**: 8.5/10（P0+P1+P2 完成：PAUSED 空心修复 + MemoryStore 接线 agent ask + 线程安全 WorkflowRunContext + API 状态守卫 + 配置校验 + DB 统一操作）
+> **当前版本**: v0.7.1 (2026-07-22)
+> **架构基线**: 代码 ~8K 行 + 测试 157 用例 / 5 文件
+> **健康评分**: 8.7/10（P0: API-Runner 联动 + agent list 状态修复 + step_outputs 线程安全 + 测试 Mock 注入 | P1: tenant 过滤 cancel/list + Pricing 配置独立 + StepExecutor 上下文提取）
 
 ## 项目概述
 
@@ -111,6 +111,17 @@ sccsos/
 └── config/
     └── pricing.json            # LLM 定价数据
 ```
+
+## 新增特性 (v0.7.1)
+
+| 特性 | 模块 | 说明 |
+|------|------|------|
+| **API-Runner 联动** | api/server.py | 所有生命周期 API handler 同步启动/停止/暂停/恢复后台 runner 进程 |
+| **agent list 状态修复** | cli.py | 按 name 匹配 Lifecycle 实例，准确显示 RUNNING/PAUSED/FAILED 状态 |
+| **step_outputs 线程安全** | step_executor.py | 跳过路径的 dict 写入移至 DB 锁内，消除并行步骤竞态风险 |
+| **多租户隔离完善** | orchestrator.py | cancel_run() / list_runs() 新增 tenant_id 过滤参数 |
+| **Pricing 配置独立** | config.py | 新增 pricing.path 独立配置节，向后兼容 tracing.pricing_path |
+| **模板上下文提取** | step_executor.py | _build_context() 方法拆分，降低 _execute_step 复杂度 |
 
 ## 新增特性 (v0.7.0)
 

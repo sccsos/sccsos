@@ -132,24 +132,20 @@ class StepExecutor:
 
     # ── Internal ─────────────────────────────────────────────────
 
-    def _execute_step(self, run_id: str, step,
-                      step_outputs: dict[str, dict],
-                      parent_span_id: str = "",
-                      cancel_event: Optional[threading.Event] = None) -> None:
-        """Execute a single workflow step (no retry)."""
-        start_ts = datetime.now(timezone.utc)
+    def _build_context(self, run_id: str, step,
+                       step_outputs: dict[str, dict]) -> tuple[dict, callable]:
+        """Build template rendering context for a workflow step.
 
-        # Start step span (in-memory, no DB write yet)
-        step_span = self._tracer.start_span(
-            name=f"step:{step.id}",
-            agent=step.agent,
-            parent_span_id=parent_span_id,
-            trace_id=run_id,
-        )
+        Constructs the Jinja2 template context with:
+        - steps: All previous step outputs (for ``{{ steps.xxx.response }}``)
+        - run_id: The current workflow run ID
+        - knowledge: Optional KB context from wiki (if configured)
+        - memory: Optional persistent memory for this agent (if configured)
 
-        # Render prompt with template
-        # Build template context
-        template_context = {
+        Returns:
+            Tuple of (template_context dict, render_function).
+        """
+        template_context: dict = {
             "steps": step_outputs,
             "run_id": run_id,
         }
@@ -169,6 +165,27 @@ class StepExecutor:
 
         # Use injected template engine if available, fall back to default
         render_fn = self._template_engine or _render_template
+        return template_context, render_fn
+
+    def _execute_step(self, run_id: str, step,
+                      step_outputs: dict[str, dict],
+                      parent_span_id: str = "",
+                      cancel_event: Optional[threading.Event] = None) -> None:
+        """Execute a single workflow step (no retry)."""
+        start_ts = datetime.now(timezone.utc)
+
+        # Start step span (in-memory, no DB write yet)
+        step_span = self._tracer.start_span(
+            name=f"step:{step.id}",
+            agent=step.agent,
+            parent_span_id=parent_span_id,
+            trace_id=run_id,
+        )
+
+        # Build template context and get render function
+        template_context, render_fn = self._build_context(
+            run_id, step, step_outputs,
+        )
 
         # ── Condition check: if falsy → skip step ──────────────
         if step.condition:
@@ -186,9 +203,8 @@ class StepExecutor:
                          datetime.now(timezone.utc).isoformat()),
                     )
                     self._db.get_conn().commit()
-
-                # Inject empty output so downstream steps can reference {{ steps.xxx.response }}
-                step_outputs[step.id] = {"response": "", "stdout": "", "skipped": True}
+                    # Inject empty output (thread-safe: under lock)
+                    step_outputs[step.id] = {"response": "", "stdout": "", "skipped": True}
                 return
 
         # Render prompt with template

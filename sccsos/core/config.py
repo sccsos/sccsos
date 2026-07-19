@@ -40,7 +40,13 @@ class LoggingConfig:
 class TracingConfig:
     enabled: bool = True
     export_path: str = "./traces/"
-    pricing_path: str = ""  # Optional: path to pricing.json
+    pricing_path: str = ""  # Deprecated: use pricing.path instead
+
+
+@dataclass
+class PricingConfig:
+    """Pricing configuration — model cost estimation data."""
+    path: str = ""  # Path to pricing.json
 
 
 @dataclass
@@ -147,7 +153,7 @@ class WebhooksConfig:
 @dataclass
 class ProjectConfig:
     name: str = "sccsos"
-    version: str = "0.7.0"
+    version: str = "0.7.1"
 
 
 @dataclass
@@ -159,6 +165,7 @@ class AgentOSConfig:
     defaults: DefaultsConfig = field(default_factory=DefaultsConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     tracing: TracingConfig = field(default_factory=TracingConfig)
+    pricing: PricingConfig = field(default_factory=PricingConfig)
     agents: AgentsConfig = field(default_factory=AgentsConfig)
     policies: PoliciesConfig = field(default_factory=PoliciesConfig)
     webhooks: WebhooksConfig = field(default_factory=WebhooksConfig)
@@ -224,6 +231,11 @@ class AgentOSConfig:
             policies_parsed = PoliciesConfig.from_dict(policies_data)
             cfg.policies.default = policies_parsed.default
             cfg.policies.named = policies_parsed.named
+
+        # Parse independent pricing section (new config path)
+        pricing_data = data.get("pricing", {})
+        if "path" in pricing_data:
+            cfg.pricing.path = pricing_data["path"]
 
         agents_data = data.get("agents", {})
         if "path" in agents_data:

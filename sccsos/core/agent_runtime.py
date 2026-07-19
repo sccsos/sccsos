@@ -166,8 +166,8 @@ class AgentRuntime:
             self._db,
             export_path=cfg.tracing.export_path if cfg.tracing.enabled else None,
         )
-        # Create PricingTable from config if pricing_path is set
-        pricing_path = cfg.tracing.pricing_path
+        # Create PricingTable from config (new pricing.path, fallback to deprecated tracing.pricing_path)
+        pricing_path = cfg.pricing.path or cfg.tracing.pricing_path
         if pricing_path:
             pricing = PricingTable(Path(pricing_path))
         else:
@@ -224,8 +224,8 @@ class AgentRuntime:
 
     def _check_config(self, cfg) -> None:
         """Run optional config consistency checks (best-effort, no failure)."""
-        # Check pricing file existence
-        pricing_path = cfg.tracing.pricing_path
+        # Check pricing file existence (try new path first, then deprecated)
+        pricing_path = cfg.pricing.path or cfg.tracing.pricing_path
         if pricing_path:
             pp = Path(pricing_path)
             if not pp.exists():

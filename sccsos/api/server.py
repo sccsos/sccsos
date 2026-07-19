@@ -203,10 +203,19 @@ class APIHandler(BaseHTTPRequestHandler):
             return
         instance = runtime.lifecycle.create(spec)
         runtime.lifecycle.start(instance.id)
+        # Start background runner
+        profile = spec.profile or "sccsos"
+        runtime.runner.start_agent(
+            name, profile=profile,
+            policy_engine=runtime.policy_engine,
+            model=spec.model,
+        )
         self._json_response({"started": instance.spec.name, "id": instance.id})
 
     def _handle_stop_agent(self, name: str):
         runtime = get_runtime()
+        # Stop background runner first
+        runtime.runner.stop_agent(name)
         for inst in runtime.lifecycle.list_instances():
             if inst.spec.name == name and inst.status in (
                 AgentStatus.RUNNING, AgentStatus.PAUSED, AgentStatus.FAILED
@@ -222,6 +231,7 @@ class APIHandler(BaseHTTPRequestHandler):
         for inst in runtime.lifecycle.list_instances():
             if inst.spec.name == name and inst.status == AgentStatus.RUNNING:
                 runtime.lifecycle.pause(inst.id)
+                runtime.runner.pause_agent(name)
                 self._json_response({"paused": name, "id": inst.id})
                 return
         self._json_response({"error": f"No running instance of '{name}'"}, 404)
@@ -232,6 +242,7 @@ class APIHandler(BaseHTTPRequestHandler):
         for inst in runtime.lifecycle.list_instances():
             if inst.spec.name == name and inst.status == AgentStatus.PAUSED:
                 runtime.lifecycle.resume(inst.id)
+                runtime.runner.resume_agent(name)
                 self._json_response({"resumed": name, "id": inst.id})
                 return
         self._json_response({"error": f"No paused instance of '{name}'"}, 404)
@@ -249,6 +260,14 @@ class APIHandler(BaseHTTPRequestHandler):
                 else:
                     self._json_response({"error": f"Cannot restart agent in '{inst.status.value}' state"}, 400)
                     return
+                # Restart background runner
+                runtime.runner.stop_agent(name)
+                profile = inst.spec.profile or "sccsos"
+                runtime.runner.start_agent(
+                    name, profile=profile,
+                    policy_engine=runtime.policy_engine,
+                    model=inst.spec.model,
+                )
                 self._json_response({"restarted": name, "id": inst.id})
                 return
         self._json_response({"error": f"No instance of '{name}' found"}, 404)

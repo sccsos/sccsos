@@ -1,7 +1,7 @@
-# sccsos v0.7.0 project configuration
+# sccsos v0.7.1 project configuration
 project:
   name: sccsos
-  version: 0.7.0
+  version: 0.7.1
 
 database:
   path: ./data/sccsos.db
@@ -20,7 +20,8 @@ logging:
 tracing:
   enabled: true
   export_path: ./traces/
-  pricing_path: ./config/pricing.json
+pricing:
+  path: ./config/pricing.json
 
 agents:
   path: ./agents

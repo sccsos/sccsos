@@ -102,11 +102,15 @@ def agent_list(tenant):
         click.echo("No agents registered.")
         return
 
+    # Build name → status map from lifecycle instances
+    life_status: dict[str, str] = {}
+    for inst in runtime.lifecycle.list_instances():
+        life_status[inst.spec.name] = inst.status.value
+
     click.echo(f"{'Name':<20} {'Version':<10} {'Tenant':<14} {'Status':<14} {'Runner':<10} {'Description'}")
     click.echo("-" * 90)
     for a in agents:
-        instance = runtime.lifecycle.get_instance(a.name)
-        status = instance.status.value if instance else "registered"
+        status = life_status.get(a.name, "registered")
         runner = "running" if runtime.runner.is_running(a.name) else "-"
         click.echo(f"{a.name:<20} {a.version:<10} {a.tenant_id:<14} {status:<14} {runner:<10} {a.description[:40]}")
 
@@ -956,10 +960,10 @@ main.add_command(health)
 # ── template constants ────────────────────────────────────────────
 
 
-_DEFAULT_YAML = """# sccsos v0.7.0 project configuration
+_DEFAULT_YAML = """# sccsos v0.7.1 project configuration
 project:
   name: sccsos
-  version: 0.7.0
+  version: 0.7.1
 database:
   path: ./data/sccsos.db
 defaults:
@@ -974,7 +978,8 @@ logging:
 tracing:
   enabled: true
   export_path: ./traces/
-  pricing_path: ./config/pricing.json
+pricing:
+  path: ./config/pricing.json
 agents:
   path: ./agents
   wiki_path: ./wiki

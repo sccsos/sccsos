@@ -14,8 +14,26 @@ PORT = 18998
 
 @pytest.fixture(scope="module", autouse=True)
 def server():
-    """Start sccsos API server on a high port."""
+    """Start sccsos API server on a high port with mock adapter."""
+    from sccsos.core.agent_runtime import AgentRuntime, set_runtime
+    from sccsos.core.hermes_adapter import create_adapter
     from sccsos.api.server import run_server
+
+    # Inject a mock runtime so the API server doesn't try real Hermes CLI subprocess
+    runtime = AgentRuntime()
+    # Initialize with default config
+    runtime.initialize()
+    # Override the real adapter with mock after initialization
+    from sccsos.core.hermes_adapter import create_adapter as _create_adapter
+    runtime._adapter = _create_adapter("mock")
+    # Also update runner's adapter
+    if runtime._runner is not None:
+        runtime._runner._adapter = runtime._adapter
+        # Ensure no running processes from previous sessions
+        runtime._runner.stop_all()
+    runtime._tracer._export_path = None  # Don't write trace files in tests
+    set_runtime(runtime)
+
     t = threading.Thread(target=lambda: run_server(port=PORT), daemon=True)
     t.start()
     time.sleep(0.8)
@@ -55,7 +73,7 @@ class TestAPIEndpoints:
     def test_01_health(self):
         status, data = _get("/health")
         assert status == 200
-        assert data.get("version") == "0.7.0"
+        assert data.get("version") == "0.7.1"
         assert "initialized" in data
 
     def test_02_agents_list(self):

@@ -1,6 +1,6 @@
 # SCCS OS — Smart Agent Runtime Platform
 
-> v0.6.4 | [测试验证与操作手册](输出/SCCS OS 测试验证与操作手册.md)
+> v0.7.1 | [测试验证与操作手册](输出/SCCS OS 测试验证与操作手册.md)
 
 SCCS OS 是一个轻量级智能体运行时环境，提供多 Agent 编排、生命周期管理、可观测性、安全策略和开发者接口。基于 Hermes Agent 构建，支持多租户隔离和容器化部署。
 
@@ -105,6 +105,9 @@ logging:
 tracing:
   enabled: true
   export_path: ./traces/
+
+pricing:
+  path: ./config/pricing.json
 
 agents:
   path: ./agents

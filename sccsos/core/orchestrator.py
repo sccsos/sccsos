@@ -686,12 +686,27 @@ class WorkflowEngine:
         result["steps"] = [dict(s) for s in steps]
         return result
 
-    def cancel_run(self, run_id: str) -> None:
-        """Cancel a running workflow."""
+    def cancel_run(self, run_id: str,
+                   tenant_id: Optional[str] = None) -> None:
+        """Cancel a running workflow.
+
+        Args:
+            run_id: Workflow run ID.
+            tenant_id: Optional tenant ID for multi-tenant isolation.
+        """
         # Signal cancellation to running threads via per-run context
         ctx = self._run_contexts.get(run_id)
         if ctx is not None:
             ctx.cancel_event.set()
+
+        if tenant_id:
+            # Verify the run belongs to the tenant before cancelling
+            row = self._db.fetchone(
+                "SELECT id FROM workflow_runs WHERE id = ? AND tenant_id = ?",
+                (run_id, tenant_id),
+            )
+            if not row:
+                raise KeyError(f"Workflow run '{run_id}' not found for tenant '{tenant_id}'")
         self._db.execute(
             """UPDATE workflow_runs SET status = 'cancelled',
                finished_at = datetime('now') WHERE id = ?""",
@@ -699,10 +714,26 @@ class WorkflowEngine:
         )
         self._db.get_conn().commit()
 
-    def list_runs(self, limit: int = 20) -> list[dict]:
-        """List recent workflow runs."""
-        rows = self._db.execute(
-            "SELECT * FROM workflow_runs ORDER BY started_at DESC LIMIT ?",
-            (limit,),
-        ).fetchall()
+    def list_runs(self, limit: int = 20,
+                  tenant_id: Optional[str] = None) -> list[dict]:
+        """List recent workflow runs.
+
+        Args:
+            limit: Max number of runs to return.
+            tenant_id: Optional tenant ID for multi-tenant isolation.
+
+        Returns:
+            List of run dicts.
+        """
+        if tenant_id:
+            rows = self._db.execute(
+                """SELECT * FROM workflow_runs WHERE tenant_id = ?
+                   ORDER BY started_at DESC LIMIT ?""",
+                (tenant_id, limit),
+            ).fetchall()
+        else:
+            rows = self._db.execute(
+                "SELECT * FROM workflow_runs ORDER BY started_at DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
         return [dict(r) for r in rows]

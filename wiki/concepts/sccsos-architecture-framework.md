@@ -23,20 +23,20 @@
 | 6 | **记忆系统** | 冷记忆桥接(wiki)、TF-IDF 向量检索、KB → 模板注入、跨会话 KV 持久记忆、TTL 过期清理 | `KnowledgeBase`, `VectorStore`, `MemoryStore` |
 | 7 | **提示工程** | Agent YAML 定义(personality/profile/model/tenant)、Jinja2 沙箱模板渲染、Personality 系统提示注入、模板引擎可 mock | `AgentSpec`, `Jinja2 SandboxedEnvironment`, `PersonalityRegistry`, `templates.py` |
 
-## 当前评分（v0.7.0 — P0+P1+P2 架构重构后）
+## 当前评分（v0.7.1 — 架构优化后）
 
 | 域 | 权重 | 评分 | 说明 |
 |----|------|:----:|------|
 | 多智能体编排 | 20% | **9.5** | WorkflowRunContext 线程安全、StepExecutor 拆分、Schema 校验、条件分支 |
 | 工具增强型 LLM | 15% | **8.0** | 三层安全防线、retry 包裹、Mock 一致性、模板引擎可注入 |
-| Agent 生命周期 | 15% | **9.0** | 5 状态 FSM + 后台进程 + PAUSED 真实化、Runner pause/resume/cancel |
+| Agent 生命周期 | 15% | **9.5** | 5 状态 FSM + 后台进程 + PAUSED 真实化 + API-Runner 联动 |
 | 可观测性 | 15% | **8.5** | 追踪/审计/日志/Webhook/告警 五维一体、trace 合并导出 |
 | 安全沙箱 | 10% | **7.5** | 三层防线 + per-agent 覆盖 + 正则化危险模式 + API 策略校验 |
 | 记忆系统 | 10% | **8.5** | 知识库 + 向量检索 + 跨会话 KV + agent ask 路径接线 + TTL + purge_expired |
 | 提示工程 | 5% | **8.0** | 3 personality 文件 + AgentSpec 完整字段 + 模板引擎可注入 |
-| 多租户隔离 | 5% | **6.5** | Schema + API 就绪、get_run_status tenant 过滤、缺 CLI flag 全面覆盖 |
+| 多租户隔离 | 5% | **7.5** | Schema + API 就绪、get_run_status/cancel_run/list_runs tenant 过滤 |
 | 测试质量 | 5% | **9.5** | 157 用例覆盖核心+边缘场景+API+版本验证 |
-| **综合** | **100%** | **8.5/10** | |
+| **综合** | **100%** | **8.7/10** | |
 
 ## 数据流
 
@@ -137,11 +137,13 @@ flowchart TD
 | v0.5 | 2026-07-19 | P0+P1+P2 安全加固 + 架构改进 | 7.5 |
 | v0.6 | 2026-07-19 | 多租户 + 告警 + Personality + MemoryStore | 8.0 |
 | **v0.7** | **2026-07-20** | **PAUSED 真实化 + agent ask 记忆 + 线程安全 + DB 统一 + API 守卫** | **8.5** |
+| **v0.7.1** | **2026-07-22** | **API-Runner 联动 + agent list 修复 + step_outputs 线程安全 + tenant 过滤 + Pricing 独立 + 上下文提取** | **8.7** |
 | v0.8 (规划) | — | 会话持久化 + OTel + 沙箱增强 | 目标 9.0+ |
 
 ## 相关 ADR
 
 - [[ADR-003-sccsos-p0-p1-p2-evolution]] — 前序架构演进
-- [[ADR-004-sccsos-v0.7.0-architecture-refactor]] — 本轮架构重构
+- [[ADR-004-sccsos-v0.7.0-architecture-refactor]] — v0.7.0 架构重构
 - [[ADR-004-SCCS-OS-深度架构设计]] — 深度设计方案
+- [[ADR-006-sccsos-v0.7.1-architecture-optimization]] — v0.7.1 架构优化
 - [[需求分析-SCCS-OS-需求规格说明书]] — 原始需求
