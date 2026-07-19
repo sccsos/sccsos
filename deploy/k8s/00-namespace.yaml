@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: sccsos
+  labels:
+    app.kubernetes.io/name: sccsos
+    app.kubernetes.io/version: "0.10.0"

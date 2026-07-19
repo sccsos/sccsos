@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: sccsos
+  namespace: sccsos
+  labels:
+    app.kubernetes.io/name: sccsos
+spec:
+  selector:
+    app.kubernetes.io/name: sccsos
+  ports:
+    - port: 8765
+      targetPort: http-api
+      protocol: TCP
+      name: http-api
+  type: ClusterIP

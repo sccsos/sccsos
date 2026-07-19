@@ -155,6 +155,15 @@ CREATE TABLE IF NOT EXISTS memory_store (
     UNIQUE(tenant_id, agent_name, key)
 );
 
+-- Persistent event queue (for EventBus durability across restarts)
+CREATE TABLE IF NOT EXISTS event_queue (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event TEXT NOT NULL,
+    data TEXT NOT NULL DEFAULT '{}',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    consumed INTEGER DEFAULT 0
+);
+
 -- Personality version management
 CREATE TABLE IF NOT EXISTS personality_versions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

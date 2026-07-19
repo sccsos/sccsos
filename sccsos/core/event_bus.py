@@ -34,6 +34,16 @@ class EventBus:
 
     def __init__(self) -> None:
         self._handlers: dict[str, list[Callable[..., Any]]] = {}
+        self._persist_fn: Callable[[str, dict], None] | None = None
+
+    def set_persist(self, fn: Callable[[str, dict], None] | None) -> None:
+        """Set an optional persistence callback.
+
+        When set, every ``emit()`` call also invokes ``fn(event, data)``
+        so events can be stored durably (e.g. to SQLite) for replay
+        after a process restart.
+        """
+        self._persist_fn = fn
 
     # ── Public API ───────────────────────────────────────────────
 
@@ -57,10 +67,20 @@ class EventBus:
         Each handler runs in a try/except so a single failing
         handler never blocks others.
 
+        When a persistence callback is configured (via ``set_persist``),
+        the event is also persisted durably before any handler runs.
+
         Args:
             event: Event name (e.g. ``"workflow.completed"``).
             **data: Keyword arguments passed to each handler.
         """
+        # Persist before dispatch (best-effort)
+        if self._persist_fn is not None:
+            try:
+                self._persist_fn(event, data)
+            except Exception:
+                logger.exception("Event persist failed for '%s'", event)
+
         for handler in self._handlers.get(event, []):
             try:
                 handler(**data)

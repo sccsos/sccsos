@@ -119,6 +119,12 @@ class AgentRuntime:
         return self._memory_store
 
     @property
+    def model_router(self):
+        """Access the ModelRouter (multi-model pool)."""
+        self._ensure_initialized()
+        return self._model_router
+
+    @property
     def session_manager(self) -> AgentSessionManager:
         """Access the AgentSessionManager (conversation history)."""
         self._ensure_initialized()
@@ -240,6 +246,15 @@ class AgentRuntime:
         else:
             count = 0
 
+        # ── Model Router (multi-model pool) ────────────────────────
+        from sccsos.core.model_router import ModelRouter
+        # Load model_pool config (or None → built-in defaults)
+        model_pool_cfg = getattr(cfg, 'model_pool', None)
+        if model_pool_cfg is None:
+            # Try from raw dict fallback
+            model_pool_cfg = None
+        self._model_router = ModelRouter.from_config(model_pool_cfg)
+
         # ── Workflow engine ───────────────────────────────────────
         self._engine = WorkflowEngine(
             self._db, self._adapter,
@@ -258,6 +273,17 @@ class AgentRuntime:
         self._alert_manager = AlertManager(
             self._db, cfg, self._webhook,
         )
+
+        # Wire EventBus persistence to SQLite
+        def _persist_event(event: str, data: dict) -> None:
+            import json
+            self._db.execute(
+                "INSERT INTO event_queue (event, data) VALUES (?, ?)",
+                (event, json.dumps(data, ensure_ascii=False, default=str)),
+            )
+            self._db.commit()
+
+        bus.set_persist(_persist_event)
 
         def _on_workflow_event(event_label: str, **kw: Any) -> None:
             """Generic handler: forward workflow events to webhook."""
