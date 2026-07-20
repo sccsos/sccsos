@@ -3,11 +3,12 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sccsos.core.agent_runtime import get_runtime
 from sccsos.core.registry import AgentSpec
 from sccsos.core.lifecycle import AgentStatus
 from sccsos.api.models import RegisterAgentRequest, AskRequest
+from sccsos.security.rbac import require_permission, P
 
 router = APIRouter(prefix="/api/v1", tags=["agents"])
 
@@ -15,6 +16,7 @@ router = APIRouter(prefix="/api/v1", tags=["agents"])
 @router.get("/agents")
 async def list_agents(
     tenant_id: str = Query("default", alias="X-Tenant-ID"),
+    _: None = Depends(require_permission(P.AGENTS_READ)),
 ):
     runtime = get_runtime()
     agents = [
@@ -75,7 +77,8 @@ async def agent_status(name: str, tenant_id: str = "default"):
 
 
 @router.post("/agents/{name}/start")
-async def start_agent(name: str):
+async def start_agent(name: str,
+                      _: None = Depends(require_permission(P.AGENTS_MANAGE))):
     runtime = get_runtime()
     spec = runtime.registry.find(name)
     if not spec:
@@ -92,7 +95,8 @@ async def start_agent(name: str):
 
 
 @router.post("/agents/{name}/stop")
-async def stop_agent(name: str):
+async def stop_agent(name: str,
+                     _: None = Depends(require_permission(P.AGENTS_MANAGE))):
     runtime = get_runtime()
     runtime.runner.stop_agent(name)
     for inst in runtime.lifecycle.list_instances():

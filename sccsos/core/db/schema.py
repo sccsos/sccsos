@@ -205,6 +205,9 @@ CREATE TABLE IF NOT EXISTS skill_market (
     content TEXT NOT NULL,
     source_url TEXT DEFAULT '',
     status TEXT NOT NULL DEFAULT 'draft',
+    review_notes TEXT DEFAULT '',
+    install_count INTEGER DEFAULT 0,
+    category TEXT DEFAULT '',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(name, version)
@@ -218,6 +221,53 @@ CREATE TABLE IF NOT EXISTS installed_skills (
     installed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(name, type)
 );
+
+-- Review comments: threaded review feedback
+CREATE TABLE IF NOT EXISTS review_comments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    skill_name TEXT NOT NULL,
+    skill_version TEXT NOT NULL DEFAULT '1.0',
+    reviewer TEXT NOT NULL DEFAULT '',
+    comment TEXT NOT NULL,
+    parent_id INTEGER DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_review_comments_skill
+    ON review_comments(skill_name, skill_version);
+
+-- Review audit trail: every status change recorded
+CREATE TABLE IF NOT EXISTS review_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    skill_name TEXT NOT NULL,
+    skill_version TEXT NOT NULL DEFAULT '1.0',
+    action TEXT NOT NULL,
+    reviewer TEXT NOT NULL DEFAULT '',
+    old_status TEXT NOT NULL DEFAULT '',
+    new_status TEXT NOT NULL DEFAULT '',
+    detail TEXT DEFAULT '',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_review_history_skill
+    ON review_history(skill_name, skill_version);
+
+-- Skill ratings: star ratings (1-5) per user per skill
+CREATE TABLE IF NOT EXISTS skill_ratings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    skill_name TEXT NOT NULL,
+    skill_version TEXT NOT NULL DEFAULT '1.0',
+    user_id TEXT NOT NULL,
+    score INTEGER NOT NULL CHECK(score >= 1 AND score <= 5),
+    comment TEXT DEFAULT '',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(skill_name, skill_version, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_skill_ratings_skill
+    ON skill_ratings(skill_name, skill_version);
+CREATE INDEX IF NOT EXISTS idx_skill_ratings_score
+    ON skill_ratings(score);
 """
 
 # ── PostgreSQL schema (without SQLite-specific features) ───────────
@@ -380,6 +430,9 @@ CREATE TABLE IF NOT EXISTS skill_market (
     content TEXT NOT NULL,
     source_url TEXT DEFAULT '',
     status TEXT NOT NULL DEFAULT 'draft',
+    review_notes TEXT DEFAULT '',
+    install_count INTEGER DEFAULT 0,
+    category TEXT DEFAULT '',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(name, version)
@@ -392,6 +445,19 @@ CREATE TABLE IF NOT EXISTS installed_skills (
     type TEXT NOT NULL,
     installed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(name, type)
+);
+
+-- Skill ratings (PostgreSQL)
+CREATE TABLE IF NOT EXISTS skill_ratings (
+    id SERIAL PRIMARY KEY,
+    skill_name TEXT NOT NULL,
+    skill_version TEXT NOT NULL DEFAULT '1.0',
+    user_id TEXT NOT NULL,
+    score INTEGER NOT NULL CHECK(score >= 1 AND score <= 5),
+    comment TEXT DEFAULT '',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(skill_name, skill_version, user_id)
 );
 
 -- Indexes
@@ -516,6 +582,46 @@ def apply_migrations(conn) -> None:
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
             """)
+            conn.commit()
+
+        # Migration v7: Create skill_ratings table
+        tables = [r[0] for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        ).fetchall()]
+        if 'skill_ratings' not in tables:
+            conn.executescript("""
+                CREATE TABLE IF NOT EXISTS skill_ratings (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    skill_name TEXT NOT NULL,
+                    skill_version TEXT NOT NULL DEFAULT '1.0',
+                    user_id TEXT NOT NULL,
+                    score INTEGER NOT NULL CHECK(score >= 1 AND score <= 5),
+                    comment TEXT DEFAULT '',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(skill_name, skill_version, user_id)
+                );
+                CREATE INDEX IF NOT EXISTS idx_skill_ratings_skill
+                    ON skill_ratings(skill_name, skill_version);
+                CREATE INDEX IF NOT EXISTS idx_skill_ratings_score
+                    ON skill_ratings(score);
+            """)
+            conn.commit()
+
+        # Migration v8: Add install_count and category to skill_market
+        col_info = conn.execute(
+            "PRAGMA table_info(skill_market)"
+        ).fetchall()
+        col_names = [c[1] for c in col_info]
+        if 'install_count' not in col_names:
+            conn.execute(
+                "ALTER TABLE skill_market ADD COLUMN install_count INTEGER DEFAULT 0"
+            )
+            conn.commit()
+        if 'category' not in col_names:
+            conn.execute(
+                "ALTER TABLE skill_market ADD COLUMN category TEXT DEFAULT ''"
+            )
             conn.commit()
     except Exception as e:
         logger.warning("Migration failed (schema may be compatible): %s", e)

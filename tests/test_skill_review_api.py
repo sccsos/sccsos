@@ -147,6 +147,7 @@ class TestSkillReviewAPI:
         resp = client.post(
             "/api/v1/skills/test-review-agent/approve",
             params={"reviewer": "architect"},
+            headers={"X-Role": "admin"},
         )
         assert resp.status_code == 200
         assert resp.json()["status"] == "approved"
@@ -170,7 +171,8 @@ class TestSkillReviewAPI:
 
         client.post("/api/v1/skills/invalid-skill/submit")
         resp = client.post("/api/v1/skills/invalid-skill/approve",
-                           params={"reviewer": "test"})
+                           params={"reviewer": "test"},
+                           headers={"X-Role": "admin"})
         assert resp.status_code == 400
         assert "validation" in resp.json()["detail"].lower()
 
@@ -179,6 +181,7 @@ class TestSkillReviewAPI:
         resp = client.post(
             "/api/v1/skills/pending-agent/reject",
             params={"reason": "Missing license field"},
+            headers={"X-Role": "admin"},
         )
         assert resp.status_code == 200
         assert resp.json()["status"] == "rejected"
@@ -188,6 +191,7 @@ class TestSkillReviewAPI:
         """POST reject without reason returns 422."""
         resp = client.post(
             "/api/v1/skills/pending-agent/reject",
+            headers={"X-Role": "admin"},
         )
         assert resp.status_code == 422
 
@@ -196,5 +200,129 @@ class TestSkillReviewAPI:
         resp = client.post(
             "/api/v1/skills/nonexistent/reject",
             params={"reason": "No reason needed"},
+            headers={"X-Role": "admin"},
         )
         assert resp.status_code == 400
+
+
+class TestSkillReviewComments:
+    """Tests for review comments and history features."""
+
+    def test_add_comment(self, client):
+        """POST /api/v1/skills/{name}/comments adds a comment."""
+        resp = client.post(
+            "/api/v1/skills/test-review-agent/comments",
+            params={"comment": "Please add a license field", "reviewer": "senior-dev"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["comment"] == "Please add a license field"
+        assert data["reviewer"] == "senior-dev"
+        assert data["parent_id"] == 0
+
+    def test_add_comment_not_found(self, client):
+        """POST /api/v1/skills/{name}/comments returns 404 for unknown skill."""
+        resp = client.post(
+            "/api/v1/skills/nonexistent/comments",
+            params={"comment": "Test", "reviewer": "test"},
+        )
+        assert resp.status_code == 404
+
+    def test_list_comments(self, client):
+        """GET /api/v1/skills/{name}/comments lists all comments."""
+        client.post("/api/v1/skills/test-review-agent/comments",
+                     params={"comment": "First comment", "reviewer": "dev1"})
+        client.post("/api/v1/skills/test-review-agent/comments",
+                     params={"comment": "Second comment", "reviewer": "dev2"})
+
+        resp = client.get("/api/v1/skills/test-review-agent/comments")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) >= 2
+
+    def test_add_reply_comment(self, client):
+        """POST comments with parent_id creates a threaded reply."""
+        r1 = client.post("/api/v1/skills/test-review-agent/comments",
+                          params={"comment": "Parent", "reviewer": "dev1"})
+        parent_id = r1.json()["id"]
+        r2 = client.post("/api/v1/skills/test-review-agent/comments",
+                          params={"comment": "Reply", "reviewer": "dev2",
+                                  "parent_id": parent_id})
+        assert r2.status_code == 200
+        assert r2.json()["parent_id"] == parent_id
+
+    def test_get_review_history(self, client):
+        """GET /api/v1/skills/{name}/history returns review trail."""
+        client.post("/api/v1/skills/test-review-agent/submit")
+        client.post("/api/v1/skills/test-review-agent/approve",
+                     params={"reviewer": "admin"},
+                     headers={"X-Role": "admin"})
+
+        resp = client.get("/api/v1/skills/test-review-agent/history")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) >= 2
+        actions = [h["action"] for h in data]
+        assert "approve" in actions
+
+    def test_reset_rejected(self, client):
+        """Reset rejected skill back to draft via SkillReviewManager."""
+        from sccsos.core.agent_runtime import get_runtime
+        rt = get_runtime()
+        import yaml
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc).isoformat()
+        valid_yaml = yaml.dump({"name": "reset-test", "system_prompt": "Test"})
+        rt.db.execute(
+            "INSERT INTO skill_market (name, version, type, description, author, "
+            "filename, content, status, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            ("reset-test-skill", "1.0", "personality",
+             "For reset test", "tester",
+             "reset-test.yaml", valid_yaml, "rejected", now, now),
+        )
+        rt.db.commit()
+
+        from sccsos.core.skill_review import SkillReviewManager
+        mgr = SkillReviewManager(rt.db)
+        ok = mgr.reset_to_draft("reset-test-skill", reviewer="author")
+        assert ok
+
+        resp = client.get("/api/v1/skills/reset-test-skill/review")
+        assert resp.json()["status"] == "draft"
+
+    def test_version_diff(self, client):
+        """GET /api/v1/skills/{name}/diff returns diff between versions."""
+        from sccsos.core.agent_runtime import get_runtime
+        rt = get_runtime()
+        import yaml
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc).isoformat()
+        v2_yaml = yaml.dump({
+            "name": "test-review-agent",
+            "system_prompt": "You are a test agent v2.",
+            "model": "gpt-4",
+        })
+        rt.db.execute(
+            "INSERT INTO skill_market (name, version, type, description, author, "
+            "filename, content, status, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            ("test-review-agent", "2.0", "personality",
+             "A test agent v2", "tester",
+             "test-review-agent-v2.yaml", v2_yaml, "draft", now, now),
+        )
+        rt.db.commit()
+
+        resp = client.get("/api/v1/skills/test-review-agent/diff",
+                           params={"old_version": "1.0", "new_version": "2.0"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["old_version"] == "1.0"
+        assert data["new_version"] == "2.0"
+        assert len(data["fields_changed"]) >= 1
+
+    def test_version_diff_not_found(self, client):
+        """Diff for non-existent version returns 404."""
+        resp = client.get("/api/v1/skills/test-review-agent/diff",
+                           params={"old_version": "99.0", "new_version": "100.0"})
+        assert resp.status_code == 404

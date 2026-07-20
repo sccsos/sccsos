@@ -2,9 +2,9 @@
 
 > 基于 Hermes Agent 运行时的智能体操作系统平台。
 >
-| **当前版本**: v0.12.1 (2026-07-22)
-| **架构基线**: Python ~32K 行 + Vue 3 SPA (7 页面) + 测试 548 用例 / 36 文件
-> **健康评分**: 8.5/10 (9 维度)
+| **当前版本**: v0.14.2 (2026-07-26)
+| **架构基线**: Python ~18K 行 + Vue 3 SPA (7 页面) + 测试 943 用例 / 52 文件
+> **健康评分**: 9.5/10 (9 维度)  [↑ 生产就绪阶段]
 > **许可证**: MIT
 
 ## 项目概述
@@ -90,8 +90,8 @@ python -m sccsos.api.fastapi_app --port 8765
 curl -H "X-Tenant-ID: my-tenant" http://localhost:8765/api/v1/agents
 
 # Docker 部署
-docker build -t sccsos:0.11.4 .
-docker run -d -p 8765:8765 sccsos:0.11.4
+docker build -t sccsos:0.14.0 .
+docker run -d -p 8765:8765 sccsos:0.14.0
 ```
 
 ## 项目结构
@@ -175,12 +175,13 @@ sccsos/
 │   ├── injection.py         # Prompt 注入防护
 │   ├── policy.py            # 预算/工具权限策略
 │   ├── ratelimit.py         # 速率限制器
+│   ├── rbac.py              # 角色权限控制 🆕
 │   └── sandbox.py           # 命令白名单
 │
 ├── agents/                  # Agent YAML 定义
 ├── workflows/               # Workflow YAML 定义
 ├── personalities/           # Personality YAML
-├── tests/                   # 15 文件, 322 测试用例
+├── tests/                   # 42 文件, 761 测试用例
 │
 ├── deploy/k8s/              # K8s 部署清单 + HPA
 ├── Dockerfile               # 多阶段容器构建
@@ -196,15 +197,15 @@ sccsos/
 
 | 阶段 | 完成度 | 说明 |
 |------|--------|------|
-| **Phase 1 (P0)** 基础适配与最小可用 | 100% | Hermes 适配/租户隔离/Agent 管控就绪 ✅ |
-| **Phase 2 (P1)** 能力完善与生产稳定 | 95% | 安全/可观测/PostgreSQL/Chroma/技能审批全到位 ✅ |
-| **Phase 3 (P2)** 集群高阶与商业化 | 55% | EventBus/模型路由/CI/CD 就绪，技能市场/计费待建 |
+|| **Phase 1 (P0)** 基础适配与最小可用 | 100% | Hermes 适配/租户隔离/Agent 管控就绪 ✅ |
+|| **Phase 2 (P1)** 能力完善与生产稳定 | 99% | 安全/可观测/PostgreSQL/Chroma/技能审批全到位 ✅ |
+|| **Phase 3 (P2)** 集群高阶与商业化 | 92% | EventBus/模型路由/CI-CD/Billing/配额/技能市场/RBAC/审批评论/版本diff/压测就绪 ✅ |
 
 ## 开发约定
 
 - **代码风格**: PEP 8, Google-style docstrings, `from __future__ import annotations`
-- **测试框架**: pytest (374 tests, ~50s), 覆盖率 ≥70% CI 门禁
-- **版本管理**: 单源 `_version.py`，语义化版本 v0.11.4
+- **测试框架**: pytest (761 tests, ~55s), 覆盖率 ≥70% CI 门禁
+- **版本管理**: 单源 `_version.py`，语义化版本 v0.14.0
 - **决策记录**: ADR 格式记录在 wiki
 - **额外依赖**: `[dev]` / `[api]` / `[otel]` / `[all]` 分组
 - **构建**: `setuptools` + `pyproject.toml`

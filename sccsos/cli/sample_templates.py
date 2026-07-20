@@ -363,7 +363,7 @@ SAMPLE_PRICING = """{
 SAMPLE_YAML_FULL = """# sccsos v0.11.4 project configuration (full)
 project:
   name: sccsos
-  version: 0.12.1
+  version: 0.14.2
 
 database:
   path: ./data/sccsos.db

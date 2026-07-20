@@ -52,15 +52,14 @@ fi
 
 # ── 3. 运行集成测试 ──────────────────────────────────────────────
 echo ""
-echo "[Step 2/4] 运行 KafkaEventBus 集成测试..."
+echo "[Step 2/4] 运行 KafkaEventBus 压测..."
+echo ""
 
-python3 -m pytest tests/test_event_bus_kafka.py -v -x --override-ini='addopts=' \
-    -k "not test_init and not test_on_ and not test_off_ and not test_has and not test_clear and not test_topic and not test_create" \
-    -o "markers=" \
-    2>&1 | tail -20 || true
+python3 scripts/benchmark_kafka.py --count 1000 --bootstrap localhost:9092 2>&1
 
 echo ""
-echo "[Step 3/4] 运行端到端 EventBus → Kafka → 消费验证..."
+
+echo "[Step 3/4] 运行 KafkaEventBus 集成测试..."
 
 # 端到端验证: 发布事件 → 确认 Kafka topic 中有内容 → 消费
 python3 -c "

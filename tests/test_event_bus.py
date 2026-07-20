@@ -213,7 +213,7 @@ class TestConfigAutoMerge:
         """Empty data should produce all defaults."""
         cfg = AgentOSConfig._from_dict({})
         assert cfg.project.name == "sccsos"
-        assert cfg.project.version == '0.12.1'
+        assert cfg.project.version == '0.14.2'
         assert cfg.database.path == "./data/sccsos.db"
         assert cfg.defaults.hermes_profile == "sccsos"
         assert cfg.defaults.max_turns == 90
@@ -226,7 +226,7 @@ class TestConfigAutoMerge:
         cfg = AgentOSConfig._from_dict(data)
         assert cfg.project.name == "custom"
         # Unspecified fields keep defaults
-        assert cfg.project.version == '0.12.1'
+        assert cfg.project.version == '0.14.2'
         assert cfg.database.path == "./data/sccsos.db"
         assert cfg.tracing.enabled is True
         assert cfg.pricing.path == "./config/pricing.json"

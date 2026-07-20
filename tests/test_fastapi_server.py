@@ -72,7 +72,8 @@ class TestFastAPIEndpoints:
 
     def test_06_start_agent(self, client):
         client.post(f"{API_V1}/agents/register", json={"name": "startable"})
-        resp = client.post(f"{API_V1}/agents/startable/start")
+        resp = client.post(f"{API_V1}/agents/startable/start",
+                           headers={"X-Role": "admin"})
         assert resp.status_code == 200
         data = resp.json()
         assert "started" in data or "id" in data

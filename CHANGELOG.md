@@ -1,5 +1,159 @@
 # Changelog
 
+## [0.14.2] — 2026-07-26
+
+### Added
+
+- **Skill rating system**: `SkillRatingManager` with 1-5 star ratings, re-rating, aggregated stats (avg + distribution), user rating lookup, install count tracking, top-rated / most-installed / popular rankings, category-based grouping
+- **Skill rating API**: 8 new endpoints — POST `/skills/{name}/rate`, GET `/skills/{name}/rating`, GET `/skills/{name}/user-rating`, GET `/skills/ratings/top`, GET `/skills/popular`, GET `/skills/most-installed`, GET `/skills/categories`, GET `/skills/categories/{category}`
+- **Skill rating EventBus**: `skill.rated` event emitted on rating, broadcast via WebSocket to Dashboard real-time event log
+- **Vue frontend — 🔥 Popular tab**: New tab in Skills.vue showing top-rated skills (with star rendering) and most-installed skills in a 2-column grid layout
+- **DB schema migration v7/v8**: New `skill_ratings` table + `install_count`/`category` columns on `skill_market` (SQLite + PostgreSQL)
+- **Install count tracking**: `SkillMarket.install()` now auto-increments `install_count` via `SkillRatingManager`
+- **Fault tolerance drill suite**: 26 tests in `tests/test_fault_tolerance.py` covering DB concurrent writes, connection recovery, Supervisor heartbeat drop, rapid crash-restart, 50-process supervision, 1000-registration stress, AgentProcess edge cases (pre-start, post-stop, double start/stop, pause/resume, rapid 20-request queue), EventBus handler isolation, Kafka broker-unavailable fallback, thread/resource leak detection
+- **CONTRIBUTING.md**: Complete 12-chapter developer contribution guide — environment setup, project structure, coding standards, testing requirements, PR workflow, API integration, custom skill/plugin development, ADR conventions, FAQ
+- **GitHub Issues templates**: 3 templates — Bug report, Feature request, Usage question
+- **App.vue responsive sidebar**: Hamburger menu toggle + overlay + CSS transition for mobile screens ≤ 768px
+
+### Changed
+
+- Version: 0.14.1 → 0.14.2 (11 files synced)
+- `sccsos/core/db/schema.py`: Added `skill_ratings` table, `install_count`/`category` columns to `skill_market`, PostgreSQL equivalents, migration v7/v8
+- `sccsos/skill_market/__init__.py`: `install()` now tracks install count
+- `sccsos/skill_rating.py`: Emits `skill.rated` EventBus event on rate
+- `frontend/src/App.vue`: Replaced static sidebar with responsive collapsible layout
+- `frontend/src/views/Skills.vue`: Added 🔥 Popular tab, star rendering, topRated/mostInstalled data
+- `frontend/src/views/Dashboard.vue`: Added `skill.rated` WebSocket event listener
+- `frontend/src/api.js`: Added 7 new API methods for skill ratings and rankings
+
+### Coverage
+
+| Module | Coverage | Status |
+|--------|----------|--------|
+| `skill_rating` | 98% (112 stmts) | ✅ |
+| `skill_market` | 95% | ✅ |
+| **Fault tolerance drills** | 26 tests | ✅ |
+
+Test count: 915 → 943 passed, 4 skipped (0 failed, 0 errors)
+
+## [0.14.1] — 2026-07-22
+
+### Added
+
+- **Skill review enhancement**: Threaded review comments (add/list/reply), review audit history trail, version diff comparison (field-by-field + content diff), reset-to-draft workflow
+- **Billing test coverage**: 12 integration tests for `BillingExporter` (CSV export, summary, tenant/agent filtering, edge cases)
+- **Kafka throughput benchmark**: `scripts/benchmark_kafka.py` with dry-run support, throughput measurement (msg/s), latency tracking, event integrity verification
+- **Targeted coverage tests**: 36 tests covering error paths in `step_executor` (condition skip, injection guard, personality wrap, failure handling), `templates` (filter error paths, sandbox env, render errors), and `otel_tracer` (span lifecycle, fallback, mocked OTel)
+- **Admin panel — real-time WebSocket events**: Agent lifecycle events (created/started/stopped/paused/failed/resumed) and skill market events (submitted/approved/rejected) now broadcast to Dashboard via WebSocket
+- **Dashboard — token trend sparkline**: SVG real-time token consumption chart (60s rolling window) with peak tracking
+- **Dashboard — skill market summary**: Live stats card (total/approved/pending/installed skills)
+- **Grafana dashboard template**: `deploy/grafana/sccsos-dashboard.json` with 10 panels (agent stats, token/cost trends, error rate, API calls, latency), importable via Grafana UI
+- **Release CI**: `.github/workflows/release.yml` — auto-extracts CHANGELOG sections, builds wheel+sdist, creates GitHub Release with notes
+- **Install wizard**: `sccsos init --interactive` with 3-step guided setup (database type + PostgreSQL DSN, admin user creation, pricing tier selection)
+- **Generic API client**: `api.get(path)` for arbitrary API endpoint calls from Vue frontend
+
+### Changed
+
+- `sccsos/core/db/schema.py`: Added `review_comments` and `review_history` tables
+- `sccsos/core/skill_review.py`: Added `add_comment()`, `list_comments()`, `get_history()`, `version_diff()`, `reset_to_draft()` with reviewer tracking, review audit trail recording
+- `sccsos/api/routes/skills.py`: Added POST/GET `/skills/{name}/comments`, GET `/skills/{name}/history`, GET `/skills/{name}/diff` endpoints
+- `sccsos/api/routes/ws.py`: Extended EventBus wiring to broadcast agent lifecycle and skill market events
+- `frontend/src/views/Dashboard.vue`: Added sparkline chart, skill market summary, live agent event handling, clear button
+- `scripts/test-kafka-integration.sh`: Updated to use the new benchmark script as primary throughput test
+- `sccsos/core/config.py`: Default version updated to 0.14.1
+- `sccsos/cli/__init__.py`: Default YAML template version updated to 0.14.1
+
+### Coverage Improvements
+
+| Module | Before | After | Target | Status |
+|--------|--------|-------|--------|--------|
+| `step_executor` | 78% | **96%** | 85% | ✅ |
+| `templates` | 81% | **92%** | 90% | ✅ |
+| `otel_tracer` | 27% | **75%** | 60% | ✅ |
+| **Total** | 71.31% | **73%** | 70% | ✅ |
+
+Test count: 866 passed, 4 skipped (0 failed, 0 errors)
+
+### Added
+
+- **Security audit**: Full-chain attack simulation test suite (27 tests covering injection/policy/sandbox/rate-limit/RBAC)
+- **E2E API tests**: 18 FastAPI route-level integration tests (skill CRUD, RBAC auth, multi-tenant, error handling)
+- **Performance benchmark**: locustfile.py for load testing all major API endpoints
+- **Production ops docs**: ops/production-checklist.md with deployment checklist, DR procedures, monitoring guide
+
+### Changed
+
+- Version: 0.13.0 → 0.14.0
+
+### Architecture
+
+```
+v0.13.0 → v0.14.0  (Production Readiness)
+
+Security:
+  ├─ test_security_audit.py (27 tests, full-chain attack simulation)
+  └─ All 6 security layers validated end-to-end
+
+E2E:
+  ├─ test_api_e2e.py (18 tests, FastAPI TestClient)
+  ├─ Skill market full lifecycle (create→list→submit→approve→install→remove)
+  ├─ RBAC authorization (admin/operator/viewer header enforcement)
+  └─ Multi-tenant isolation (X-Tenant-ID)
+
+Operations:
+  ├─ tests/locustfile.py — Locust benchmark (read/write mixed workload)
+  └─ ops/production-checklist.md — Checklist, DR procedures, monitoring config
+```
+
+Test count: 838 passed, 4 skipped (0 failed, 0 errors)
+
+# Changelog
+
+## [0.13.0] — 2026-07-22
+
+### Added
+
+- **Skill marketplace**: 5 API endpoints (publish/install/remove/search), Vue 4-tab UI
+- **RBAC system**: 3 roles (admin/operator/viewer) × 14 permissions, FastAPI auth dependency
+- **CLI test coverage**: First CLI tests for version/init/help commands
+- **K8s deploy docs**: Full deployment guide with HPA verification, Helm, troubleshooting
+
+### Changed
+
+- Version: 0.12.1 → 0.13.0
+- `security/rbac.py` imported into agent/skills API routes for route-level authorization
+- `SkillMarket.list_skills()` supports `query` param for full-text search
+- `SkillMarket.create_skill()` added for inline skill creation (API layer)
+
+### Fixed
+
+- `SkillMarket.list_installed()` SQLite Row compatibility bug (AttributeError: no `.get()`)
+- `AGENTS.md` outdated test count, version, and project structure
+
+### Architecture
+
+```
+v0.12.1 → v0.13.0  (Phase 3: Skill Market + RBAC + Coverage)
+
+Skill Market:
+  ├─ Market API: GET/POST /skills, GET/POST/DELETE installed
+  ├─ Frontend: 4-tab Skills.vue (browse/search/install/publish/review)
+  └─ Coverage: skill_market 60% → 96%
+
+RBAC:
+  ├─ Security module: rbac.py (3 roles × 14 permissions)
+  ├─ Integration: agents.py, skills.py (require_permission decorator)
+  └─ Tests: 22 test cases (all roles/permission combinations)
+
+Coverage Sprint:
+  ├─ webhook.py: 69% → 100%
+  ├─ tracer.py: 82% → 96%
+  ├─ CLI tests: first 5 tests (version/init/help)
+  └─ Total: 61% → 71% (CI gate met ✅)
+```
+
+Test count: 766 passed, 4 skipped (0 failed, 0 errors)
+
 All notable changes to SCCS OS are documented here.
 
 ## [0.12.1] — 2026-07-22

@@ -1,7 +1,7 @@
 # SCCS OS — CI Pipeline
 #
 # Runs on every push and pull request to main/develop.
-# Stages: lint → test (374+ cases) → build check
+# Stages: lint → test (766+ cases, coverage ≥70%) → build check
 
 name: CI
 

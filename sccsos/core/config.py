@@ -191,7 +191,7 @@ class EventBusConfig:
 @dataclass
 class ProjectConfig:
     name: str = "sccsos"
-    version: str = "0.12.1"
+    version: str = "0.14.2"
 
 
 # ── Auto-merge helper ──────────────────────────────────────────────

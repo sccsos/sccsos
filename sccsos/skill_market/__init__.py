@@ -57,6 +57,45 @@ class SkillMarket:
 
     # ── Publish ─────────────────────────────────────────────────────
 
+    def create_skill(self, *, name: str, ftype: str = "personality",
+                     author: str = "", content: str = "",
+                     tags: Optional[list[str]] = None,
+                     auto_approve: bool = False) -> SkillEntry:
+        """Create a skill directly from inline data (no file).
+
+        Unlike publish(), this method accepts content as a string
+        rather than a file path. Useful for the API layer.
+        """
+        version = "1.0"
+        status = "published" if auto_approve else "draft"
+
+        # Check for existing entry
+        existing = self._db.fetchone(
+            "SELECT id FROM skill_market WHERE name = ? AND version = ?",
+            (name, version),
+        )
+        if existing:
+            version = self._next_version(name)
+
+        description = self._extract_description(content) or name
+
+        now = datetime.now(timezone.utc).isoformat()
+        self._db.execute(
+            """INSERT INTO skill_market
+               (name, version, type, description, author, tags, filename, content,
+                source_url, status, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (name, version, ftype, description, author,
+             json.dumps(tags or [], ensure_ascii=False),
+             f"{name}.yaml", content, "", status, now, now),
+        )
+
+        return SkillEntry(
+            name=name, version=version, type=ftype,
+            description=description, author=author, tags=tags or [],
+            filename=f"{name}.yaml", content=content, status=status,
+        )
+
     def publish(self, filepath: str | Path, *,
                 author: str = "",
                 tags: Optional[list[str]] = None,
@@ -143,7 +182,8 @@ class SkillMarket:
 
     def list_skills(self, status: Optional[str] = None,
                     ftype: Optional[str] = None,
-                    tag: Optional[str] = None) -> list[SkillEntry]:
+                    tag: Optional[str] = None,
+                    query: Optional[str] = None) -> list[SkillEntry]:
         """List skills with optional filters."""
         where = []
         params = []
@@ -153,6 +193,9 @@ class SkillMarket:
         if ftype:
             where.append("type = ?")
             params.append(ftype)
+        if query:
+            where.append("(name LIKE ? OR description LIKE ?)")
+            params.extend([f"%{query}%", f"%{query}%"])
 
         where_clause = " AND ".join(where) if where else "1=1"
         rows = self._db.fetchall(
@@ -264,6 +307,13 @@ class SkillMarket:
             (skill.name, skill.version, skill.type, now),
         )
 
+        # Increment install count (best-effort)
+        try:
+            from sccsos.skill_rating import SkillRatingManager
+            SkillRatingManager(self._db).increment_install_count(name, version or "1.0")
+        except Exception:
+            pass
+
         return str(dest)
 
     def remove(self, name: str) -> None:
@@ -283,7 +333,7 @@ class SkillMarket:
                 name=r["name"],
                 version=r["version"],
                 type=r["type"],
-                installed_at=r.get("installed_at", ""),
+                installed_at=r["installed_at"] if "installed_at" in r.keys() else "",
             )
             for r in rows
         ]
