@@ -2,7 +2,7 @@
 
 # SCCS OS 企业级商用版部署与操作手册
 
-**智能体架构设计师**
+**创新研究院 李锋**
 
 v0.11.4 | 2026 年 7 月
 
@@ -63,8 +63,6 @@ SaaS 多租户大规模部署 | K8s 集群 | PostgreSQL + Kafka
 | Memory limit | 2Gi | 4Gi | 8Gi | 8Gi |
 | 副本数 (HPA) | 1-5 | 2-10 | 1 (主) | 3 |
 | 存储 | — | 10Gi (PVC) | 50Gi (PVC) | 50Gi (PVC) |
-
----
 
 # 第二章 部署实施
 
@@ -173,8 +171,6 @@ git push origin v0.11.4
 # 自动: test → lint → build → helm deploy
 ```
 
----
-
 # 第三章 多租户管理
 
 ## 3.1 三层隔离模型
@@ -221,8 +217,6 @@ model_pool:                       # 租户模型路由
       model: deepseek-v4-flash
       capabilities: [chat, quick]
 ```
-
----
 
 # 第四章 完整功能参考
 
@@ -323,8 +317,6 @@ sccsos serve [--port] [--host] [--legacy]
 | GET | `/api/v1/audit/*` | 审计查询 |
 | GET | `/api/v1/skills` | 技能列表 |
 
----
-
 # 第五章 安全体系
 
 ## 5.1 三层安全防线
@@ -372,8 +364,6 @@ spec:
             cidr: 0.0.0.0/0
 ```
 
----
-
 # 第六章 技能市场运营
 
 ## 6.1 运营流程
@@ -414,8 +404,6 @@ sccsos skill approve nlp-agent
 sccsos skill install nlp-agent
 ```
 
----
-
 # 第七章 计费与计量
 
 ## 7.1 定价模型
@@ -451,8 +439,6 @@ sccsos audit billing
 # CSV 导出
 sccsos audit billing --csv > billing-$(date +%Y%m).csv
 ```
-
----
 
 # 第八章 运维管理
 
@@ -511,8 +497,6 @@ kubectl logs -l app.kubernetes.io/name=sccsos -n sccsos | jq '.'
 | Kafka 事件未送达 | 检查 Kafka consumer group: `kafka-consumer-groups --group sccsos-events` |
 | Agent 不响应 | `sccsos agent logs <name>` → 检查 Hermes 连接 |
 | 技能安装失败 | `sccsos skill show <name>` → 确认状态为 published |
-
----
 
 # 第九章 功能对比
 

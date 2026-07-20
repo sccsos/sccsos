@@ -2,6 +2,8 @@
 
 # SCCS OS 部署与操作手册
 
+> 版本: v0.14.2 | 更新: 2026-07-26 | 架构评分 9.0/10
+
 创新研究院 李锋
 
 v1.0 | 2026 年 7 月
@@ -24,80 +26,648 @@ v1.0 | 2026 年 7 月
 
 \newpage
 
+# 第1章 部署场景详解
 
-# 第1章 环境与部署
+## 1.1 部署方案矩阵
 
-## 1.1 概述
+SCCS OS 支持四种部署场景，覆盖从开发到生产的全链路需求：
 
+| 场景 | 环境 | 规模 | 数据库 | 消息总线 | 可观测性 | 适用场景 |
+|------|------|:----:|--------|---------|---------|---------|
+| **方案一：单实例裸机** | macOS / Linux | 1 节点 | SQLite | LocalEventBus | 内置（无 OTel） | 开发调试、个人使用 |
+| **方案二：单实例 Docker** | Docker / macOS / Linux | 1 容器 | SQLite | LocalEventBus | 内置（无 OTel） | 快速体验、CI/CD |
+| **方案三：集群简单部署** | Kubernetes ≥ 1.25 | 1~5 副本 | SQLite → PostgreSQL | LocalEventBus → Kafka | 内置 + OTel 可选 | 小团队、Demo 环境 |
+| **方案四：集群全量企业级** | Kubernetes → 生产集群 | 3~10 副本 | PostgreSQL (HA) | Kafka (集群) | OTel → Prometheus → Grafana | 生产环境、多租户 |
 
-## 1.1 文档说明
+## 1.2 前置条件与关联系统
 
-本文档为 SCCS OS 智能体操作系统的部署指引，涵盖环境准备、安装步骤、配置说明和部署验证。适用于初次部署 SCCS OS 的开发者和运维人员。
+### 1.2.1 核心依赖 — Hermes Agent 底座
 
-## 1.2 系统简介
+Hermes Agent 是 SCCS OS 的底层运行时底座，**所有部署场景均需安装**。
 
-![](images/sccsos-system-architecture-light.png)
+```bash
+# ── 安装 ──────────────────────────────────────────────
+pip install hermes-agent
 
-*图 2: SCCS OS 系统分层架构图 — 四层架构设计，展现系统全貌*
+# ── 验证 ──────────────────────────────────────────────
+hermes --version
+# 预期: hermes 0.24.x
 
+# ── 初始化配置向导 ─────────────────────────────────────
+hermes setup
+# 按提示配置：provider、model、API key
 
-![](images/sccsos-deployment-architecture-light.png)
+# ── 验证 profile 就绪 ─────────────────────────────────
+hermes chat "Hello"     # 测试对话正常
+hermes doctor           # 检查所有配置项
+```
 
-*图 1: SCCS OS 部署架构图 — macOS 宿主 + Hermes Agent 安装 + sccsos 工作区 + Profile 隔离 + 运行时数据*
-
-SCCS OS 是一个构建在 Hermes Agent 之上的智能体运行时平台，提供多 Agent 声明式编排、全生命周期管理和可观测性基础设施。
-
-| 模块 | 说明 |
-|------|------|
-| 核心运行时 | Agent 注册表、生命周期状态机、工作流编排引擎 |
-| Agent 管理 | 创建、启动、停止、查询 Agent 运行状态 |
-| 工作流引擎 | DAG 编排、模板注入、多步骤流水线 |
-| 可观测性 | Span 追踪、Token 审计、结构化日志 |
-| CLI 接口 | 15 条命令全覆盖 |
-
-## 1.3 技术栈
+**Hermes Agent 依赖清单**：
 
 | 组件 | 版本要求 | 说明 |
 |------|---------|------|
-| Python | >= 3.11 | 运行时环境 |
-| Hermes Agent | >= 0.18.0 | 底层 Agent 运行时底座 |
-| SQLite | >= 3.38 | 内置数据库（FTS5 支持） |
-| PyYAML | >= 6.0 | YAML 配置解析 |
-| Click | >= 8.0 | CLI 框架 |
-| DeepSeek API | — | LLM 模型服务 |
+| Python | ≥ 3.11 | 运行时环境 |
+| pip | ≥ 23.0 | Python 包管理 |
+| Git | ≥ 2.30 | 技能市场拉取（可选） |
+| LLM API Key | — | DeepSeek / OpenAI / Anthropic 等 |
+| 磁盘空间 | ≥ 500MB | 缓存 + 技能 + 数据库 |
 
-
-
-
-## 1.2 环境准备
-
-
-## 2.1 前提条件
-
-部署 SCCS OS 前需要完成以下准备工作：
-
-1. 安装 Python 3.11 或更高版本
-2. 安装 Hermes Agent（版本 >= 0.18.0）
-3. 配置 Hermes profile（至少一个可用 profile）
-4. 确保 LLM API 密钥已配置（如 DeepSeek API Key）
-
-## 2.2 Hermes Agent 安装
-
-Hermes Agent 是 SCCS OS 的底层运行时底座，必须预先安装。
+**Hermes Profile 配置**（必须存在至少一个可用 profile）：
 
 ```bash
-## 通过 pip 安装
-pip install hermes-agent
+# 查看已有 profiles
+hermes config list-profiles
+# 预期输出至少包含 "sccsos" 或 "default"
 
-## 验证安装
+# 如无可用 profile，手动创建
+hermes config create-profile sccsos
+hermes config set --profile sccsos provider deepseek
+hermes config set --profile sccsos model deepseek-chat
+hermes config set --profile sccsos api_key <your-api-key>
+```
+
+### 1.2.2 LLM API 服务
+
+| 服务商 | 推荐模型 | API 地址 | 获取方式 |
+|--------|---------|---------|---------|
+| DeepSeek | deepseek-chat | https://api.deepseek.com | 官网注册 |
+| OpenAI | gpt-4o | https://api.openai.com | OpenAI Platform |
+| Anthropic | claude-sonnet-4 | https://api.anthropic.com | Anthropic Console |
+
+> 所有使用场景需要至少配置一个 LLM API Key。SCCS OS 通过 Hermes Agent 间接调用 LLM，不直接管理 API Key。
+
+### 1.2.3 数据库选项
+
+| 选项 | 场景 | 配置方式 |
+|------|------|---------|
+| SQLite（默认） | 方案一/二 | 零配置，自动创建 |
+| PostgreSQL | 方案三/四 | `pip install sccsos[pg]` + 配置 DSN |
+
+### 1.2.4 消息总线选项
+
+| 选项 | 场景 | 依赖 |
+|------|------|------|
+| LocalEventBus（默认） | 方案一/二/三 | 零配置，进程内 pub/sub |
+| KafkaEventBus | 方案三/四 | `pip install sccsos[kafka]` + Kafka 集群 |
+
+### 1.2.5 可观测性栈（仅方案四）
+
+| 组件 | 用途 | 部署方式 |
+|------|------|---------|
+| OpenTelemetry Collector | 指标/追踪收集 | DaemonSet |
+| Prometheus | 指标存储 + 告警 | Prometheus Operator |
+| Grafana | 可视化和仪表盘 | Grafana Operator |
+| Loki（可选） | 日志聚合 | Loki Stack |
+
+## 1.3 方案一：单实例裸机部署
+
+### 1.3.1 适用场景
+
+- 开发者本地调试
+- 个人学习与实验
+- 轻量级任务调度
+
+### 1.3.2 前置条件
+
+```bash
+# 1. Python 3.11+
+python3 --version
+
+# 2. Hermes Agent 已安装
 hermes --version
+
+# 3. Hermes profile 已配置
+hermes config list-profiles
+
+# 4. LLM API Key 可访问
+hermes chat "ping" --quiet
 ```
 
-安装完成后，通过 Hermes 的交互式配置向导完成基本设置：
+### 1.3.3 安装 SCCS OS
 
 ```bash
-hermes setup
+# 最小安装（CLI + 核心）
+pip install sccsos
+
+# 全功能安装（含 API 服务器 + 可选组件）
+pip install sccsos[all]
+
+# 验证安装
+sccsos version
+# 预期: sccsos v0.14.2
 ```
+
+### 1.3.4 初始化项目
+
+```bash
+# 创建一个新项目
+sccsos init my-sccsos-project
+cd my-sccsos-project
+
+# 查看项目结构
+ls -la
+# sccsos.yaml          # 项目配置
+# agents/              # Agent YAML 定义
+# workflows/           # 工作流定义
+# personalities/       # 角色设定
+```
+
+### 1.3.5 配置 Hermes Profile 关联
+
+编辑 `sccsos.yaml` 确保 Hermes profile 配置正确：
+
+```yaml
+hermes:
+  profile: sccsos          # 使用的 Hermes profile 名称
+  adapter: subprocess      # 子进程通信模式
+
+agents:
+  path: ./agents
+  wiki_path: ./wiki        # 知识库路径（可选）
+  personalities_path: ./personalities
+
+database:
+  type: sqlite             # 单实例场景使用 SQLite
+  path: ./data/sccsos.db
+```
+
+### 1.3.6 启动与验证
+
+```bash
+# 1. 健康检查
+sccsos health
+# 预期:
+#   -- SCCS OS Health --
+#   Version:   0.14.2
+#   Database:  ok
+#   Hermes:    OK
+#   Agents:    0 registered
+
+# 2. 注册 Agent
+sccsos agent create architect
+
+# 3. 启动 Agent（后台进程）
+sccsos agent start architect
+
+# 4. 对话验证
+sccsos agent ask architect "Hello，请用一句话介绍自己"
+# 预期: Agent 返回自我介绍
+
+# 5. 运行示例工作流
+sccsos workflow run workflows/示例.yaml
+
+# 6. 启动 API 服务器（可选）
+python -m sccsos.api.fastapi_app --port 8765
+# 访问 http://localhost:8765/health
+```
+
+### 1.3.7 目录结构
+
+```
+my-sccsos-project/
+├── sccsos.yaml              # 项目配置
+├── agents/                  # Agent 定义
+│   └── architect.yaml       # 示例 Agent
+├── workflows/               # 工作流
+│   └── 示例.yaml
+├── personalities/           # 角色设定
+├── wiki/                    # 知识库（可选）
+├── data/                    # 运行时数据（自动创建）
+│   ├── sccsos.db            # SQLite 数据库
+│   └── traces/              # 追踪导出
+└── logs/                    # 日志目录
+    └── sccsos.log
+```
+
+## 1.4 方案二：单实例 Docker 部署
+
+### 1.4.1 适用场景
+
+- 快速体验（无需 Python 环境）
+- CI/CD 流水线集成
+- 标准化运行环境
+
+### 1.4.2 前置条件
+
+```bash
+# Docker Engine ≥ 24.0
+docker --version
+
+# docker-compose（可选，推荐）
+docker compose version
+```
+
+### 1.4.3 容器镜像
+
+```bash
+# 从源码构建
+cd /path/to/sccsos
+docker build -t sccsos:0.14.2 .
+
+# 从 registry 拉取（如已推送）
+docker pull your-registry/sccsos:0.14.2
+```
+
+### 1.4.4 Docker CLI 直接运行
+
+```bash
+# ── 创建持久化数据目录 ─────────────────────────────────
+mkdir -p ~/sccsos-data/{data,logs,traces,agents,workflows,personalities}
+
+# ── 复制默认配置文件 ────────────────────────────────────
+cp sccsos.yaml ~/sccsos-data/
+cp -r agents/* ~/sccsos-data/agents/
+cp -r workflows/* ~/sccsos-data/workflows/
+cp -r personalities/* ~/sccsos-data/personalities/
+
+# ── 运行容器 ───────────────────────────────────────────
+docker run -d \
+  --name sccsos \
+  -p 8765:8765 \
+  -v ~/sccsos-data/data:/sccsos/data \
+  -v ~/sccsos-data/logs:/sccsos/logs \
+  -v ~/sccsos-data/traces:/sccsos/traces \
+  -v ~/sccsos-data/agents:/sccsos/agents:ro \
+  -v ~/sccsos-data/workflows:/sccsos/workflows:ro \
+  -v ~/sccsos-data/personalities:/sccsos/personalities:ro \
+  -v ~/sccsos-data/sccsos.yaml:/sccsos/sccsos.yaml:ro \
+  -e HERMES_PROFILE=sccsos \
+  sccsos:0.14.2
+```
+
+### 1.4.5 Docker Compose（推荐）
+
+使用项目自带的 `docker-compose.yaml`：
+
+```yaml
+version: "3.8"
+services:
+  sccsos:
+    build: .
+    image: sccsos:0.14.2
+    container_name: sccsos
+    ports:
+      - "8765:8765"
+    volumes:
+      - sccsos_data:/sccsos/data        # SQLite 数据库
+      - sccsos_logs:/sccsos/logs        # 应用日志
+      - sccsos_traces:/sccsos/traces    # 追踪导出
+      - ./agents:/sccsos/agents:ro      # Agent 定义（只读）
+      - ./workflows:/sccsos/workflows:ro
+      - ./personalities:/sccsos/personalities:ro
+      - ./wiki:/sccsos/wiki:ro          # 知识库（可选）
+    environment:
+      - SCCSOS_CONFIG=/sccsos/sccsos.yaml
+      - HERMES_PROFILE=sccsos
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python3", "-m", "sccsos", "health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  sccsos_data:
+  sccsos_logs:
+  sccsos_traces:
+```
+
+启动：
+
+```bash
+docker compose up -d
+
+# 查看日志
+docker compose logs -f
+
+# 验证健康
+curl http://localhost:8765/health
+# 预期: {"status": "ok", "version": "0.14.2", ...}
+
+# 停止
+docker compose down
+
+# 停止并删除数据卷
+docker compose down -v
+```
+
+### 1.4.6 与 Hermes Agent 的集成说明
+
+容器内已预装 Hermes Agent，但 LLM API Key 需要通过环境变量或配置文件传递：
+
+```yaml
+# docker-compose.yaml 中补充
+environment:
+  - HERMES_PROFILE=sccsos
+  - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
+  # 或通过 mounted config
+  - HERMES_CONFIG=/sccsos/hermes.yaml
+volumes:
+  - ~/.hermes:/root/.hermes:ro   # 挂载宿主 Hermes 配置
+```
+
+## 1.5 方案三：集群简单部署
+
+### 1.5.1 适用场景
+
+- 小团队使用（3~10 人）
+- Demo / Staging 环境
+- 需要基本 HA 的场景
+
+### 1.5.2 前置条件
+
+```bash
+# Kubernetes 集群
+kubectl cluster-info
+
+# 开发集群推荐
+kind create cluster --name sccsos    # 或 minikube start
+
+# 工具链
+kubectl version --short     # ≥ 1.25
+docker --version            # ≥ 24.0
+helm version --short        # ≥ 3.12（可选）
+```
+
+### 1.5.3 构建并推送镜像
+
+```bash
+cd /path/to/sccsos
+
+# 1. 构建
+docker build -t sccsos:0.14.2 .
+
+# 2. 推送到 registry
+docker tag sccsos:0.14.2 your-registry/sccsos:0.14.2
+docker push your-registry/sccsos:0.14.2
+
+# 3. 本地 kind 集群（无需推送）
+kind load docker-image sccsos:0.14.2 --name sccsos
+```
+
+### 1.5.4 部署
+
+```bash
+# 一键部署全部资源
+kubectl apply -f deploy/k8s/
+
+# 或分批部署（便于排查问题）：
+kubectl apply -f deploy/k8s/00-namespace.yaml
+kubectl apply -f deploy/k8s/10-configmap.yaml
+kubectl apply -f deploy/k8s/20-pvc.yaml
+kubectl apply -f deploy/k8s/30-deployment.yaml
+kubectl apply -f deploy/k8s/40-service.yaml
+kubectl apply -f deploy/k8s/50-hpa.yaml
+```
+
+### 1.5.5 验证
+
+```bash
+# 检查 Pod
+kubectl -n sccsos get pods -w
+
+# 端口转发访问
+kubectl -n sccsos port-forward svc/sccsos 8765:8765 &
+curl http://localhost:8765/health
+
+# 查看日志
+kubectl -n sccsos logs -f deployment/sccsos
+```
+
+### 1.5.6 资源配置
+
+| 资源 | Request | Limit |
+|------|---------|-------|
+| CPU | 250m | 1000m |
+| 内存 | 512Mi | 2Gi |
+| 存储 (PVC) | 10Gi (data) + 5Gi (logs) |
+
+### 1.5.7 HPA 自动扩缩容
+
+```yaml
+# deploy/k8s/50-hpa.yaml
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+spec:
+  minReplicas: 1
+  maxReplicas: 5
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+```
+
+## 1.6 方案四：集群全量企业级部署
+
+### 1.6.1 适用场景
+
+- 生产环境多租户
+- 大规模并发（500+ 请求）
+- 需 99.9% 可用性保证
+- 完整可观测性 + 审计合规
+
+### 1.6.2 关联系统全景图
+
+![企业级部署架构全景](images/sccsos-enterprise-deployment-light.png)
+
+*图 1-6: SCCS OS 企业级部署全景架构 — Ingress → SCCS OS 集群 → 中间件层 → 可观测性栈*
+
+### 1.6.3 前置条件
+
+**基础设施**：
+
+| 组件 | 版本 | 用途 | 部署方式 |
+|------|------|------|---------|
+| Kubernetes | ≥ 1.25 | 容器编排 | 托管集群（EKS/AKS/GKE/TKE） |
+| Ingress Controller | 最新 | 流量入口 | nginx-ingress / ALB |
+| Cert-Manager | ≥ 1.12 | TLS 证书 | Helm Chart |
+| StorageClass | SSD | 持久化存储 | 集群预配置 |
+
+**关联系统**：
+
+| 系统 | 版本 | 用途 | HA 要求 |
+|------|------|------|:-------:|
+| PostgreSQL | ≥ 14 | 持久化数据库 | ✅ 主从 |
+| Kafka | ≥ 3.5 | 跨实例消息总线 | ✅ 3 节点 |
+| Redis | ≥ 7 | Session 共享 | ✅ 哨兵 |
+| OpenTelemetry Collector | ≥ 0.90 | 指标/追踪收集 | DaemonSet |
+| Prometheus | ≥ 2.50 | 指标存储 | ✅ Operator |
+| Grafana | ≥ 10 | 可视化 + 告警 | Operator |
+
+### 1.6.4 Helm Chart 部署（推荐）
+
+```bash
+# ── 1. 安装 PostgreSQL ───────────────────────────────────
+helm repo add bitnami https://charts.bitnami.com/bitnami
+helm install sccsos-pg bitnami/postgresql-ha \
+  --namespace sccsos --create-namespace \
+  --set postgresql.replicaCount=2 \
+  --set persistence.size=50Gi
+
+# ── 2. 安装 Kafka ────────────────────────────────────────
+helm install sccsos-kafka bitnami/kafka \
+  --namespace sccsos \
+  --set replicas=3 \
+  --set persistence.size=20Gi
+
+# ── 3. 安装 SCCS OS ──────────────────────────────────────
+helm install sccsos ./deploy/helm/sccsos \
+  --namespace sccsos \
+  -f my-production-values.yaml
+```
+
+`my-production-values.yaml` 参考配置：
+
+```yaml
+image:
+  repository: your-registry/sccsos
+  tag: 0.14.2
+  pullPolicy: Always
+  pullSecrets:
+    - name: regcred
+
+replicaCount: 3
+
+config:
+  database:
+    type: postgresql
+    dsn: postgresql://sccsos:password@sccsos-pg-postgresql-ha:5432/sccsos
+
+  event_bus:
+    backend: kafka
+    bootstrap_servers: sccsos-kafka:9092
+    client_id: sccsos-prod
+
+  tracing:
+    enabled: true
+    otlp_endpoint: http://otel-collector:4318/v1/traces
+    export_path: /sccsos/traces
+
+  policies:
+    default:
+      max_cost_usd: 100.0
+      allowed_commands:
+        - read_file
+        - search_files
+        - web_search
+
+ingress:
+  enabled: true
+  host: sccsos.your-company.com
+  tls: true
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+
+resources:
+  requests:
+    cpu: 500m
+    memory: 1Gi
+  limits:
+    cpu: 2
+    memory: 4Gi
+
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+```
+
+### 1.6.5 配置可观测性栈
+
+```bash
+# OTel Collector
+helm install otel-collector open-telemetry/opentelemetry-collector \
+  --namespace sccsos \
+  -f otel-collector-config.yaml
+
+# Prometheus + Grafana
+helm install prometheus prometheus-community/kube-prometheus-stack \
+  --namespace monitoring --create-namespace
+
+# 导入 Grafana Dashboard
+kubectl -n monitoring port-forward svc/prometheus-grafana 3000:80
+# → 浏览器打开 localhost:3000，导入 deploy/grafana/sccsos-dashboard.json
+```
+
+### 1.6.6 安全加固
+
+```yaml
+# sccsos.yaml 生产配置
+security:
+  rbac:
+    enabled: true
+    default_role: viewer
+
+  rate_limiting:
+    enabled: true
+    max_requests_per_minute: 60
+
+  audit:
+    log_all_operations: true
+    retention_days: 90
+
+  tls:
+    enabled: true
+    cert_path: /etc/tls/tls.crt
+    key_path: /etc/tls/tls.key
+```
+
+### 1.6.7 备份策略
+
+| 数据 | 备份方式 | 频率 | 保留期 |
+|------|---------|:----:|:------:|
+| PostgreSQL 数据库 | pg_dump + S3 | 每日 | 30 天 |
+| 配置文件 | Git 版本管理 | 每次部署 | 永久 |
+| 日志 | Loki 内置 | 实时 | 90 天 |
+| 追踪数据 | OTel + 冷存储 | 实时 | 7 天 |
+
+```bash
+# PostgreSQL 备份脚本示例
+#!/bin/bash
+BACKUP_FILE="sccsos-$(date +%Y%m%d).sql.gz"
+PGPASSWORD=password pg_dump -h sccsos-pg -U sccsos sccsos | gzip > /backups/$BACKUP_FILE
+aws s3 cp /backups/$BACKUP_FILE s3://sccsos-backups/
+```
+
+### 1.6.8 验证清单
+
+```bash
+# 1. Pod 全部 Running
+kubectl -n sccsos get pods
+# 预期: sccsos-xxx   3/3 Running
+#       sccsos-pg-*  2/2 Running
+#       sccsos-kafka-* 3/3 Running
+
+# 2. API 可用
+curl -k https://sccsos.your-company.com/health
+
+# 3. 数据库连接正常
+kubectl -n sccsos exec deployment/sccsos -- sccsos health
+
+# 4. Kafka 消息可达（启动两个 workflow 验证事件）
+sccsos workflow run workflows/示例.yaml
+
+# 5. OTel 链路导出（检查 Grafana -> Explore -> traces）
+kubectl -n sccsos port-forward svc/prometheus-grafana 3000:80
+# → 查看 sccsos_workflow_runs_total 指标
+
+# 6. 跨 Pod WebSocket 通信
+# 在 Grafana 中确认 WebSocket 连接数 > 0
+
+# 7. TLS 证书有效
+curl -kv https://sccsos.your-company.com/health 2>&1 | grep "SSL certificate"
+```
+
+## 1.7 部署方案选择决策树
+
+![部署方案选择决策树](images/sccsos-deployment-decision-tree-light.png)
+
+*图 1-7: SCCS OS 部署方案选择决策树 — 从使用场景引导到四个部署方案*
 
 ## 2.3 目录复制式安装（替代方案）
 
@@ -317,11 +887,7 @@ SCCS OS 核心依赖极少：
 | pyyaml | YAML 配置解析 | `python3 -c "import yaml; print(yaml.__version__)"` |
 | click | CLI 框架 | `python3 -c "import click; print(click.__version__)"` |
 
-
-
-
 ## 1.3 安装部署
-
 
 ## 3.1 安装步骤
 
@@ -400,11 +966,7 @@ sccsos v0.4.0
 | Hermes | OK | 确认 Hermes CLI 已安装且在 PATH 中 |
 | Agents | 显示已注册 Agent 数 | 检查 agents/ 目录下的 YAML 文件 |
 
-
-
-
 ## 1.4 配置说明
-
 
 ## 4.1 项目配置（sccsos.yaml）
 
@@ -444,7 +1006,7 @@ Agent 定义文件存放于 agents/ 目录，采用 YAML 格式：
 ```yaml
 name: architect
 version: 1.0
-description: 智能体架构设计师
+description: 创新研究院 李锋
 personality: agent-architect
 profile: sccsos
 toolsets:
@@ -460,11 +1022,7 @@ lifecycle:
   auto_recover: true
 ```
 
-
-
-
 ## 1.5 部署验证
-
 
 ## 5.1 基本功能验证
 
@@ -547,11 +1105,7 @@ sccsos audit report
 sccsos audit log
 ```
 
-
-
-
 ## 1.6 部署场景案例
-
 
 ## 6.1 案例：软件开发团队部署 SCCS OS
 
@@ -688,11 +1242,9 @@ hermes profile use dept-b
 sccsos agent list           # 只看到 B 部门的 Agent
 ```
 
-
 # 第2章 操作指南
 
 ## 2.1 概述
-
 
 ## 1.1 文档说明
 
@@ -703,7 +1255,6 @@ sccsos agent list           # 只看到 B 部门的 Agent
 ![](images/sccsos-component-relationship-light.png)
 
 *图 3: SCCS OS 核心组件关系图 — CLI 命令背后的核心组件交互*
-
 
 SCCS OS 提供 15 条命令，分为 6 组：
 
@@ -728,11 +1279,7 @@ SCCS OS 提供 15 条命令，分为 6 组：
 | 审计 | audit report | 生成审计报告 |
 | 审计 | audit log | 查看审计日志 |
 
-
-
-
 ## 2.2 Agent 管理
-
 
 ## 2.1 查看 Agent 列表
 
@@ -747,7 +1294,7 @@ sccsos agent list
 ```
 Name                 Version    Status       Description
 ----------------------------------------------------------------------
-architect            1.0        registered   智能体架构设计师
+architect            1.0        registered   创新研究院 李锋
 test-coder           1.0        registered
 ```
 
@@ -840,7 +1387,6 @@ sccsos agent logs architect --limit 50
 
 输出按时间倒序排列，每条记录包含时间戳、事件类型和详情。
 
-
 ![](images/sccsos-lifecycle-state-machine-light.png)
 
 *图 1: Agent 生命周期状态机 — 5 种状态与 8 种转换关系*
@@ -856,16 +1402,11 @@ SCCS OS 定义了 5 种运行状态：
 | FAILED | 运行异常 | RUNNING (restart), TERMINATED |
 | TERMINATED | 已终止，资源释放 | （终态） |
 
-
-
-
 ![](images/sccsos-workflow-sequence-light.png)
 
 *图 2: Workflow 执行时序图 — 从 DAG 构建到步骤执行、结果聚合的完整流程*
 
-
 ## 2.3 工作流编排
-
 
 ## 3.1 工作流定义
 
@@ -986,11 +1527,7 @@ sccsos workflow cancel wf_a1b2c3d4e5f6
 
 取消后状态标记为 cancelled，正在执行的步骤不会强制中断。
 
-
-
-
 ## 2.4 可观测性
-
 
 ## 4.1 链路追踪
 
@@ -1107,11 +1644,7 @@ sccsos audit log --agent architect
 | claude-sonnet-4 | $3.00 | $15.00 |
 | gemini-2.5-flash | $0.30 | $2.50 |
 
-
-
-
 ## 2.5 系统管理
-
 
 ## 5.1 系统健康检查
 
@@ -1162,11 +1695,7 @@ ls -lh logs/
 cat logs/sccsos.log | python3 -m json.tool
 ```
 
-
-
-
 ## 2.6 常见问题
-
 
 ## 6.1 安装问题
 
@@ -1194,11 +1723,7 @@ cat logs/sccsos.log | python3 -m json.tool
 3. 数据库定时备份（cp data/sccsos.db backup/）
 4. 日志定期清理（默认保留 30 天）
 
-
-
-
 ## 2.7 实战案例
-
 
 ## 7.1 案例：架构评审工作流
 
@@ -1365,14 +1890,9 @@ sccsos workflow run workflows/并行检索.yaml
 
 这些案例可直接修改参数后用于实际业务场景。
 
-
-
 \newpage
 
-
-
 # 附录
-
 
 # 附录A：项目目录结构
 
@@ -1406,9 +1926,7 @@ sccsos/
 └── pyproject.toml                  # 项目配置
 ```
 
-
 \newpage
-
 
 # 附录B：Agent 定义 YAML 参考
 
@@ -1416,7 +1934,7 @@ sccsos/
 # agents/architect.yaml
 name: architect
 version: 1.0
-description: 智能体架构设计师
+description: 创新研究院 李锋
 personality: agent-architect
 profile: agentos
 toolsets:
@@ -1432,9 +1950,7 @@ lifecycle:
   auto_recover: true
 ```
 
-
 \newpage
-
 
 # 附录C：技术决策清单
 
@@ -1450,3 +1966,113 @@ lifecycle:
 | 适配层 | 抽象基类（ABC）模式 | 生产/测试可切换 |
 | Hermes 集成 | 子进程 delegate_task | 轻量隔离 |
 
+## 附录D：SCCS OS 与 Hermes Agent 调用关系
+
+### D.1 总体架构
+
+![SCCS OS ↔ Hermes Agent 调用关系全景](images/sccsos-hermes-call-flow-light.png)
+
+*图 D-1: SCCS OS ↔ Hermes Agent 调用关系全景 — SCCS OS 层编排管控，Hermes Agent 层推理执行*
+
+SCCS OS 通过 **Hermes Adapter** 抽象层调用 Hermes Agent 完成 LLM 推理任务。Hermes Agent 是下层运行时底座，SCCS OS 是上层编排管控平台，两者通过子进程 IPC 通信。
+
+### D.2 两条调用路径
+
+**路径一：CLI 直接对话（`sccsos agent ask`）**
+
+```
+CLI → AgentRuntime → AgentRunner → AgentProcess (常驻后台线程)
+  ├─ _build_prompt()        ← MemoryStore + KnowledgeBase + Session 三重注入
+  ├─ HermesAdapter.delegate_task()
+  │    ├─ PolicyEngine.check_delegation()       → 预算检查
+  │    ├─ PolicyEngine.check_tool_access()      → 工具权限
+  │    ├─ CommandWhitelist.check()              → 命令沙箱
+  │    └─ subprocess.run(hermes -p sccsos -z "...") → 实际 LLM 调用
+  └─ session.append_message()                  → 保存对话记录
+```
+
+**路径二：工作流执行（`sccsos workflow run` / API）**
+
+```
+用户触发 → WorkflowEngine.execute()
+  ├─ DAGResolver → ThreadPoolExecutor(并行组)
+  └─ StepExecutor.execute_with_retry()
+       ├─ RetryPolicy (指数退避, max 3 次)
+       ├─ ContextBuilder (Jinja2 模板 + Knowledge + Memory)
+       ├─ _check_condition_and_skip() (条件分支)
+       ├─ _prepare_prompt() (注入检测 + Personality)
+       ├─ HermesAdapter.delegate_task() (同上三层安全)
+       └─ _record_audit_and_result() (追踪 + 审计)
+```
+
+### D.3 三层安全防线（每次调用必经）
+
+| 层 | 模块 | 位置 | 检查内容 |
+|:--:|------|------|---------|
+| ① | PromptInjectionGuard | StepExecutor._prepare_prompt() | Unicode 同形字、多语言注入、系统提示提取、敏感数据脱敏 |
+| ② | PolicyEngine | Adapter._policy_preflight() | 预算上限、工具权限白名单、per-agent 策略覆盖 |
+| ③ | CommandWhitelist | Adapter._sandbox_check() | 危险命令、路径穿越、管道链、环境变量泄漏、命令长度上限 |
+
+### D.4 Hermes CLI 子进程调用格式
+
+```bash
+# 基本调用（SCCS OS 内部自动构建）
+hermes -p sccsos -z "你的提示词"
+
+# 带模型指定
+hermes -p sccsos -m deepseek-v4-flash -z "提示词"
+
+# 验证 Hermes 可用
+hermes --version               # ≥ 0.24.x
+hermes doctor                  # 全面诊断
+hermes config list-profiles    # 查看可用 profile
+```
+
+### D.5 所需的 Hermes Profile 配置
+
+执行 `hermes -p sccsos -z "..."` 前，Hermes Agent 必须配置：
+
+```yaml
+# ~/.hermes/profiles/sccsos/config.yaml
+provider: deepseek          # 或 openai / anthropic
+model: deepseek-v4-flash    # 或 gpt-4o / claude-sonnet-4
+api_key: <your-api-key>     # 从环境变量或配置文件读取
+```
+
+### D.6 SCCS OS 侧适配器配置
+
+```yaml
+# sccsos.yaml
+hermes:
+  profile: sccsos            # 使用的 Hermes profile 名称
+  adapter: subprocess        # 通信模式：subprocess / mock
+  binary: hermes             # Hermes CLI 二进制路径
+```
+
+### D.7 性能特征
+
+| 指标 | 典型值 | 说明 |
+|------|:------:|------|
+| 子进程启动开销 | ~50ms | Python 进程 fork + import |
+| 首次 LLM 调用 | ~2-5s | 模型加载 + 推理 |
+| 后续连续调用 | ~1-3s | 模型已热加载 |
+| 超时默认值 | 300s | 可在 step 定义中覆盖 |
+| 重试次数 | 2 次 | 瞬态错误自动重试（指数退避） |
+
+### D.8 测试模式
+
+测试时使用 MockHermesAdapter 替代真实子进程调用：
+
+```yaml
+# sccsos.yaml (测试环境)
+hermes:
+  adapter: mock               # 不调用 Hermes CLI，返回固定响应
+```
+
+Mock 保留完整安全防线，确保测试可验证安全策略而不依赖真实 LLM。
+
+## 附录E：相关文档
+
+- [SCCS OS — Hermes Agent 调用关系技术说明](../wiki/concepts/sccsos-hermes-call-relationship.md)
+- [架构框架 — 7-Domain Design](../wiki/concepts/sccsos-architecture-framework.md)
+- [ADR-011 — Session/ModelRouter/FastAPI](../wiki/concepts/ADR-011-session-modelrouter-fastapi.md)

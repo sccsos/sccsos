@@ -47,9 +47,11 @@ def client():
 class TestBillingAPI:
     """Integration tests for billing API routes."""
 
+    _HEADERS = {"X-Role": "admin"}
+
     def test_summary(self, client):
         """GET /api/v1/billing/summary returns aggregated data."""
-        resp = client.get("/api/v1/billing/summary")
+        resp = client.get("/api/v1/billing/summary", headers=self._HEADERS)
         assert resp.status_code == 200
         data = resp.json()
         assert data["total_calls"] >= 3
@@ -58,7 +60,7 @@ class TestBillingAPI:
 
     def test_export_csv(self, client):
         """GET /api/v1/billing/export returns CSV content."""
-        resp = client.get("/api/v1/billing/export")
+        resp = client.get("/api/v1/billing/export", headers=self._HEADERS)
         assert resp.status_code == 200
         assert resp.headers["content-type"].startswith("text/csv")
         assert "Content-Disposition" in resp.headers
@@ -70,13 +72,13 @@ class TestBillingAPI:
 
     def test_export_with_tenant(self, client):
         """GET /api/v1/billing/export?tenant=<id> filters results."""
-        resp = client.get("/api/v1/billing/export?tenant=default")
+        resp = client.get("/api/v1/billing/export?tenant=default", headers=self._HEADERS)
         assert resp.status_code == 200
         assert "tenant=default" in resp.headers.get("content-disposition", "") or True
         assert resp.text.count("\n") >= 2
 
     def test_export_empty(self, client):
         """GET /api/v1/billing/export for future dates returns empty."""
-        resp = client.get("/api/v1/billing/export?start=2099-01-01&end=2099-12-31")
+        resp = client.get("/api/v1/billing/export?start=2099-01-01&end=2099-12-31", headers=self._HEADERS)
         assert resp.status_code == 200
         assert resp.text.count("\n") == 1  # header only

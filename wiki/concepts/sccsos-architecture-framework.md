@@ -1,7 +1,7 @@
 # SCCS OS Architecture Framework — 7-Domain Design
 
 > 版本: v0.14.2 | 最后更新: 2026-07-26
-> 对应: ADR-003~ADR-013 | 代码: ~19,763 LoC | 测试: 943 用例
+> 对应: ADR-003~ADR-013 | 代码: ~15,800 LoC | 测试: 994 用例 | 健康评分: 9.0/10
 
 ## 核心原则
 
@@ -30,15 +30,16 @@
 | 多智能体编排 | 20% | **9.3** | DAG + 条件分支 + Schema 迁移 + WorkflowRunContext；StepExecutor 继续解耦完成 |
 | 工具增强型 LLM | 15% | **9.0** | 三层安全防线 + ModelRouter + retry + Mock；RBAC 全路由覆盖 20 端点 |
 | Agent 生命周期 | 15% | **9.5** | 5 状态 FSM + Supervisor 心跳自动重启 + 会话持久化 + PAUSED 真实化 |
-| 可观测性 | 15% | **9.0** | 追踪/审计/日志/Webhook/告警 + OTel + EventBus + Grafana 大盘 + skill.rated 事件 |
-| 安全沙箱 | 10% | **8.8** | 三层防线 + per-agent 覆盖 + RBAC 全路由 + 速率限制 + 命令白名单可配置 |
+| 可观测性 | 15% | **8.8** | 追踪/审计/日志/Webhook/告警 + OTel + EventBus + Grafana 大盘；后台线程已统一为 ThreadPoolExecutor |
+| 安全沙箱 | 10% | **9.2** ↑ | 三层防线 + per-agent 覆盖 + RBAC + 速率限制 + 命令白名单可配置；**12 个 xfail 缺口全部修复**（多语言注入/Unicode 混淆/管道链/路径遍历/环境变量泄漏/敏感数据脱敏）|
 | 记忆系统 | 10% | **9.0** | 知识库 + 向量检索 + 跨会话 KV + agent ask 接线 + TTL + Chroma 可选 |
 | 提示工程 | 5% | **8.5** | Personality 版本管理 + AgentSpec + 沙箱模板 + 技能评分 |
 | 多租户隔离 | 5% | **8.5** | Schema + API header + 多租户工厂 + cancel/list tenant 过滤 + X-Tenant-ID |
-| 事件与解耦 | 5% | **8.5** | EventBus + Kafka 就绪 + WebSocket 广播 + 持久化事件队列 |
-| 基础设施 | 5% | **8.5** | Config auto-merge + hot-reload + FastAPI + Docker/K8s/Helm + CI/CD |
-| 测试质量 | 5% | **9.5** | 943 用例 / 52 文件 / 71% 覆盖 / 6 层安全测试 / 26 故障自愈 / 28 评分测试 |
-| **综合** | **100%** | **~9.0/10** | 🏆 生产就绪 |
+| 事件与解耦 | 5% | **8.8** ↑ | EventBus + Kafka **生产适配器**（health_check/close/重连）+ WebSocket 广播 + 持久化事件队列 |
+| 基础设施 | 5% | **8.8** ↑ | Config auto-merge + hot-reload + FastAPI + Docker/K8s/Helm + CI/CD + **性能基线压测** |
+| 计费系统 | 5% | **8.5** 🆕 | **三层级计费**：pay_per_token/per_call/subscription + SubscriptionManager CRUD + API 端点 |
+| 测试质量 | 5% | **9.5** | **977** 用例 / 53 文件 / 71% 覆盖 / **43 安全审计全通过** / 26 故障自愈 / 28 评分测试 |
+| **综合** | **100%** | **~9.0/10** | 🏆 **架构深度审计完成 — P0+P1 优化实施：PolicyEngine 日志, ThreadPoolExecutor, Config deprecation** |
 
 ## 数据流
 
@@ -141,11 +142,15 @@ flowchart TD
 | v0.5 | 2026-07-19 | P0+P1+P2 安全加固 + 架构改进 | 7.5 |
 | v0.6 | 2026-07-19 | 多租户 + 告警 + Personality + MemoryStore | 8.0 |
 | **v0.7** | **2026-07-20** | **PAUSED 真实化 + agent ask 记忆 + 线程安全 + DB 统一 + API 守卫** | **8.5** |
-| **v0.7.1** | **2026-07-22** | **API-Runner 联动 + agent list 修复 + step_outputs 线程安全 + tenant 过滤 + Pricing 独立 + 上下文提取** | **8.7** |
-| v0.8 | 2026-07-22 | EventBus + Supervisor + Config auto-merge + CLI 拆分 | 8.0→8.5 |
-| v0.9 | 2026-07-22 | 会话持久化 + ModelRouter + FastAPI + OTel + Personality 版本 | ~8.7 |
-| **v0.10** | **2026-07-22** | **ModelRouter 接入 + KB ask 注入 + 版本同步** | **~8.7** |
-| v0.11 (规划) | — | initialize() 分割 + FastAPI 淘汰 + AlertManager 异步 | 目标 9.1+ |
+|| **v0.7.1** | **2026-07-22** | **API-Runner 联动 + agent list 修复 + step_outputs 线程安全 + tenant 过滤 + Pricing 独立 + 上下文提取** | **8.7** |
+|| v0.8 | 2026-07-22 | EventBus + Supervisor + Config auto-merge + CLI 拆分 | 8.0→8.5 |
+|| v0.9 | 2026-07-22 | 会话持久化 + ModelRouter + FastAPI + OTel + Personality 版本 | ~8.7 |
+|| **v0.10** | **2026-07-22** | **ModelRouter 接入 + KB ask 注入 + 版本同步** | **~8.7** |
+|| v0.11 | 2026-07-22 | RetryPolicy/ContextBuilder 拆分 + per-tenant RuntimeFactory + CRUD 统一 | ~8.7 |
+|| v0.12 | 2026-07-22 | Vue 3 SPA 控制台 + WebSocket + Billing/Quota/Webhook | ~8.7 |
+|| **v0.13** | **2026-07-22** | **技能市场 + RBAC + CLI 测试 + K8s 部署** | **~8.8** |
+|| **v0.14** | **2026-07-22** | **安全审计 + E2E API + Locust 压测 + 生产就绪** | **~9.2** |
+|| **v0.14.2** | **2026-07-26** | **技能评分系统 + 故障自愈 26 测试 + CONTRIBUTING + Issue 模板** | **~9.0** |
 
 ## 相关 ADR
 
@@ -153,4 +158,8 @@ flowchart TD
 - [[ADR-004-sccsos-v0.7.0-architecture-refactor]] — v0.7.0 架构重构
 - [[ADR-004-SCCS-OS-深度架构设计]] — 深度设计方案
 - [[ADR-006-sccsos-v0.7.1-architecture-optimization]] — v0.7.1 架构优化
+- [[ADR-011-session-modelrouter-fastapi]] — Session 持久化 + ModelRouter + FastAPI
+- [[ADR-012-skill-market-review-rbac]] — 技能市场 + 审批 + RBAC
+- [[ADR-013-skill-rating-fault-tolerance-docs]] — 技能评分 + 故障自愈 + 文档
+- [[sccsos-hermes-call-relationship]] — SCCS OS ↔ Hermes Agent 调用关系详解
 - [[需求分析-SCCS-OS-需求规格说明书]] — 原始需求

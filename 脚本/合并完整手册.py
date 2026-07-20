@@ -310,7 +310,7 @@ sccsos/
 # agents/architect.yaml
 name: architect
 version: 1.0
-description: 智能体架构设计师
+description: 创新研究院 李锋
 personality: agent-architect
 profile: agentos
 toolsets:

@@ -424,6 +424,7 @@ class TestEventBusFaultTolerance:
 
     def test_kafka_event_bus_broker_unavailable(self):
         """KafkaEventBus falls back to local-only mode when broker is down."""
+        pytest.importorskip("kafka", reason="Requires sccsos[kafka] extras")
         from sccsos.core.event_bus_kafka import KafkaEventBus
 
         bus = KafkaEventBus(
@@ -445,6 +446,7 @@ class TestEventBusFaultTolerance:
 
     def test_kafka_event_bus_stop_without_start(self):
         """Stopping consumer that was never started is safe."""
+        pytest.importorskip("kafka", reason="Requires sccsos[kafka] extras")
         from sccsos.core.event_bus_kafka import KafkaEventBus
 
         bus = KafkaEventBus(bootstrap_servers="localhost:9999")

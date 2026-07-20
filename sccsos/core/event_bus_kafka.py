@@ -66,8 +66,21 @@ class KafkaEventBus:
 
         # Local fallback for handlers when Kafka is unavailable
         self._local_handlers: dict[str, list[Callable]] = {}
+        self._closed = False
+
+    def __del__(self):
+        """Safety net: ensure cleanup on garbage collection."""
+        try:
+            if not self._closed:
+                self.close()
+        except Exception:
+            pass
 
     # ── Producer ─────────────────────────────────────────────────
+
+    _producer_lock: threading.Lock = threading.Lock()
+    _producer_retries: int = 0
+    _max_producer_retries: int = 5
 
     @property
     def producer(self):
@@ -80,9 +93,24 @@ class KafkaEventBus:
                     value_serializer=lambda v: json.dumps(v, ensure_ascii=False, default=str).encode("utf-8"),
                     acks="all",
                     retries=3,
+                    max_in_flight_requests_per_connection=5,
+                    reconnect_backoff_ms=500,
+                    reconnect_backoff_max_ms=5000,
                 )
+                self._producer_retries = 0
+                logger.info("Kafka producer connected to %s", self._bootstrap)
             except Exception as e:
-                logger.warning("Kafka producer unavailable, using local-only mode: %s", e)
+                self._producer_retries += 1
+                if self._producer_retries <= self._max_producer_retries:
+                    logger.warning(
+                        "Kafka producer unavailable (attempt %d/%d): %s",
+                        self._producer_retries, self._max_producer_retries, e,
+                    )
+                else:
+                    logger.error(
+                        "Kafka producer permanently unavailable after %d attempts: %s",
+                        self._producer_retries, e,
+                    )
                 self._producer = None  # Will use local handlers
         return self._producer
 
@@ -137,6 +165,62 @@ class KafkaEventBus:
     def set_persist(self, fn: Callable[[str, dict], None] | None) -> None:
         """Set an optional persistence callback (applied before dispatch)."""
         self._persist_fn = fn
+
+    # ── Production-grade lifecycle ─────────────────────────────────
+
+    def health_check(self) -> dict[str, Any]:
+        """Probe Kafka broker connectivity and return status.
+
+        Returns:
+            dict with keys: ``status``, ``producer_connected``,
+            ``bootstrap_servers``, ``consumer_running``, ``handlers_count``.
+        """
+        result: dict[str, Any] = {
+            "status": "ok",
+            "bootstrap_servers": self._bootstrap,
+            "consumer_running": self._consumer_thread is not None and self._consumer_thread.is_alive(),
+            "handlers_count": sum(len(v) for v in self._local_handlers.values()),
+            "producer_connected": self._producer is not None,
+        }
+        if self._producer is not None:
+            try:
+                # Try listing topics as a connectivity probe
+                topic_result = self._producer.partitions_for("__health_check")
+                result["producer_partitions"] = len(topic_result) if topic_result else 0
+            except Exception as e:
+                result["status"] = "degraded"
+                result["producer_error"] = str(e)[:200]
+        else:
+            result["status"] = "degraded"
+            result["producer_error"] = "Not connected (retries exhausted)"
+        return result
+
+    def close(self) -> None:
+        """Deterministic cleanup: stop consumer, close producer, clear handlers.
+
+        Safe to call multiple times.  After calling ``close()``,
+        the instance should not be reused (create a new one).
+        """
+        logger.info("Closing KafkaEventBus...")
+
+        # 1. Stop consumer first
+        self.stop_consumer()
+
+        # 2. Close producer
+        if self._producer is not None:
+            try:
+                self._producer.close(timeout=5)
+                logger.debug("Kafka producer closed")
+            except Exception as e:
+                logger.warning("Error closing Kafka producer: %s", e)
+            self._producer = None
+
+        # 3. Clear all handlers
+        self._local_handlers.clear()
+        self._handlers.clear()
+
+        self._closed = True
+        logger.info("KafkaEventBus closed")
 
     # ── Consumer (optional, for cross-instance event consumption) ─
 

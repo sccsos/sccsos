@@ -1,158 +1,284 @@
-# SCCS OS v0.14.0
+# SCCS OS v0.14.2
 
 **Smart Agent Runtime Platform for SCCS-T Product Ecosystem**
 
-SCCS OS is a multi-agent orchestration platform that manages, monitors, and
-coordinates AI agents through declarative YAML definitions, DAG-based
-workflows, and an extensible plugin architecture.
+[![Tests](https://img.shields.io/badge/tests-994%20passed-brightgreen)](https://github.com/your-org/sccsos)
+[![Coverage](https://img.shields.io/badge/coverage-71%25-yellow)](https://github.com/your-org/sccsos)
+[![Health](https://img.shields.io/badge/health-9.0/10-blue)](wiki/concepts/sccsos-architecture-framework.md)
+
+SCCS OS 是一个面向多智能体集群的统一管控平台，底层复用 Hermes Agent 运行时内核，上层自研操作系统级能力。
+采用**三层子运行时架构**解耦核心、可观测性与工作流编排。
 
 ```bash
-pip install sccsos
+pip install sccsos[all]
 sccsos init
-sccsos agent list
+sccsos agent create architect
+sccsos agent start architect
+sccsos agent ask architect "设计一个认证模块"
 ```
 
 ---
 
-## Quick Start
+## 架构概览
+
+![系统架构图](输出/images/sccsos-system-architecture-light.png)
+
+```
+AgentRuntime (统一入口 Facade)
+  ├── RuntimeCore                    # 核心：DB/Regsitry/Adapter/Runner/Session/Supervisor
+  ├── ObservabilityRuntime           # 可观测：追踪/审计/日志/告警/Webhook/Pricing
+  └── WorkflowRuntime                # 工作流：编排引擎/策略/角色/事件总线
+```
+
+### 七域架构框架
+
+| # | 域 | 评分 | 核心能力 |
+|---|-----|:----:|---------|
+| 1 | 多智能体编排 | **9.3** | DAG + 条件分支 + 并行 ThreadPool + Jinja2 + 退避重试 |
+| 2 | 工具增强型 LLM | **9.0** | ABC 适配层 + 三层安全防线 + ModelRouter + Personality |
+| 3 | Agent 生命周期 | **9.5** | 5 状态 FSM + Supervisor 心跳 + AgentRunner 后台线程 |
+| 4 | 可观测性 | **8.8** | Span 追踪 + JSON 日志 + Token 审计 + Webhook + 告警 + OTel |
+| 5 | 安全沙箱 | **9.2** | 预算引擎 + 命令白名单 + 工具 ACL + RBAC + 注入防护 |
+| 6 | 记忆系统 | **9.0** | 知识库 + TF-IDF 向量检索 + 跨会话 KV 记忆 + Chroma |
+| 7 | 提示工程 | **8.5** | Agent YAML + Personality 版本管理 + Jinja2 沙箱 |
+| | **综合** | **~9.0** | 架构深度审计完成，P0+P1 优化已实施 |
+
+> 评分基准：详见 [架构框架](wiki/concepts/sccsos-architecture-framework.md) | [ADR 系列](wiki/concepts/)
+
+---
+
+## 快速开始
 
 ```bash
-# Initialize a project
+# 安装
+pip install sccsos[all]
+
+# 初始化项目
 sccsos init my-project
 cd my-project
 
-# Register an agent
+# 注册并启动 Agent（后台进程）
 sccsos agent create architect
-
-# Start an agent (background process)
 sccsos agent start architect
+sccsos agent list              # Runner 列显示运行状态
+sccsos agent status architect
 
-# Ask the agent a question
-sccsos agent ask architect "Design a user authentication module"
+# 直接对话
+sccsos agent ask architect "设计一个用户认证模块"
 
-# Run a workflow
-sccsos workflow validate ./workflows/my-workflow.yaml
-sccsos workflow run ./workflows/my-workflow.yaml
+# 运行 Workflow（支持条件分支和输入传递）
+sccsos workflow run workflows/架构评审.yaml -i "设计用户认证模块"
+
+# 异步运行
+sccsos workflow run workflows/每日巡检.yaml --async
+
+# 查看审计
+sccsos audit report
+sccsos health
+
+# 启动 API 服务器（FastAPI 模式）
+python -m sccsos.api.fastapi_app --port 8765
+# 浏览器打开 http://localhost:8765/admin 访问 Vue 控制台
 ```
 
 ---
 
-## Architecture
+## 核心特性
 
-```
-┌─────────────────────────────────────────────────┐
-│  CLI (click, 10 commands)    API (http.server)  │
-├─────────────────────────────────────────────────┤
-│              AgentRuntime (singleton)             │
-├──────┬──────┬──────┬──────┬──────┬──────┬──────┤
-│Agent │Agent │Work- │DAG   │Step  │Herme │Sessi-│
-│Regis-│Runne │flow  │Resol │Execu │sAdap │onMgr │
-│try   │r     │Engine│ver   │tor   │ter   │      │
-├──────┴──────┼──────┴──────┼──────┴──────┴──────┤
-│  Supervisor │  EventBus   │  Database (SQLite)  │
-│  (monitor)  │  (pub/sub)  │  WAL + thread-safe  │
-├─────────────┴─────────────┴────────────────────┤
-│  PolicyEngine + CommandWhitelist  (security)    │
-├─────────────────────────────────────────────────┤
-│  Tracer + Auditor + Webhook + Alert  (observability) │
-└─────────────────────────────────────────────────┘
-```
+### 编排引擎
+- **DAG 拓扑排序** — 自动解析步骤依赖关系
+- **条件分支** — Jinja2 条件表达式控制步骤跳过
+- **并行执行** — ThreadPoolExecutor 并发组
+- **退避重试** — 指数退避 + 瞬态错误自动恢复
+- **Jinja2 模板** — 沙箱渲染，13 个内置过滤器
 
-### Core Modules
+### 生命周期管理
+- **5 状态状态机** — CREATED → RUNNING → PAUSED → STOPPED / FAILED
+- **Supervisor 心跳** — 自动检测无响应 Agent 并重启（上限保护）
+- **Session 持久化** — 跨会话记忆恢复
+- **Agent 后台进程** — 独立的 task queue + stop event
 
-| Module | LOC | Description |
-|--------|-----|-------------|
-| `core/` | ~4,200 | Engine: runtime, runner, orchestrator, DAG resolver |
-| `cli/` | ~2,000 | CLI: agent, workflow, system, config subcommands |
-| `observability/` | ~1,000 | Tracing, auditing, pricing, webhooks, alerts |
-| `memory/` | ~650 | KV store, knowledge base, vector search |
-| `security/` | ~410 | Policy enforcement, command whitelist |
-| `api/` | ~530 | HTTP REST API server |
+### 可观测性
+- **Span 追踪** — 每条 workflow 和 step 的完整执行链路
+- **JSON 结构化日志** — 可被任何日志平台消费
+- **Token 审计** — 每步调用的 Token 消耗和成本追踪
+- **OTel 桥接** — OpenTelemetry 导出到任意后端（可选）
+- **Webhook 通知** — 工作流完成/失败时回调
+- **阈值告警** — 错误率/成本超限自动告警
+- **Grafana 仪表盘** — 10 面板预配置模板
 
-### Key Features
+### 安全体系
+- **三层防线**：注入检测 → 预算/工具 ACL → 命令沙箱
+- **RBAC**：admin/operator/viewer 三角色，20+ 权限点
+- **速率限制**：每 Agent 调用频率控制
+- **敏感数据脱敏**：身份/信用卡/密钥/密码自动 redact
+- **多语言防注入**：Unicode NFKC 归一化 + 西里尔同形字转写
 
-- **Multi-agent orchestration**: DAG-based workflows with parallel execution
-- **Declarative agents**: YAML-defined agent specs with lifecycle management
-- **Background processes**: Agents run as supervised daemon threads
-- **Event-driven**: EventBus decouples workflow engine from observers
-- **Observability**: Distributed tracing, cost tracking, webhook alerts
-- **Security**: Budget limits, tool whitelist, command sandbox
-- **Schema migration**: Versioned workflow defs with auto-migration
-- **Config hot-reload**: `sccsos config reload` applies changes without restart
+### 记忆系统
+- **知识库**：Markdown wiki → TF-IDF 向量检索
+- **跨会话 KV 记忆**：持久化键值存储（支持 TTL 过期）
+- **模板注入**：`{{ knowledge }}` 和 `{{ memory }}` 上下文变量
+- **Chroma 可选**：替代 TF-IDF 的向量数据库（可选依赖）
 
----
+### 事件总线
+- **EventBusABC 抽象** — 可通过适配器扩展
+- **LocalEventBus** — 进程内 pub/sub（默认）
+- **KafkaEventBus** — 分布式集群消息（可选 kafka-python）
+- **事件持久化** — SQLite 事件队列 + 重放
 
-## CLI Commands
-
-| Command | Description |
-|---------|-------------|
-| `sccsos init` | Initialize a new project |
-| `sccsos agent list/start/stop/pause/resume/restart` | Agent lifecycle |
-| `sccsos agent ask <name> <prompt>` | Send prompt to running agent |
-| `sccsos workflow validate/run/status/cancel/list/visualize` | Workflow management |
-| `sccsos trace list/show` | View distributed traces |
-| `sccsos audit report/log` | Cost and usage reports |
-| `sccsos memory save/get/list/delete/clear` | Persistent KV store |
-| `sccsos session list/show/close` | Conversation history |
-| `sccsos config reload` | Hot-reload configuration |
-| `sccsos health` | System health check |
+### API 层
+- **FastAPI**（推荐）— 异步 + WebSocket + OpenAPI /docs
+- **Vue 3 SPA** 管理控制台 — 7 页面实时仪表盘
+- **WebSocket 实时事件** — Agent 生命周期 + 工作流 + 技能市场
+- **RBAC 权限守卫** — 每个端点独立鉴权
 
 ---
 
-## Workflow Example
+## CLI 命令（15 个子命令）
 
-```yaml
-name: architecture-review
-schema_version: '1.1'
-steps:
-  - id: requirements
-    agent: architect
-    prompt: >
-      Given the following requirements, create a detailed
-      architecture design:
-      {{ steps.input.context }}
-
-  - id: review
-    agent: reviewer
-    prompt: >
-      Review the architecture:
-      {{ steps.requirements.response }}
-    depends_on:
-      - requirements
-```
-
-### Template Filters
-
-| Filter | Usage |
-|--------|-------|
-| `json_parse` | `{{ steps.api.response \| json_parse }}` |
-| `json_dumps` | `{{ data \| json_dumps(2) }}` |
-| `pick` | `{{ steps.result \| pick('data', default=[]) }}` |
-| `strptime` / `strftime` | `{{ date \| strptime \| strftime('%Y-%m-%d') }}` |
-| `truncate_cn` | `{{ text \| truncate_cn(80) }}` (CJK-aware) |
+| 命令 | 说明 |
+|------|------|
+| `sccsos init` | 初始化项目 / `--interactive` 交互式向导 |
+| `sccsos agent create/list/start/stop` | Agent CRUD 与生命周期 |
+| `sccsos agent pause/resume/restart` | Agent 暂停/恢复/重启 |
+| `sccsos agent ask <name> <prompt>` | 向运行中 Agent 发 prompt |
+| `sccsos workflow validate/run/status` | 工作流管理 |
+| `sccsos workflow cancel/list/visualize` | 取消/列表/DAG 可视化 |
+| `sccsos audit report/log` | 审计和成本报告 |
+| `sccsos trace list/show` | 链路追踪 |
+| `sccsos memory save/get/list/delete` | 跨会话持久记忆 |
+| `sccsos session list/show/close` | 会话历史 |
+| `sccsos personality list/show/set/unset` | 角色管理 |
+| `sccsos config reload` | 热重载配置 |
+| `sccsos health` | 系统健康检查 |
+| `sccsos serve` | 启动 FastAPI 服务器 |
+| `sccsos version` | 版本信息 |
 
 ---
 
-## Development
+## 部署
+
+### Docker（推荐）
 
 ```bash
-git clone https://github.com/your-org/sccsos
-cd sccsos
-pip install -e ".[dev]"
-python -m pytest tests/
+docker build -t sccsos:0.14.2 .
+docker run -d -p 8765:8765 \
+  -v $(pwd)/sccsos.yaml:/app/sccsos.yaml \
+  sccsos:0.14.2
+
+# docker-compose
+docker compose up -d
 ```
 
-### Tests
-
-- **246 tests**, all passing
-- 9 test files covering all modules
-- MockHermesAdapter for hermetic workflow testing
-
-### Build
+### Kubernetes
 
 ```bash
-python -m build
+helm install sccsos deploy/k8s/ --values my-values.yaml
+
+# HPA 弹性扩缩容
+kubectl apply -f deploy/k8s/hpa.yaml
 ```
+
+### 生产环境清单
+
+详见 [ops/production-checklist.md](ops/production-checklist.md)：
+
+- [ ] 数据库：SQLite (WAL) → PostgreSQL for HA
+- [ ] 消息总线：LocalEventBus → Kafka
+- [ ] 可观测性：启用 OTel 导出到 Prometheus + Grafana
+- [ ] 安全：TLS/mTLS + JWT 鉴权
+- [ ] 备份：DB 自动备份 + 配置版本化
+
+---
+
+## 测试
+
+```bash
+# 全量测试（快速：默认跳过慢测试）
+python -m pytest tests/ -q
+
+# 包含慢测试（故障自愈、并发）
+python -m pytest tests/ -m slow -v
+
+# 覆盖率
+python -m pytest --cov=sccsos
+
+# 安全审计
+python -m pytest tests/test_security_audit.py -v
+
+# 故障自愈测试
+python -m pytest tests/test_fault_tolerance.py -v
+```
+
+| 指标 | 数值 |
+|------|:----:|
+| 测试用例 | **994** (52 文件, 176 测试类) |
+| 覆盖率 | **71%** |
+| 安全审计 | **43/43** 通过 (0 xfail) |
+| 故障自愈 | **26** 个场景 |
+| CI 门禁 | ≥70% 覆盖率 |
+
+---
+
+## 项目结构
+
+```
+sccsos/
+├── core/                  # 核心运行时 (~3,500 行)
+│   ├── agent_runtime.py   # 统一入口 Facade
+│   ├── runtime_core.py    # 核心子运行时
+│   ├── runtime_observability.py # 可观测子运行时
+│   ├── runtime_workflow.py      # 工作流子运行时
+│   └── workflow/          # DAG + 条件分支 + 并行引擎
+├── api/                   # FastAPI (推荐) + Vue SPA
+│   ├── fastapi_app.py     # 应用工厂
+│   └── routes/            # 11 个路由模块
+├── cli/                   # Click (15 子命令)
+├── memory/                # 知识库 + 向量检索 + KV 记忆
+├── observability/         # 追踪/审计/日志/告警/Webhook
+├── security/              # 注入防护/RBAC/沙箱/速限
+├── tests/                 # 50 文件, 994 用例
+├── deploy/k8s/            # Kubernetes 部署清单
+├── Dockerfile             # 多阶段构建
+├── docker-compose.yaml    # 容器编排
+└── wiki/                  # 架构框架 + ADR 决策记录
+```
+
+---
+
+## 架构健康评分
+
+| 维度 | 评分 | 趋势 |
+|------|:----:|:----:|
+| 多智能体编排 | 9.3 | ✅ |
+| 工具增强型 LLM | 9.0 | ✅ |
+| Agent 生命周期 | 9.5 | ✅ |
+| 可观测性 | 8.8 | ⬆ ThreadPoolExecutor |
+| 安全沙箱 | 9.2 | ✅ |
+| 记忆系统 | 9.0 | ✅ |
+| 多租户隔离 | 8.5 | ✅ |
+| 事件与解耦 | 8.5 | ⬆ Circuit Breaker |
+| **综合** | **~9.0** | 🏆 架构审计完成 |
+
+---
+
+## 版本历史
+
+| 版本 | 日期 | 关键特性 |
+|------|------|---------|
+| v0.14.2 | 2026-07-26 | 架构审计 + P0+P1 优化，健康评分 9.0 |
+| v0.14.1 | 2026-07-22 | 技能市场 + RBAC + K8s + 审批评论 |
+| v0.14.0 | 2026-07-22 | 安全加固 + E2E API + Locust 压测 |
+| v0.13 | 2026-07-22 | Vue 3 SPA + WebSocket + Billing/Quota |
+| v0.8~v0.12 | 2026-07 | 渐进架构演进，从 4.9 升至 8.8 |
+
+详见 [CHANGELOG.md](CHANGELOG.md) | [ADR 系列](wiki/concepts/)
+
+---
+
+## 贡献
+
+详见 [CONTRIBUTING.md](CONTRIBUTING.md) — 含环境搭建、编码规范、测试要求、PR 流程等 12 章指南。
 
 ---
 

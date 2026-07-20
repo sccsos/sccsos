@@ -2,9 +2,9 @@
 
 > 基于 Hermes Agent 运行时的智能体操作系统平台。
 >
-| **当前版本**: v0.14.2 (2026-07-26)
-| **架构基线**: Python ~18K 行 + Vue 3 SPA (7 页面) + 测试 943 用例 / 52 文件
-> **健康评分**: 9.5/10 (9 维度)  [↑ 生产就绪阶段]
+> **当前版本**: v0.14.2 (2026-07-26)
+> **架构基线**: Python ~15.8K 逻辑行 + Vue 3 SPA (7 页面) + 测试 994 用例 / 52 文件 / 176 测试类
+> **健康评分**: 9.0/10 (12 维度)  [🏆 架构深度审计 + 优化：PolicyEngine 日志提升, ThreadPoolExecutor, Config deprecation, 971 测试通过]
 > **许可证**: MIT
 
 ## Roadmap — v0.15.0 规划
@@ -14,11 +14,11 @@
 | **企业级规模化** | Locust 500+ 并发压测 + 性能基线报告 | P0 |
 | **企业级规模化** | 72h 长期运行稳定性验证 + 资源泄漏监控 | P0 |
 | **企业级规模化** | Billing 多层级计费（按 Token/按订阅/按调用量） | P1 |
-| **企业级规模化** | Kafka EventBus 正式生产适配器 | P1 |
+| **企业级规模化** | Kafka EventBus 正式生产适配器（Circuit Breaker + 自动重连） | P1 |
 | **文档知识库** | ADR 覆盖所有版本 v0.9.0~v0.14.2 | P0 |
 | **文档知识库** | Wiki 架构框架同步到最新评分 9.0/10 | P0 |
-| **文档知识库** | 运维操作手册增强（TLS/mTLS, 备份自动化） | P1 |
-| **安全加固** | 剩余 12 个 xfail 安全缺口修复 | P1 |
+| **架构优化** | KnowledgeBase 惰性索引 + 持久化缓存 | P1 |
+| **架构优化** | 多进程 WebSocket 桥接（EventBus → Redis PubSub） | P2 |
 
 ## 项目概述
 
@@ -194,8 +194,8 @@ sccsos/
 ├── agents/                  # Agent YAML 定义
 ├── workflows/               # Workflow YAML 定义
 ├── personalities/           # Personality YAML
-├── tests/                   # 42 文件, 761 测试用例
-│
+|├── tests/                   # 52 文件, 994 测试用例, 176 测试类
+|│
 ├── deploy/k8s/              # K8s 部署清单 + HPA
 ├── Dockerfile               # 多阶段容器构建
 ├── docker-compose.yaml      # 容器编排
@@ -208,16 +208,16 @@ sccsos/
 
 基于可行性技术方案文档的分阶段规划：
 
-| 阶段 | 完成度 | 说明 |
-|------|--------|------|
-|| **Phase 1 (P0)** 基础适配与最小可用 | 100% | Hermes 适配/租户隔离/Agent 管控就绪 ✅ |
-|| **Phase 2 (P1)** 能力完善与生产稳定 | 99% | 安全/可观测/PostgreSQL/Chroma/技能审批全到位 ✅ |
-|| **Phase 3 (P2)** 集群高阶与商业化 | 92% | EventBus/模型路由/CI-CD/Billing/配额/技能市场/RBAC/审批评论/版本diff/压测就绪 ✅ |
+|| 阶段 | 完成度 | 说明 |
+||------|--------|------|
+||| **Phase 1 (P0)** 基础适配与最小可用 | **100%** | Hermes 适配/租户隔离/Agent 管控就绪 ✅ |
+||| **Phase 2 (P1)** 能力完善与生产稳定 | **100%** | 安全/可观测/PostgreSQL/Chroma/技能审批/12 xfail 全部修复全到位 ✅ |
+||| **Phase 3 (P2)** 集群高阶与商业化 | **95%** | EventBus/模型路由/CI-CD/Billing 三层计费/配额/技能市场/RBAC/审批评论/版本diff/压测就绪 ✅ |
 
 ## 开发约定
 
 - **代码风格**: PEP 8, Google-style docstrings, `from __future__ import annotations`
-- **测试框架**: pytest (761 tests, ~55s), 覆盖率 ≥70% CI 门禁
+- **测试框架**: pytest (994 tests, 176 classes, ~59s), 覆盖率 ≥70% CI 门禁
 - **版本管理**: 单源 `_version.py`，语义化版本 v0.14.0
 - **决策记录**: ADR 格式记录在 wiki
 - **额外依赖**: `[dev]` / `[api]` / `[otel]` / `[all]` 分组

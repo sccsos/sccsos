@@ -34,7 +34,9 @@ config/multi-profile-config.yaml
 .DS_Store
 Thumbs.db
 
-# Debug scratch
+# Generated benchmark output
+output/
+benchmark-smoke.html
 _debug_session.py
 
 # Build output

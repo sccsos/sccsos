@@ -7,6 +7,7 @@ RuntimeCore.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Optional
 
@@ -16,6 +17,8 @@ from sccsos.observability.auditor import Auditor
 from sccsos.observability.pricing import PricingTable
 from sccsos.observability.webhook import WebhookNotifier
 from sccsos.observability.alert_manager import AlertManager
+
+logger = logging.getLogger("sccsos.runtime_observability")
 
 
 class ObservabilityRuntime:
@@ -76,6 +79,12 @@ class ObservabilityRuntime:
         # Pricing
         pricing_path = cfg.pricing.path or cfg.tracing.pricing_path
         if pricing_path:
+            # Deprecation warning: old cfg.tracing.pricing_path is still supported
+            if not cfg.pricing.path and cfg.tracing.pricing_path:
+                logger.warning(
+                    "Config field 'tracing.pricing_path' is deprecated. "
+                    "Use 'pricing.path' instead.",
+                )
             self._pricing = PricingTable(Path(pricing_path))
         else:
             self._pricing = PricingTable()

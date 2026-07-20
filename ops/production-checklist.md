@@ -30,6 +30,9 @@
 | API 密钥不硬编码 | 检查 `.env` 未提交到 git | □ |
 | `X-Role` RBAC 已启用 | `curl -H "X-Role: viewer"` 应返回 403 对写操作 | □ |
 | `X-Tenant-ID` 隔离已验证 | 不同租户数据不应互通 | □ |
+| **TLS 已配置** | `kubectl get certificates -n sccsos`（cert-manager）或 Ingress TLS 配置 | □ |
+| **mTLS 已配置（可选）** | Service Mesh (Istio/Linkerd) 双向 TLS | □ |
+| **安全审计全链路通过** | `python3 -m pytest tests/test_security_audit.py -q` → 43 passed, 0 failed | □ |
 | 网络策略已配置 | `kubectl get networkpolicies -n sccsos` | □ |
 | Pod 安全策略已配置 | `securityContext` 在 deployment.yaml 中 | □ |
 
@@ -49,16 +52,19 @@
 |--------|---------|------|
 | HPA 已配置并工作 | `kubectl get hpa -n sccsos` | □ |
 | 资源 limits 已设置 | `kubectl describe deployment -n sccsos sccsos` | □ |
-| 压测已执行 | `locust -f tests/locustfile.py --headless -u 10 -r 2` | □ |
-| P99 延迟 < 500ms | 参考压测报告 | □ |
+| **Locust 500 并发压测已执行** | `locust -f tests/locustfile.py --headless -u 500 -r 50 --run-time 60s` | □ |
+| **参考报告** | `output/benchmark/性能基线报告.md` | □ |
+| P99 延迟 < 500ms | 参考压测报告（单 worker 限流已知，建议 `--workers 4`） | □ |
 
 ## □ 6. 灾备恢复
 
 | 检查项 | 验证方法 | 完成 |
 |--------|---------|------|
-| 数据库备份策略已定义 | `data/` PVC 定期快照 | □ |
+| 数据库备份策略已定义 | `data/` PVC 定期快照，或 `scripts/backup_db.sh` | □ |
+| 备份自动化已配置 | CronJob / `kubectl create cronjob` 定期执行 | □ |
 | 恢复流程已文档化 | 见下方"灾备恢复流程" | □ |
 | 配置备份已纳入 CI/CD | `sccsos.yaml` 版本管理 | □ |
+| **72h 稳定性验证已完成** | `python3 scripts/stability_monitor.py --duration 72h` → uptime > 99.9% | □ |
 
 ---
 
@@ -191,4 +197,17 @@ data:
 | 混合负载 | 100 | ~1200 | <50ms | <150ms | <400ms |
 
 *以上基准在 4C/8G 节点上测得，实际性能因配置而异。*
-*运行 `locust -f tests/locustfile.py --headless -u 10 -r 2 --run-time 60s` 重新测量。*
+
+---
+
+## □ 7. 架构优化（v0.14.2+）
+
+| 检查项 | 验证方法 | 完成 |
+|--------|---------|:----:|
+| PolicyEngine 日志已 CRITICAL 级别 | `grep -r 'PolicyEngine init failed' $(find . -name '*.py')` 确认有 logger.critical | □ |
+| WorkflowRuntime 线程池已统一 | `grep -r 'ThreadPoolExecutor' sccsos/core/runtime_workflow.py` 确认存在 | □ |
+| Config 迁移已检验 | `grep -r 'tracing.pricing_path' sccsos.yaml` — 如无引用则无 deprecation warning | □ |
+| AgentRuntime 日志通道正确 | `grep 'get_logger()' sccsos/core/agent_runtime.py` | □ |
+| _run_contexts 清理存在 | `grep '_run_contexts.pop' sccsos/core/workflow/engine.py` | □ |
+
+运行 `locust -f tests/locustfile.py --headless -u 10 -r 2 --run-time 60s` 重新测量。

@@ -74,7 +74,11 @@ def create_app() -> FastAPI:
 
     API_V1 = "/api/v1"
 
-    # ── Include routers ───────────────────────────────────────────
+    # ── Include routers (all mounted under /api/v1) ────────────────
+    # Each router's prefix is defined in its own module; all share
+    # the /api/v1 namespace.  When introducing v2, create a new set
+    # of route modules under api/routes/v2/ and include them here
+    # with a separate API_V2 prefix.
     app.include_router(health_router)
     app.include_router(agents_router)
     app.include_router(workflows_router)

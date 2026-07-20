@@ -532,6 +532,9 @@ ADR 编号连续递增，命名格式：`ADR-<编号>-<简短主题>.md`
 | ADR-006 | 架构优化：EventBus + Supervisor | v0.8.1 |
 | ADR-007/008/009 | P1 架构改进：Auto-Merge/热点加载/Schema 版本 | v0.8.1 |
 | ADR-010 | v0.8.1 发布决策 | v0.8.1 |
+| ADR-011 | Session 持久化 + ModelRouter + FastAPI 渐进迁移 | v0.9.0 |
+| ADR-012 | 技能市场 + 审批系统 + RBAC | v0.13.0 |
+| ADR-013 | 技能评分 + 故障自愈测试 + 文档社区基建 | v0.14.2 |
 
 ---
 

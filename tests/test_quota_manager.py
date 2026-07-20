@@ -41,7 +41,7 @@ def seeded_db(db):
         )
     # Add audit entries for today
     import datetime
-    today = datetime.datetime.now().isoformat()
+    today = datetime.datetime.now(datetime.timezone.utc).isoformat()
     db.execute(
         "INSERT INTO audit_log (tenant_id, agent_id, event_type, tokens_used, "
         "cost_usd, timestamp) VALUES (?, ?, ?, ?, ?, ?)",

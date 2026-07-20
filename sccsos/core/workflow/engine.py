@@ -69,7 +69,12 @@ class WorkflowEngine:
             from sccsos.security.policy import PolicyEngine
             try:
                 self._policy_engine = PolicyEngine(db, config)
-            except Exception:
+            except Exception as e:
+                import logging
+                _pe_logger = logging.getLogger("sccsos.security")
+                _pe_logger.critical(
+                    "PolicyEngine init failed — policy enforcement DISABLED: %s", e,
+                )
                 self._policy_engine = None
 
         self._step_executor = (StepExecutorBuilder(db, adapter)

@@ -46,5 +46,6 @@ project:
 tracing:
   enabled: true
   export_path: ./traces/
+  otlp_endpoint: http://localhost:4318/v1/traces
 webhooks:
   enabled: false

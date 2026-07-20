@@ -79,13 +79,13 @@ class TestFastAPIEndpoints:
         assert "started" in data or "id" in data
 
     def test_07_workflows_list(self, client):
-        resp = client.get(f"{API_V1}/workflows")
+        resp = client.get(f"{API_V1}/workflows", headers={"X-Role": "admin"})
         assert resp.status_code == 200
         data = resp.json()
         assert "runs" in data
 
     def test_08_workflow_status_not_found(self, client):
-        resp = client.get(f"{API_V1}/workflows/nonexistent-wf")
+        resp = client.get(f"{API_V1}/workflows/nonexistent-wf", headers={"X-Role": "admin"})
         assert resp.status_code == 404
 
     def test_09_traces_list(self, client):
@@ -128,12 +128,13 @@ class TestFastAPIEndpoints:
         resp = client.post(
             f"{API_V1}/workflows/run",
             json={"file": "/nonexistent/workflow.yaml"},
+            headers={"X-Role": "admin"},
         )
         # Should return error — file not found
         assert resp.status_code in (200, 400, 422)
 
     def test_17_workflow_cancel_not_found(self, client):
-        resp = client.post(f"{API_V1}/workflows/nonexistent-run/cancel")
+        resp = client.post(f"{API_V1}/workflows/nonexistent-run/cancel", headers={"X-Role": "admin"})
         assert resp.status_code == 404
 
     def test_18_pause_resume_agent(self, client):
@@ -171,19 +172,19 @@ class TestFastAPIEndpoints:
     def test_21_workflow_visualize(self, client):
         existing = list(Path.cwd().glob("workflows/*.yaml"))
         if existing:
-            resp = client.get(f"{API_V1}/workflows/visualize?file={existing[0]}")
+            resp = client.get(f"{API_V1}/workflows/visualize?file={existing[0]}", headers={"X-Role": "admin"})
             assert resp.status_code == 200
             data = resp.json()
             assert "mermaid" in data
 
     def test_22_sessions_list(self, client):
-        resp = client.get(f"{API_V1}/sessions")
+        resp = client.get(f"{API_V1}/sessions", headers={"X-Role": "admin"})
         assert resp.status_code == 200
         data = resp.json()
         assert "sessions" in data
 
     def test_23_session_not_found(self, client):
-        resp = client.get(f"{API_V1}/sessions/nonexistent-session")
+        resp = client.get(f"{API_V1}/sessions/nonexistent-session", headers={"X-Role": "admin"})
         assert resp.status_code == 404
 
     def test_24_openapi_docs_available(self, client):

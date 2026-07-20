@@ -47,6 +47,7 @@ class TestQuotaAPI:
         resp = client.post(
             "/api/v1/quotas/default",
             json={"max_agents": 20, "max_tokens_per_day": 1000000},
+            headers={"X-Role": "admin"},
         )
         assert resp.status_code == 200
         assert resp.json()["status"] == "updated"
@@ -61,6 +62,7 @@ class TestQuotaAPI:
         resp = client.post(
             "/api/v1/quotas/default",
             json={"max_cost_per_day": 50.0},
+            headers={"X-Role": "admin"},
         )
         assert resp.status_code == 200
         # Previous values preserved

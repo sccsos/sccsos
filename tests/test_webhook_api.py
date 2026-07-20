@@ -63,6 +63,7 @@ class TestWebhookAPI:
         """POST /api/v1/webhooks/toggle enables/disables."""
         resp = client.post(
             "/api/v1/webhooks/toggle?enabled=False",
+            headers={"X-Role": "admin"},
         )
         # May fail in CI without writable sccsos.yaml — accept 200 or 404
         assert resp.status_code in (200, 404)

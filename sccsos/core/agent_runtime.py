@@ -158,8 +158,8 @@ class AgentRuntime:
             self._check_config(cfg)
             return True
         except Exception:
-            import logging
-            logging.getLogger("sccsos.runtime").exception("AgentRuntime init failed")
+            from sccsos.observability.logger import get_logger
+            get_logger().exception("AgentRuntime init failed")
             return False
 
     def _check_config(self, cfg) -> None:

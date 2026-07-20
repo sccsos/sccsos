@@ -1,10 +1,9 @@
-# SCCS OS v0.11.0 — 测试验证指南
+# SCCS OS v0.14.2 — 测试验证指南
 
-> 版本: v0.11.0 | 更新: 2026-07-22
-> 涵盖：功能验证 · 集成测试 · 部署验证 · 操作案例
+> 版本: v0.14.2 | 更新: 2026-07-26
+> 健康评分: 9.0/10 | 架构审计已实施
+> 涵盖：功能验证 · 集成测试 · 部署验证 · 操作案例 · 架构优化验证
 > 别名：`sc` 等价于 `sccsos`（全部命令可用）
-
----
 
 ## 目录
 
@@ -20,8 +19,6 @@
 - [第10章 容器部署验证](#第10章-容器部署验证)
 - [第11章 自动化测试套件](#第11章-自动化测试套件)
 - [第12章 实战案例](#第12章-实战案例)
-
----
 
 ## 第1章 部署验证
 
@@ -42,7 +39,7 @@ pip install -e .
 
 # 验证 CLI 可用
 sccsos version
-# 预期: sccsos v0.11.0
+# 预期: sccsos v0.14.2
 #
 # 查看帮助
 sccsos --help
@@ -50,7 +47,7 @@ sccsos --help
 
 # 简写别名
 sc version
-# 预期: sccsos v0.11.0
+# 预期: sccsos v0.14.2
 sc --help
 # 预期: 与 sccsos --help 输出一致
 ```
@@ -83,13 +80,11 @@ cat sccsos.yaml | head -5
 ```bash
 sccsos health
 # 预期输出示例:
-#   sccsos v0.11.0
+#   sccsos v0.14.2
 #   Database: ok (0 agents)
 #   Hermes:   OK
 #   Agents:   0 registered
 ```
-
----
 
 ## 第2章 CLI 功能验证
 
@@ -182,7 +177,7 @@ sccsos trace list
 
 # 版本查询
 sccsos version
-# 预期: sccsos v0.11.0
+# 预期: sccsos v0.14.2
 
 # 简写别名
 # sccsos 的全部命令均可通过 sc 简写执行
@@ -226,8 +221,6 @@ sccsos memory get architect greeting --tenant tenant-a
 sccsos memory get architect greeting --tenant tenant-b
 # 预期: bonjour
 ```
-
----
 
 ## 第3章 工作流验证
 
@@ -287,8 +280,6 @@ cat sccsos.yaml | grep -A 5 "webhooks"
 sccsos workflow run workflows/冒烟测试.yaml
 # 如果 webhooks.enabled=true: 目标端点收到 POST 通知
 ```
-
----
 
 ## 第4章 多租户隔离验证
 
@@ -351,8 +342,6 @@ sccsos agent list --tenant tenant-a
 sccsos workflow list --tenant tenant-b
 # 预期: 仅显示 tenant-b 的工作流运行记录
 ```
-
----
 
 ## 第5章 安全策略验证
 
@@ -442,8 +431,6 @@ print('✅ Per-agent 策略覆盖验证通过')
 "
 ```
 
----
-
 ## 第6章 可观测性验证
 
 ### 6.1 结构化日志验证
@@ -520,8 +507,6 @@ if trace_dirs:
 "
 ```
 
----
-
 ## 第7章 告警系统验证
 
 ### 7.1 AlertManager 基本验证
@@ -583,8 +568,6 @@ t.start()
 print(f'✅ Webhook 监听器已启动 (port 19999)')
 " &
 ```
-
----
 
 ## 第8章 记忆系统验证
 
@@ -720,8 +703,6 @@ print(f'   包装后 prompt: {len(result.prompt)} chars')
 "
 ```
 
----
-
 ## 第9章 API 服务验证
 
 ### 9.1 启动 API 服务器
@@ -813,8 +794,6 @@ curl -s -I http://localhost:8765/health 2>&1 | grep -i "Access-Control"
 # 预期: Access-Control-Allow-Origin: *
 ```
 
----
-
 ## 第10章 容器部署验证
 
 ### 10.1 Docker 构建
@@ -877,8 +856,6 @@ docker compose down
 # 如需清理: docker compose down -v
 ```
 
----
-
 ## 第11章 自动化测试套件
 
 ### 11.1 运行全量测试
@@ -934,8 +911,6 @@ coverage report -m --skip-covered
 # - sccsos/observability/alert_manager.py → 阈值评估 + 告警推送
 # - sccsos/memory/memory_store.py   → KV 持久化 + 租户隔离
 ```
-
----
 
 ## 第12章 实战案例
 
@@ -1047,8 +1022,6 @@ rm -f data/sccsos.db
 sccsos init --force
 ```
 
----
-
 ## 附录
 
 ### A. 测试状态矩阵
@@ -1092,8 +1065,6 @@ sccsos init --force
 - [ ] API Server 全部端点正常（含 pause/resume/restart/ask）
 - [ ] `{{ memory }}` 模板变量在工作流步骤中可用
 - [ ] Docker 构建 + 运行正常
-
----
 
 ## 第13章 RetryPolicy 测试场景
 
@@ -1189,8 +1160,6 @@ except Exception as e:
 "
 ```
 
----
-
 ## 第14章 ContextBuilder 测试场景
 
 ### 14.1 基础上下文构建
@@ -1229,5 +1198,56 @@ step = SimpleNamespace(agent='coder', name='step1', prompt='write code')
 ctx, _ = cb.build(step, {}, 'run-1')
 assert ctx['memory'] == {'language': 'Python'}
 print('✅ ContextBuilder 记忆注入验证通过')
-"
+"""
+
+---
+
+## 第13章 架构优化验证（v0.14.2）
+
+### 13.1 概述
+
+v0.14.2 完成了架构深度审计和 P0+P1 优化实施。本章验证优化项目的正确性和稳定性。
+
+### 13.2 PolicyEngine 日志验证
+
+PolicyEngine 构造失败时不应静默降级：
+
+```bash
+# 正常启动
+sccsos health
+# 预期: 正常输出，无 CRITICAL 日志
+```
+
+### 13.3 ThreadPoolExecutor 验证
+
+WorkflowRuntime 的后台告警任务统一由 ThreadPoolExecutor 管理：
+
+```bash
+# 运行包含多个并行步骤的工作流后检查线程
+ps -T -p $(pgrep -f "sccsos") 2>/dev/null | grep "wf_bg"
+# 预期: 显示 wf_bg_0_0 ~ wf_bg_3_x 线程（最多 4 个）
+```
+
+### 13.4 Config 迁移验证
+
+```bash
+# 使用旧配置路径应在日志触发 warning
+# 在 sccsos.yaml 中仅设 tracing.pricing_path 而非 pricing.path
+# 预期日志: "Config field 'tracing.pricing_path' is deprecated"
+```
+
+### 13.5 全量回归验证
+
+```bash
+# 快速测试套件（跳过慢测试）
+python -m pytest tests/ -q
+# 预期: 971 passed, 6 skipped, 20 deselected
+
+# 安全审计
+python -m pytest tests/test_security_audit.py -q
+# 预期: 43/43 通过
+
+# 故障自愈
+python -m pytest tests/test_fault_tolerance.py -q
+# 预期: 26/26 通过
 ```

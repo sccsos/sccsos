@@ -8,7 +8,8 @@ and ObservabilityRuntime for tracer/auditor.
 from __future__ import annotations
 
 import json
-import threading
+import logging
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Optional
 
 from sccsos.core.event_bus import EventBus
@@ -30,6 +31,12 @@ class WorkflowRuntime:
         self._cfg = config
         self._engine: Optional[WorkflowEngine] = None
         self._personality_registry: Optional[PersonalityRegistry] = None
+        # Shared thread pool for fire-and-forget background tasks
+        # (alert evaluation, webhook dispatch — already best-effort)
+        self._bg_executor = ThreadPoolExecutor(
+            max_workers=4,
+            thread_name_prefix="wf_bg",
+        )
 
     @property
     def engine(self) -> WorkflowEngine:
@@ -94,11 +101,10 @@ class WorkflowRuntime:
                    steps=kw.get("steps"),
                ))
         bus.on(WORKFLOW_COMPLETED,
-               lambda **kw: threading.Thread(
-                   target=self._obs.alert_manager.evaluate_after_run,
-                   args=(kw.get("run_id", ""),),
-                   daemon=True,
-               ).start())
+               lambda **kw: self._bg_executor.submit(
+                   self._obs.alert_manager.evaluate_after_run,
+                   kw.get("run_id", ""),
+               ))
         bus.on(WORKFLOW_FAILED,
                lambda **kw: self._obs.webhook.fire(
                    event="failed",
@@ -108,8 +114,7 @@ class WorkflowRuntime:
                    error=kw.get("error"),
                ))
         bus.on(WORKFLOW_FAILED,
-               lambda **kw: threading.Thread(
-                   target=self._obs.alert_manager.evaluate_after_run,
-                   args=(kw.get("run_id", ""),),
-                   daemon=True,
-               ).start())
+               lambda **kw: self._bg_executor.submit(
+                   self._obs.alert_manager.evaluate_after_run,
+                   kw.get("run_id", ""),
+               ))

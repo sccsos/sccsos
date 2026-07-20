@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 560" width="800" height="560" font-family="'PingFang SC','Microsoft YaHei','Noto Sans SC',sans-serif">
+
+<defs>
+  <marker id="arr" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto"><polygon points="10 3.5, 0 0, 0 7" fill="#334155"/></marker>
+  <marker id="arr-start" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto"><polygon points="10 3.5, 0 0, 0 7" fill="#0284c7"/></marker>
+  <filter id="shadow"><feDropShadow dx="0" dy="1" stdDeviation="2" flood-color="#000" flood-opacity="0.08"/></filter>
+</defs>
+
+<rect width="100%" height="100%" fill="#ffffff"/>
+
+<text x="400" y="28" fill="#0f172a" font-size="14" font-weight="700" text-anchor="middle">SCCS OS 部署方案选择决策树</text>
+
+<!-- Start Node -->
+<rect x="280" y="50" width="240" height="40" rx="20" fill="#e0f2fe" stroke="#0284c7" stroke-width="2" filter="url(#shadow)"/>
+<text x="400" y="76" fill="#0c4a6e" font-size="12" font-weight="700" text-anchor="middle">开始部署 SCCS OS</text>
+
+<!-- Arrow to Decision -->
+<line x1="400" y1="90" x2="400" y2="120" stroke="#334155" stroke-width="1.5" marker-end="url(#arr)"/>
+
+<!-- Question Diamond -->
+<polygon points="400,120 520,160 400,200 280,160" fill="#fefce8" stroke="#ca8a04" stroke-width="2" filter="url(#shadow)"/>
+<text x="400" y="162" fill="#854d0e" font-size="11" font-weight="600" text-anchor="middle">使用场景？</text>
+
+<!-- Branches -->
+<!-- Branch: 开发调试 -->
+<line x1="280" y1="160" x2="120" y2="160" stroke="#16a34a" stroke-width="1.5" marker-end="url(#arr)"/>
+<text x="200" y="152" fill="#16a34a" font-size="9" font-weight="600" text-anchor="middle">开发调试</text>
+<text x="200" y="174" fill="#64748b" font-size="8" text-anchor="middle">个人使用</text>
+
+<rect x="20" y="190" width="200" height="100" rx="8" fill="#dcfce7" stroke="#16a34a" stroke-width="1.5" filter="url(#shadow)"/>
+<text x="120" y="214" fill="#166534" font-size="11" font-weight="700" text-anchor="middle">方案一</text>
+<text x="120" y="232" fill="#166534" font-size="10" font-weight="600" text-anchor="middle">单实例裸机</text>
+<text x="120" y="252" fill="#475569" font-size="8" text-anchor="middle">Python 3.11+ · Hermes Agent</text>
+<text x="120" y="268" fill="#475569" font-size="8" text-anchor="middle">pip install sccsos</text>
+<text x="120" y="284" fill="#475569" font-size="8" text-anchor="middle">sccsos init + start</text>
+
+<!-- Branch: 快速体验 -->
+<line x1="400" y1="200" x2="400" y2="240" stroke="#16a34a" stroke-width="1.5" marker-end="url(#arr)"/>
+<text x="420" y="218" fill="#16a34a" font-size="9" font-weight="600">快速体验 / CI</text>
+
+<!-- Branch: 小团队 -->
+<line x1="400" y1="240" x2="400" y2="280" stroke="#d97706" stroke-width="1.5" marker-end="url(#arr)"/>
+<text x="420" y="258" fill="#d97706" font-size="9" font-weight="600">小团队 / Demo</text>
+
+<!-- Branch: 生产 -->
+<line x1="520" y1="160" x2="680" y2="160" stroke="#e11d48" stroke-width="1.5" marker-end="url(#arr)"/>
+<text x="600" y="152" fill="#e11d48" font-size="9" font-weight="600" text-anchor="middle">生产环境</text>
+<text x="600" y="174" fill="#64748b" font-size="8" text-anchor="middle">大规模并发</text>
+
+<!-- ===== Right: 方案四 ===== -->
+<rect x="570" y="190" width="210" height="130" rx="8" fill="#fce7f3" stroke="#e11d48" stroke-width="1.5" filter="url(#shadow)"/>
+<text x="675" y="214" fill="#9b1c3e" font-size="11" font-weight="700" text-anchor="middle">方案四</text>
+<text x="675" y="232" fill="#9b1c3e" font-size="10" font-weight="600" text-anchor="middle">集群全量企业级</text>
+<text x="675" y="252" fill="#475569" font-size="8" text-anchor="middle">PostgreSQL · Kafka · OTel</text>
+<text x="675" y="268" fill="#475569" font-size="8" text-anchor="middle">Prometheus · Grafana</text>
+<text x="675" y="284" fill="#475569" font-size="8" text-anchor="middle">Helm · Ingress · TLS</text>
+<text x="675" y="300" fill="#475569" font-size="8" text-anchor="middle">RBAC · 备份策略</text>
+
+<!-- ===== Center flow: 方案二 → 方案三 ===== -->
+<rect x="300" y="290" width="200" height="100" rx="8" fill="#dcfce7" stroke="#16a34a" stroke-width="1.5" filter="url(#shadow)"/>
+<text x="400" y="314" fill="#166534" font-size="11" font-weight="700" text-anchor="middle">方案二</text>
+<text x="400" y="332" fill="#166534" font-size="10" font-weight="600" text-anchor="middle">单实例 Docker</text>
+<text x="400" y="352" fill="#475569" font-size="8" text-anchor="middle">Docker Engine 24.0+</text>
+<text x="400" y="368" fill="#475569" font-size="8" text-anchor="middle">docker-compose up -d</text>
+<text x="400" y="384" fill="#475569" font-size="8" text-anchor="middle">数据持久化卷</text>
+
+<rect x="120" y="320" width="140" height="50" rx="8" fill="#fef3c7" stroke="#d97706" stroke-width="1.5" filter="url(#shadow)"/>
+<text x="190" y="344" fill="#92400e" font-size="10" font-weight="700" text-anchor="middle">方案三</text>
+<text x="190" y="360" fill="#92400e" font-size="9" font-weight="600" text-anchor="middle">集群简单部署</text>
+
+<line x1="300" y1="340" x2="260" y2="345" stroke="#d97706" stroke-width="1.5" marker-end="url(#arr)"/>
+<text x="280" y="328" fill="#d97706" font-size="7" text-anchor="middle">升级</text>
+<text x="280" y="360" fill="#64748b" font-size="7" text-anchor="middle">K8s + kubectl</text>
+
+<!-- Arrow: 方案二 → 方案三 vertical -->
+<line x1="400" y1="240" x2="400" y2="290" stroke="#16a34a" stroke-width="1.5" marker-end="url(#arr)"/>
+
+<!-- Footer -->
+<text x="400" y="450" fill="#94a3b8" font-size="7" text-anchor="middle">创新研究院 李锋 · SCCS OS v0.14.2 · 2026-07</text>
+</svg>

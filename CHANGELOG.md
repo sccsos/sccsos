@@ -17,7 +17,21 @@
 
 ### Changed
 
+- **Architecture audit (P0+P1)**: Deep architecture audit completed — 7-domain verification, 5 Major + 6 Minor findings identified, health score corrected 9.2→9.0
+- **Thread management**: WorkflowRuntime background tasks consolidated from bare `threading.Thread(daemon=True)` into shared `ThreadPoolExecutor(max_workers=4)` — controlled concurrency, named threads, no unbounded thread growth
+- **Config deprecation**: `runtime_observability.py` now emits `logger.warning` when old `cfg.tracing.pricing_path` is used; new path is `cfg.pricing.path`
+- **API version documentation**: `fastapi_app.py` route registration section annotated with v1/v2 namespace guidance for future API evolution
 - Version: 0.14.1 → 0.14.2 (11 files synced)
+
+### Fixed
+
+- **PolicyEngine silent failure**: WorkflowEngine.__init__ PolicyEngine construction failure now emits logger.critical with exception detail — previously silently swallowed by bare except Exception (security degradation without notification)
+- **AgentRuntime init logging**: Exception handler in initialize() switched from bare logging.getLogger() to project's structured get_logger() — init failures now recorded in JSON log channel
+- **CommandWhitelist shell-quote awareness**: Pattern matching in `check()` now strips `'...'` / `"..."` quoted content before checking all three pattern branches (multi-word, alphanumeric, symbolic). Fixes false positives on chaining operators (`;`, `$()`, `\`\``, `|`) and dangerous words (`passwd`, `sudo`) inside quoted string arguments — e.g. `python3 -c "import sys; print(sys.version)"` is correctly allowed.
+- **test_security_audit.py**: Updated `test_sandbox_command_chaining` to split cases: outside-quote chaining blocked (correct), inside-quote chaining allowed (shell treats them as literals).
+- **AGENTS.md**: Stats sync — 994 tests / 176 classes / 52 files / 71% coverage (up from 761 / 977).
+- **tests/CONVENTIONS.md**: Stats sync + new principle #4 (sandbox quoting awareness).
+- **Full test report**: Generated `输出/SCCS OS v0.14.2 全量测试报告.md` with per-module coverage breakdown.
 - `sccsos/core/db/schema.py`: Added `skill_ratings` table, `install_count`/`category` columns to `skill_market`, PostgreSQL equivalents, migration v7/v8
 - `sccsos/skill_market/__init__.py`: `install()` now tracks install count
 - `sccsos/skill_rating.py`: Emits `skill.rated` EventBus event on rate
