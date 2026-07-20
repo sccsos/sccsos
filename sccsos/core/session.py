@@ -28,7 +28,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Optional
 
-from sccsos.core.database import Database
+from sccsos.core.db import Database
+from sccsos.core.db import crud
 
 
 @dataclass
@@ -60,6 +61,14 @@ class AgentSession:
 
 _MAX_HISTORY_ROWS = 10  # default number of recent messages to inject
 _MAX_HISTORY_TOKENS = 3000  # rough token budget for history injection
+
+
+def _estimate_tokens(text: str) -> int:
+    """Estimate token count from text.
+
+    Uses ~3.5 chars/token heuristic (Chinese-aware).
+    """
+    return max(1, int(len(text) / 3.5))
 
 
 def _format_history(messages: list[Message]) -> str:
@@ -177,26 +186,26 @@ class AgentSessionManager:
             The message ID.
         """
         now = datetime.now(timezone.utc).isoformat()
-        cursor = self._db.execute(
-            """INSERT INTO session_messages
-               (session_id, role, content, tokens, created_at)
-               VALUES (?, ?, ?, ?, ?)""",
-            (session_id, role, content, tokens, now),
+        msg_id = crud.insert_session_message(
+            self._db, session_id, role, content, tokens, now,
         )
         # Also update the session's updated_at timestamp
-        self._db.execute(
-            "UPDATE agent_sessions SET updated_at = ? WHERE id = ?",
-            (now, session_id),
-        )
-        return cursor.lastrowid
+        crud.update_session(self._db, session_id, updated_at=now)
+        return msg_id
 
     def get_history(self, session_id: str,
-                    limit: int = _MAX_HISTORY_ROWS) -> list[Message]:
-        """Get the most recent messages from a session.
+                    limit: int = _MAX_HISTORY_ROWS,
+                    max_tokens: int = _MAX_HISTORY_TOKENS) -> list[Message]:
+        """Get the most recent messages from a session, respecting token budget.
+
+        If the total estimated tokens exceed ``max_tokens``, oldest
+        messages are dropped to stay within budget.
 
         Args:
             session_id: Session ID.
-            limit: Max messages to return (default: 10).
+            limit: Max messages to fetch (default: 10).
+            max_tokens: Max estimated tokens for the returned history
+                (default: 3000).
 
         Returns:
             List of Message objects, oldest first.
@@ -218,20 +227,36 @@ class AgentSessionManager:
                 tokens=row["tokens"],
                 created_at=row["created_at"],
             ))
-        return result
+
+        # ── Token budget trimming ──────────────────────────────
+        # Walk from newest to oldest, accumulating token estimates.
+        # Drop oldest messages that push total over budget.
+        total_tokens = 0
+        trimmed: list[Message] = []
+        for msg in reversed(result):  # newest first
+            tok = max(msg.tokens, _estimate_tokens(msg.content))
+            if total_tokens + tok > max_tokens:
+                break  # Budget exceeded — drop the rest (older messages)
+            total_tokens += tok
+            trimmed.append(msg)
+        # Reverse back to chronological order
+        return list(reversed(trimmed))
 
     def get_history_block(self, session_id: str,
-                          limit: int = _MAX_HISTORY_ROWS) -> str:
+                          limit: int = _MAX_HISTORY_ROWS,
+                          max_tokens: int = _MAX_HISTORY_TOKENS) -> str:
         """Get formatted history block for prompt injection.
 
         Args:
             session_id: Session ID.
             limit: Max messages to include.
+            max_tokens: Max estimated token budget for history.
 
         Returns:
             Formatted text block, or empty string if no history.
         """
-        messages = self.get_history(session_id, limit=limit)
+        messages = self.get_history(session_id, limit=limit,
+                                    max_tokens=max_tokens)
         return _format_history(messages) if messages else ""
 
     def close_session(self, session_id: str,
@@ -243,10 +268,7 @@ class AgentSessionManager:
             new_status: 'closed' (stop) or 'paused' (pause).
         """
         now = datetime.now(timezone.utc).isoformat()
-        self._db.execute(
-            "UPDATE agent_sessions SET status = ?, updated_at = ? WHERE id = ?",
-            (new_status, now, session_id),
-        )
+        crud.update_session(self._db, session_id, status=new_status, updated_at=now)
 
     def update_summary(self, session_id: str, summary: str) -> None:
         """Update the context summary for a session.
@@ -255,10 +277,7 @@ class AgentSessionManager:
             session_id: Session ID.
             summary: Short summary text.
         """
-        self._db.execute(
-            "UPDATE agent_sessions SET context_summary = ? WHERE id = ?",
-            (summary, session_id),
-        )
+        crud.update_session(self._db, session_id, context_summary=summary)
 
     def list_sessions(self, agent_name: Optional[str] = None,
                       tenant_id: str = "default",
@@ -310,12 +329,7 @@ class AgentSessionManager:
         """Create a new active session."""
         session_id = f"ses_{uuid.uuid4().hex[:12]}"
         now = datetime.now(timezone.utc).isoformat()
-        self._db.execute(
-            """INSERT INTO agent_sessions
-               (id, agent_name, tenant_id, status, created_at, updated_at)
-               VALUES (?, ?, ?, 'active', ?, ?)""",
-            (session_id, agent_name, tenant_id, now, now),
-        )
+        crud.insert_session(self._db, session_id, agent_name, tenant_id, now)
         return AgentSession(
             id=session_id,
             agent_name=agent_name,

@@ -64,7 +64,7 @@ def test_all_workflows_valid():
 
 def test_all_workflows_to_mermaid():
     """全部 workflow 应能正确生成 Mermaid 流程图"""
-    from sccsos.core.orchestrator import WorkflowDef
+    from sccsos.core.workflow import WorkflowDef
     for wf_path in get_all_workflows():
         wf = WorkflowDef.from_yaml(str(wf_path))
         mermaid = wf.to_mermaid()

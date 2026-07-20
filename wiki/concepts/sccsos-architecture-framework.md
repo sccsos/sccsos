@@ -1,7 +1,7 @@
 # SCCS OS Architecture Framework — 7-Domain Design
 
-> 版本: v0.7.0 | 最后更新: 2026-07-20
-> 对应: ADR-003, ADR-004 (v0.6.4→v0.7.0 重构)
+> 版本: v0.11.4 | 最后更新: 2026-07-22
+> 对应: ADR-003~ADR-013 | 代码: ~13,500 LoC | 测试: 374 用例
 
 ## 核心原则
 
@@ -23,20 +23,22 @@
 | 6 | **记忆系统** | 冷记忆桥接(wiki)、TF-IDF 向量检索、KB → 模板注入、跨会话 KV 持久记忆、TTL 过期清理 | `KnowledgeBase`, `VectorStore`, `MemoryStore` |
 | 7 | **提示工程** | Agent YAML 定义(personality/profile/model/tenant)、Jinja2 沙箱模板渲染、Personality 系统提示注入、模板引擎可 mock | `AgentSpec`, `Jinja2 SandboxedEnvironment`, `PersonalityRegistry`, `templates.py` |
 
-## 当前评分（v0.7.1 — 架构优化后）
+## 当前评分（v0.11.4）
 
 | 域 | 权重 | 评分 | 说明 |
 |----|------|:----:|------|
-| 多智能体编排 | 20% | **9.5** | WorkflowRunContext 线程安全、StepExecutor 拆分、Schema 校验、条件分支 |
-| 工具增强型 LLM | 15% | **8.0** | 三层安全防线、retry 包裹、Mock 一致性、模板引擎可注入 |
-| Agent 生命周期 | 15% | **9.5** | 5 状态 FSM + 后台进程 + PAUSED 真实化 + API-Runner 联动 |
-| 可观测性 | 15% | **8.5** | 追踪/审计/日志/Webhook/告警 五维一体、trace 合并导出 |
-| 安全沙箱 | 10% | **7.5** | 三层防线 + per-agent 覆盖 + 正则化危险模式 + API 策略校验 |
-| 记忆系统 | 10% | **8.5** | 知识库 + 向量检索 + 跨会话 KV + agent ask 路径接线 + TTL + purge_expired |
-| 提示工程 | 5% | **8.0** | 3 personality 文件 + AgentSpec 完整字段 + 模板引擎可注入 |
-| 多租户隔离 | 5% | **7.5** | Schema + API 就绪、get_run_status/cancel_run/list_runs tenant 过滤 |
-| 测试质量 | 5% | **9.5** | 157 用例覆盖核心+边缘场景+API+版本验证 |
-| **综合** | **100%** | **8.7/10** | |
+| 多智能体编排 | 20% | **9.3** | DAG + 条件分支 + Schema 迁移 + WorkflowRunContext；StepExecutor 仍需继续解耦 |
+| 工具增强型 LLM | 15% | **8.8** | 三层安全防线 + ModelRouter 已接线（v0.10.0）+ retry + Mock |
+| Agent 生命周期 | 15% | **9.5** | 5 状态 FSM + Supervisor 心跳自动重启 + 会话持久化 + PAUSED 真实化 |
+| 可观测性 | 15% | **8.8** | 追踪/审计/日志/Webhook/告警 + OTel 桥接（可选）+ EventBus 事件 |
+| 安全沙箱 | 10% | **7.5** | 三层防线 + per-agent 覆盖；无文件系统隔离 |
+| 记忆系统 | 10% | **9.0** | 知识库 + 向量检索 + 跨会话 KV + agent ask 路径接线（KB 注入 v0.10.0）+ TTL |
+| 提示工程 | 5% | **8.5** | Personality 版本管理（DB + CLI）+ AgentSpec + 模板引擎可注入 |
+| 多租户隔离 | 5% | **8.0** | Schema + API header 过滤 + cancel/list tenant 过滤 |
+| 事件与解耦 | 5% | **8.0** | EventBus 轻量 pub/sub + 持久化事件队列；无重放机制 |
+| 基础设施 | 5% | **7.5** | Config auto-merge + hot-reload + FastAPI 可选；双服务器负担 + 无 DAO 层 |
+| 测试质量 | 5% | **9.5** | 322 用例覆盖核心+边缘+API+FastAPI+Session+EventBus+Supervisor+版本 |
+| **综合** | **100%** | **~8.7/10** | |
 
 ## 数据流
 
@@ -120,10 +122,12 @@ flowchart TD
 |----|------|---------|
 | 语言 | Python | ≥3.11 |
 | 运行时 | Hermes Agent | 通过 CLI subprocess |
-| 持久化 | SQLite (WAL + thread-local) | 零外部依赖 |
+| 持久化 | SQLite (WAL + threading.Lock) | 零外部依赖 |
+| API 服务器 | FastAPI (可选) / http.server (legacy) | optional [api] extras |
 | 模板 | Jinja2 (SandboxedEnvironment) | ≥3.1 |
 | CLI | Click | ≥8.0 |
 | 序列化 | PyYAML | ≥6.0 |
+| 可观测性 | OTel (可选) / 自研 SQLite | optional [otel] extras |
 | 测试 | pytest | ≥7.0 |
 
 ## 架构演进里程碑
@@ -138,7 +142,10 @@ flowchart TD
 | v0.6 | 2026-07-19 | 多租户 + 告警 + Personality + MemoryStore | 8.0 |
 | **v0.7** | **2026-07-20** | **PAUSED 真实化 + agent ask 记忆 + 线程安全 + DB 统一 + API 守卫** | **8.5** |
 | **v0.7.1** | **2026-07-22** | **API-Runner 联动 + agent list 修复 + step_outputs 线程安全 + tenant 过滤 + Pricing 独立 + 上下文提取** | **8.7** |
-| v0.8 (规划) | — | 会话持久化 + OTel + 沙箱增强 | 目标 9.0+ |
+| v0.8 | 2026-07-22 | EventBus + Supervisor + Config auto-merge + CLI 拆分 | 8.0→8.5 |
+| v0.9 | 2026-07-22 | 会话持久化 + ModelRouter + FastAPI + OTel + Personality 版本 | ~8.7 |
+| **v0.10** | **2026-07-22** | **ModelRouter 接入 + KB ask 注入 + 版本同步** | **~8.7** |
+| v0.11 (规划) | — | initialize() 分割 + FastAPI 淘汰 + AlertManager 异步 | 目标 9.1+ |
 
 ## 相关 ADR
 

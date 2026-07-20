@@ -177,7 +177,7 @@ class TestConfigAutoMerge:
 
         # Project
         assert cfg.project.name == "myproject"
-        assert cfg.project.version == "2.0"
+        assert cfg.project.version == '2.0'
 
         # Database
         assert cfg.database.path == "/tmp/mydb.sqlite"
@@ -213,12 +213,12 @@ class TestConfigAutoMerge:
         """Empty data should produce all defaults."""
         cfg = AgentOSConfig._from_dict({})
         assert cfg.project.name == "sccsos"
-        assert cfg.project.version == "0.10.0"
+        assert cfg.project.version == '0.12.1'
         assert cfg.database.path == "./data/sccsos.db"
         assert cfg.defaults.hermes_profile == "sccsos"
         assert cfg.defaults.max_turns == 90
         assert cfg.logging.level == "INFO"
-        assert cfg.pricing.path == ""
+        assert cfg.pricing.path == "./config/pricing.json"
 
     def test_partial_overrides(self):
         """Partial data should override only specified fields, leave defaults."""
@@ -226,10 +226,10 @@ class TestConfigAutoMerge:
         cfg = AgentOSConfig._from_dict(data)
         assert cfg.project.name == "custom"
         # Unspecified fields keep defaults
-        assert cfg.project.version == "0.10.0"
+        assert cfg.project.version == '0.12.1'
         assert cfg.database.path == "./data/sccsos.db"
         assert cfg.tracing.enabled is True
-        assert cfg.pricing.path == ""
+        assert cfg.pricing.path == "./config/pricing.json"
 
     def test_nested_none_overrides_default(self):
         """Setting a nested value to 'false' or 0 should work."""
@@ -238,8 +238,11 @@ class TestConfigAutoMerge:
         assert cfg.tracing.enabled is False
 
     def test_legacy_pricing_path_fallback(self):
-        """tracing.pricing_path should fall back to pricing.path."""
-        data = {"tracing": {"pricing_path": "./config/old_pricing.json"}}
+        """tracing.pricing_path is only used when pricing.path is empty."""
+        data = {
+            "pricing": {"path": ""},
+            "tracing": {"pricing_path": "./config/old_pricing.json"},
+        }
         cfg = AgentOSConfig._from_dict(data)
         assert cfg.pricing.path == "./config/old_pricing.json"
 
@@ -257,3 +260,70 @@ class TestConfigAutoMerge:
         cfg = AgentOSConfig._from_dict({})
         assert cfg.webhooks.enabled is False
         assert cfg.webhooks.endpoints == []
+
+    # ── EventBusConfig tests ────────────────────────────────────
+
+    def test_event_bus_default(self):
+        """Event bus defaults to local backend."""
+        cfg = AgentOSConfig._from_dict({})
+        assert cfg.event_bus.backend == "local"
+        assert cfg.event_bus.bootstrap_servers == "localhost:9092"
+        assert cfg.event_bus.client_id == "sccsos"
+        assert cfg.event_bus.group_id == "sccsos-events"
+
+    def test_event_bus_kafka_config(self):
+        """Kafka backend config parses correctly."""
+        data = {
+            "event_bus": {
+                "backend": "kafka",
+                "bootstrap_servers": "kafka:9092",
+                "client_id": "myapp",
+                "group_id": "mygroup",
+            }
+        }
+        cfg = AgentOSConfig._from_dict(data)
+        assert cfg.event_bus.backend == "kafka"
+        assert cfg.event_bus.bootstrap_servers == "kafka:9092"
+        assert cfg.event_bus.client_id == "myapp"
+        assert cfg.event_bus.group_id == "mygroup"
+
+
+class TestConfigureEventBus:
+    """Tests for configure_event_bus() and get_bus()."""
+
+    def teardown_method(self):
+        """Reset bus singleton after each test."""
+        from sccsos.core.event_bus import configure_event_bus
+        configure_event_bus("local")
+
+    def test_configure_local(self):
+        """configure_event_bus('local') creates LocalEventBus."""
+        from sccsos.core.event_bus import configure_event_bus, get_bus, _local_bus
+        configure_event_bus("local")
+        bus = get_bus()
+        from sccsos.core.event_bus import LocalEventBus
+        assert isinstance(bus, LocalEventBus)
+
+    def test_configure_kafka(self, monkeypatch):
+        """configure_event_bus('kafka') creates KafkaEventBus."""
+        # Mock kafka-python import so the test doesn't need the library
+        import sys
+
+        mock_errors = type(sys)("errors")
+        mock_errors.NoBrokersAvailable = type("NoBrokersAvailable", (Exception,), {})
+
+        mock_kafka = type(sys)("kafka")
+        mock_kafka.KafkaProducer = type(sys)("KafkaProducer")
+        mock_kafka.KafkaConsumer = type(sys)("KafkaConsumer")
+        mock_kafka.errors = mock_errors
+        monkeypatch.setitem(sys.modules, "kafka", mock_kafka)
+        monkeypatch.setitem(sys.modules, "kafka.errors", mock_errors)
+        monkeypatch.setitem(sys.modules, "kafka.producer", type(sys)("producer"))
+        monkeypatch.setitem(sys.modules, "kafka.consumer", type(sys)("consumer"))
+
+        from sccsos.core.event_bus import configure_event_bus, get_bus
+        configure_event_bus("kafka", bootstrap_servers="localhost:9092")
+        bus = get_bus()
+        from sccsos.core.event_bus_kafka import KafkaEventBus
+        assert isinstance(bus, KafkaEventBus)
+        assert bus._bootstrap == "localhost:9092"

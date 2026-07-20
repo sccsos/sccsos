@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from sccsos.core.database import Database
+from sccsos.core.db import Database
 from sccsos.observability.tracer import Tracer
 
 

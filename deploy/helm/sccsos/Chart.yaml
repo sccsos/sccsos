@@ -1,0 +1,16 @@
+apiVersion: v2
+name: sccsos
+description: SCCS OS — Smart Agent Runtime Platform
+type: application
+version: 0.12.1
+appVersion: "0.11.4"
+keywords:
+  - ai-agent
+  - multi-agent
+  - orchestration
+home: https://github.com/sccsos/sccsos
+sources:
+  - https://github.com/sccsos/sccsos
+maintainers:
+  - name: SCCS OS Team
+icon: https://raw.githubusercontent.com/sccsos/sccsos/main/docs/logo.svg

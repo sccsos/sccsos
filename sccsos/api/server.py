@@ -1,9 +1,14 @@
 """sccsos HTTP API Server — built-in, zero external dependencies.
 
+.. deprecated::
+    Use ``api/fastapi_app.py`` (FastAPI) instead. This legacy http.server
+    module is deprecated and will be removed in v0.12.0.
+    Install ``sccsos[api]`` extras for the FastAPI server.
+
 Exposes all sccsos functionality via a lightweight JSON HTTP API
 using Python's built-in ``http.server`` module.
 
-Endpoints:
+Endpoints (legacy — use FastAPI for /docs and /ws):
   GET  /health          — System health
   GET  /agents          — List agents
   POST /agents/register — Register an agent (POST JSON body)
@@ -34,6 +39,7 @@ Usage:
 
 from __future__ import annotations
 
+import warnings
 import json
 import traceback
 import urllib.parse
@@ -45,8 +51,15 @@ import yaml
 
 from sccsos.core.agent_runtime import AgentRuntime, get_runtime as _get_runtime
 from sccsos.core.registry import AgentSpec
-from sccsos.core.orchestrator import WorkflowDef
+from sccsos.core.workflow import WorkflowDef
 from sccsos.core.lifecycle import AgentStatus
+
+warnings.warn(
+    "sccsos.api.server (http.server) is deprecated. "
+    "Use the FastAPI server instead: pip install sccsos[api]",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 
 def get_runtime() -> AgentRuntime:

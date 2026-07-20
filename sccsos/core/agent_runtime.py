@@ -1,8 +1,10 @@
 """AgentRuntime — unified entry point for all sccsos core services.
 
-Replaces the previous pattern of 5 global variables in CLI.py with
-a single Runtime object that manages lazy initialization, dependency
-injection, and graceful shutdown.
+Composes three focused sub-runtimes:
+
+  - RuntimeCore    → DB, Registry, Adapter, Runner, Sessions, Supervisor
+  - ObservabilityRuntime → Tracer, Auditor, Pricing, Alerts, Webhooks
+  - WorkflowRuntime → WorkflowEngine, PersonalityRegistry, EventBus wiring
 
 Usage:
     runtime = AgentRuntime()
@@ -15,49 +17,40 @@ Usage:
 from __future__ import annotations
 
 import json
+import threading
 from pathlib import Path
 from typing import Any, Optional
 
 from sccsos.core.config import AgentOSConfig, get_config
-from sccsos.core.database import Database
-from sccsos.core.event_bus import EventBus, WORKFLOW_STARTED, WORKFLOW_COMPLETED, WORKFLOW_FAILED
+from sccsos.core.db import Database
 from sccsos.core.registry import AgentRegistry, AgentSpec
 from sccsos.core.lifecycle import LifecycleManager
-from sccsos.core.hermes_adapter import HermesAdapter, create_adapter
+from sccsos.core.hermes_adapter import HermesAdapter
 from sccsos.core.agent_runner import AgentRunner
-from sccsos.core.orchestrator import WorkflowEngine
 from sccsos.core.session import AgentSessionManager
 from sccsos.core.supervisor import Supervisor
+from sccsos.core.workflow import WorkflowEngine
+from sccsos.memory.memory_store import MemoryStore
 from sccsos.observability.tracer import Tracer
 from sccsos.observability.auditor import Auditor
-from sccsos.observability.pricing import PricingTable
-from sccsos.observability.webhook import WebhookNotifier
-from sccsos.observability.alert_manager import AlertManager
+from sccsos.observability.logger import get_logger
+
+logger = get_logger()
 
 
 class AgentRuntime:
-    """Central runtime that owns all core services.
-
-    Initialization is deferred until first access or explicit
-    initialize() call, so the Runtime object can be created early
-    without side effects.
-    """
+    """Central runtime composing CoreRuntime + ObservabilityRuntime + WorkflowRuntime."""
 
     def __init__(self, config: Optional[AgentOSConfig] = None):
         self._config = config
-        self._db: Optional[Database] = None
-        self._registry: Optional[AgentRegistry] = None
-        self._lifecycle: Optional[LifecycleManager] = None
-        self._adapter: Optional[HermesAdapter] = None
-        self._engine: Optional[WorkflowEngine] = None
-        self._tracer: Optional[Tracer] = None
-        self._auditor: Optional[Auditor] = None
-        self._runner: Optional[AgentRunner] = None
-        self._session_manager: Optional[AgentSessionManager] = None
-        self._supervisor: Optional[Supervisor] = None
-        self._initialized: bool = False
+        self._initialized = False
 
-    # ── Properties (lazy accessors) ───────────────────────────────
+        # Sub-runtimes (lazy)
+        self._core = None
+        self._obs = None
+        self._wf = None
+
+    # ── Properties delegate to sub-runtimes ─────────────────────────
 
     @property
     def config(self) -> AgentOSConfig:
@@ -68,255 +61,108 @@ class AgentRuntime:
     @property
     def db(self) -> Database:
         self._ensure_initialized()
-        return self._db
+        return self._core.db
 
     @property
     def registry(self) -> AgentRegistry:
         self._ensure_initialized()
-        return self._registry
+        return self._core.registry
 
     @property
     def lifecycle(self) -> LifecycleManager:
         self._ensure_initialized()
-        return self._lifecycle
+        return self._core.lifecycle
 
     @property
     def adapter(self) -> HermesAdapter:
         self._ensure_initialized()
-        return self._adapter
+        return self._core.adapter
 
     @property
     def engine(self) -> WorkflowEngine:
         self._ensure_initialized()
-        return self._engine
+        return self._wf.engine
 
     @property
     def tracer(self) -> Tracer:
         self._ensure_initialized()
-        return self._tracer
+        return self._obs.tracer
 
     @property
     def auditor(self) -> Auditor:
         self._ensure_initialized()
-        return self._auditor
+        return self._obs.auditor
 
     @property
     def runner(self) -> AgentRunner:
         self._ensure_initialized()
-        return self._runner
+        return self._core.runner
 
     @property
     def policy_engine(self):
         self._ensure_initialized()
-        if self._engine and hasattr(self._engine, '_policy_engine'):
-            return self._engine._policy_engine
+        if self._wf and self._wf.engine and hasattr(self._wf.engine, '_policy_engine'):
+            return self._wf.engine._policy_engine
         return None
 
     @property
-    def memory(self):
-        """Access the MemoryStore (persistent cross-session KV store)."""
+    def memory(self) -> MemoryStore:
         self._ensure_initialized()
-        return self._memory_store
+        return self._core.memory_store
 
     @property
     def model_router(self):
-        """Access the ModelRouter (multi-model pool)."""
         self._ensure_initialized()
-        return self._model_router
+        return self._core.model_router
 
     @property
     def session_manager(self) -> AgentSessionManager:
-        """Access the AgentSessionManager (conversation history)."""
         self._ensure_initialized()
-        return self._session_manager
+        return self._core.session_manager
 
     @property
     def is_initialized(self) -> bool:
         return self._initialized
 
-    # ── Initialisation ───────────────────────────────────────────
+    # ── Initialisation ─────────────────────────────────────────────
 
     def initialize(self) -> bool:
-        """Explicitly initialise all core services.
-
-        Returns True if initialisation succeeded, False on failure.
-        Safe to call multiple times — subsequent calls are no-ops.
-        """
         if self._initialized:
             return True
 
         cfg = self.config
 
-        # Resolve agents directory
-        agents_dir = Path(cfg.agents.path)
-        agents_dir = agents_dir if agents_dir.is_absolute() else Path.cwd() / agents_dir
-
-        # ── Database ──────────────────────────────────────────────
         try:
-            self._db = Database(cfg.database.path)
-            self._db.initialize()
+            from sccsos.core.runtime_core import RuntimeCore
+            self._core = RuntimeCore(cfg)
+            self._core.initialize()
+
+            from sccsos.core.runtime_observability import ObservabilityRuntime
+            self._obs = ObservabilityRuntime(self._core.db, cfg)
+            self._obs.initialize()
+
+            # Configure event bus backend from config
+            from sccsos.core.event_bus import configure_event_bus
+            configure_event_bus(
+                backend=cfg.event_bus.backend,
+                bootstrap_servers=cfg.event_bus.bootstrap_servers,
+                client_id=cfg.event_bus.client_id,
+                group_id=cfg.event_bus.group_id,
+            )
+
+            from sccsos.core.runtime_workflow import WorkflowRuntime
+            self._wf = WorkflowRuntime(self._core, self._obs, cfg)
+            self._wf.initialize()
+
+            self._initialized = True
+            self._check_config(cfg)
+            return True
         except Exception:
+            import logging
+            logging.getLogger("sccsos.runtime").exception("AgentRuntime init failed")
             return False
 
-        # ── Registry ──────────────────────────────────────────────
-        self._registry = AgentRegistry()
-        if agents_dir.exists():
-            self._registry.load_from_dir(agents_dir)
-
-        # ── Hermes adapter with sandbox ──────────────────────────────
-        from sccsos.security.sandbox import CommandWhitelist
-        wl_allowed = cfg.policies.default.allowed_commands
-        wl_dangerous = cfg.policies.default.dangerous_patterns
-        self._sandbox = CommandWhitelist(
-            allowed_commands=list(wl_allowed),
-            dangerous_patterns=list(wl_dangerous) if wl_dangerous else None,
-        )
-        self._adapter = create_adapter("subprocess", whitelist=self._sandbox)
-
-        # ── Memory store (created early so runner can use it) ──────
-        from sccsos.memory.memory_store import MemoryStore
-        self._memory_store = MemoryStore(self._db)
-
-        # ── Session manager (conversation history persistence) ─────
-        self._session_manager = AgentSessionManager(self._db)
-
-        # ── Agent Runner (manages running agent processes) ─────────
-        self._supervisor = Supervisor(max_restarts=3, heartbeat_timeout=30.0)
-        self._runner = AgentRunner(self._adapter, memory_store=self._memory_store,
-                                   session_manager=self._session_manager,
-                                   supervisor=self._supervisor)
-        self._supervisor.start()
-
-        # ── Tracer & Auditor ──────────────────────────────────────
-        # Optional OpenTelemetry bridge (requires sccsos[otel] extras)
-        otel_bridge = None
-        otlp_endpoint = getattr(cfg.tracing, 'otlp_endpoint', '')
-        if cfg.tracing.enabled and otlp_endpoint:
-            try:
-                from sccsos.observability.otel_tracer import OTelTracerBridge
-                otel_headers = getattr(cfg.tracing, 'otlp_headers', [])
-                otel_bridge = OTelTracerBridge(
-                    otlp_endpoint=otlp_endpoint,
-                    otlp_headers=otel_headers or [],
-                )
-            except Exception:
-                pass  # OTel not available — fall back to SQLite-only
-
-        self._tracer = Tracer(
-            self._db,
-            export_path=cfg.tracing.export_path if cfg.tracing.enabled else None,
-            otel_bridge=otel_bridge,
-        )
-        # Create PricingTable from config (new pricing.path, fallback to deprecated tracing.pricing_path)
-        pricing_path = cfg.pricing.path or cfg.tracing.pricing_path
-        if pricing_path:
-            pricing = PricingTable(Path(pricing_path))
-        else:
-            pricing = PricingTable()
-        self._auditor = Auditor(self._db, pricing=pricing)
-
-        # ── Lifecycle (restore running instances from DB) ─────────
-        self._lifecycle = LifecycleManager(self._db, self._registry)
-        self._restore_instances()
-
-        # ── Knowledge base (optional, for context injection) ───────
-        from sccsos.memory.knowledge_base import KnowledgeBase
-        self._knowledge_base = None
-        wiki_path = cfg.agents.wiki_path
-        if wiki_path:
-            kb_path = Path(wiki_path)
-            if kb_path.exists():
-                self._knowledge_base = KnowledgeBase(
-                    wiki_path=kb_path, use_vector=True,
-                )
-            else:
-                from sccsos.observability.logger import get_logger
-                get_logger().warning(
-                    "KnowledgeBase wiki_path '%s' does not exist. "
-                    "Set 'agents.wiki_path' in sccsos.yaml or create the directory.",
-                    wiki_path,
-                )
-
-        # ── Personality registry ────────────────────────────────────
-        from sccsos.core.personality import PersonalityRegistry
-        self._personality_registry = PersonalityRegistry()
-        personalities_dir = Path(cfg.agents.personalities_path)
-        if personalities_dir.exists():
-            count = self._personality_registry.load_from_dir(personalities_dir)
-        else:
-            count = 0
-
-        # ── Model Router (multi-model pool) ────────────────────────
-        from sccsos.core.model_router import ModelRouter
-        # Load model_pool config (or None → built-in defaults)
-        model_pool_cfg = getattr(cfg, 'model_pool', None)
-        if model_pool_cfg is None:
-            # Try from raw dict fallback
-            model_pool_cfg = None
-        self._model_router = ModelRouter.from_config(model_pool_cfg)
-
-        # ── Workflow engine ───────────────────────────────────────
-        self._engine = WorkflowEngine(
-            self._db, self._adapter,
-            tracer=self._tracer,
-            auditor=self._auditor,
-            config=cfg,
-            registry=self._registry,
-            knowledge_base=self._knowledge_base,
-            memory_store=self._memory_store,
-            personality_registry=self._personality_registry,
-        )
-
-        # ── EventBus — decoupled workflow lifecycle observers ─────
-        bus = EventBus.get_instance()
-        self._webhook = WebhookNotifier(cfg.webhooks if cfg else None)
-        self._alert_manager = AlertManager(
-            self._db, cfg, self._webhook,
-        )
-
-        # Wire EventBus persistence to SQLite
-        def _persist_event(event: str, data: dict) -> None:
-            import json
-            self._db.execute(
-                "INSERT INTO event_queue (event, data) VALUES (?, ?)",
-                (event, json.dumps(data, ensure_ascii=False, default=str)),
-            )
-            self._db.commit()
-
-        bus.set_persist(_persist_event)
-
-        def _on_workflow_event(event_label: str, **kw: Any) -> None:
-            """Generic handler: forward workflow events to webhook."""
-            self._webhook.fire(
-                event=event_label,
-                run_id=kw.get("run_id", ""),
-                workflow_name=kw.get("workflow_name", ""),
-                status=kw.get("status", ""),
-                error=kw.get("error"),
-                steps=kw.get("steps"),
-            )
-
-        bus.on(WORKFLOW_STARTED,
-               lambda **kw: _on_workflow_event("started", **kw))
-        bus.on(WORKFLOW_COMPLETED,
-               lambda **kw: _on_workflow_event("completed", **kw))
-        bus.on(WORKFLOW_COMPLETED,
-               lambda **kw: self._alert_manager.evaluate_after_run(
-                   run_id=kw.get("run_id", "")))
-        bus.on(WORKFLOW_FAILED,
-               lambda **kw: _on_workflow_event("failed", **kw))
-        bus.on(WORKFLOW_FAILED,
-               lambda **kw: self._alert_manager.evaluate_after_run(
-                   run_id=kw.get("run_id", "")))
-
-        self._initialized = True
-        # Optional: config consistency checks
-        self._check_config(cfg)
-        return True
-
     def _check_config(self, cfg) -> None:
-        """Run optional config consistency checks (best-effort, no failure)."""
-        # Check pricing file existence (try new path first, then deprecated)
         pricing_path = cfg.pricing.path or cfg.tracing.pricing_path
         if pricing_path:
             pp = Path(pricing_path)
@@ -328,7 +174,6 @@ class AgentRuntime:
                 )
 
     def _ensure_initialized(self) -> None:
-        """Auto-initialise on first property access."""
         if not self._initialized:
             ok = self.initialize()
             if not ok:
@@ -337,41 +182,9 @@ class AgentRuntime:
                     "Run 'sccsos init' first or check config."
                 )
 
-    def _restore_instances(self) -> None:
-        """Load existing agent records from DB into lifecycle manager."""
-        if self._db is None or self._lifecycle is None:
-            return
-        records = self._db.list_agents()
-        skipped = 0
-        for rec in records:
-            status = rec["status"]
-            if status in ("terminated",):
-                continue
-            try:
-                spec_dict = json.loads(rec["spec"])
-                spec = AgentSpec.from_dict(spec_dict)
-                self._lifecycle._restore_instance(
-                    rec["id"], spec, rec["status"]
-                )
-            except Exception as e:
-                skipped += 1
-                from sccsos.observability.logger import get_logger
-                get_logger().warning(
-                    "Skipped unreadable agent record '%s': %s",
-                    rec.get("id", "?"), e,
-                )
-        if skipped > 0:
-            from sccsos.observability.logger import get_logger
-            get_logger().info(
-                "Restored %d agents, skipped %d unreadable records",
-                len(records) - skipped - sum(1 for r in records if r["status"] in ("terminated",)),
-                skipped,
-            )
-
-    # ── Health ───────────────────────────────────────────────────
+    # ── Health ──────────────────────────────────────────────────────
 
     def health(self) -> dict:
-        """Return system health information."""
         if not self._initialized:
             return {
                 "status": "not_initialized",
@@ -381,100 +194,123 @@ class AgentRuntime:
         result = {
             "version": self.config.project.version,
             "initialized": True,
-            "database": self._db.check_health(),
-            "hermes": self._adapter.check_connectivity() if self._adapter else False,
-            "agents": self._registry.count() if self._registry else 0,
+            "database": self._core.db.check_health(),
+            "hermes": self._core.adapter.check_connectivity() if self._core.adapter else False,
+            "agents": self._core.registry.count() if self._core.registry else 0,
         }
 
-        if self._engine:
+        if self._wf and self._wf.engine:
             try:
-                traces = self._tracer.list_traces(limit=1)
+                traces = self._obs.tracer.list_traces(limit=1)
                 result["traces_available"] = len(traces) > 0
             except Exception:
                 result["traces_available"] = False
 
         return result
 
-    # ── Lifecycle ─────────────────────────────────────────────────
+    # ── Lifecycle ──────────────────────────────────────────────────
 
     def register_agent(self, spec: AgentSpec) -> str:
-        """Register an agent with policy validation.
-
-        Validates the agent's toolsets against the policy engine
-        before registering. Raises PolicyViolation if toolsets
-        contain blocked tools.
-
-        Args:
-            spec: AgentSpec to register.
-
-        Returns:
-            Agent name (from spec.name).
-        """
         self._ensure_initialized()
-        # Validate toolsets against policy (if policy engine is available)
-        if hasattr(self._engine, '_policy_engine') and self._engine._policy_engine:
-            pe = self._engine._policy_engine
-            # Register per-agent policy override
+        if self._wf and self._wf.engine and hasattr(self._wf.engine, '_policy_engine'):
+            pe = self._wf.engine._policy_engine
             pe.set_agent_policy(spec.name, spec.policy)
-            # Validate toolsets
-            result = pe.check_agent_toolsets(
-                spec.name, spec.toolsets,
-            )
+            result = pe.check_agent_toolsets(spec.name, spec.toolsets)
             if not result.allowed:
                 from sccsos.security.policy import PolicyViolation
                 raise PolicyViolation(result.reason)
-        return self._registry.register(spec)
+        return self._core.registry.register(spec)
 
     def close(self) -> None:
-        """Release resources (DB connections, stop agents, etc.)."""
-        if self._supervisor:
+        if self._core and self._core.supervisor:
             try:
-                self._supervisor.stop()
-            except Exception:
-                pass
-        if self._runner:
+                self._core.supervisor.stop()
+            except Exception as e:
+                logger.warning("Supervisor stop failed: %s", e)
+        if self._core and self._core.runner:
             try:
-                self._runner.stop_all()
-            except Exception:
-                pass
-        if self._db:
+                self._core.runner.stop_all()
+            except Exception as e:
+                logger.warning("Runner stop_all failed: %s", e)
+        if self._core and self._core.db:
             try:
-                self._db.close()
-            except Exception:
-                pass
+                self._core.db.close()
+            except Exception as e:
+                logger.warning("DB close failed: %s", e)
         self._initialized = False
 
 
-# ── Runtime Factory (shared singleton for CLI & API) ────────
+# ── Runtime Factory (per-tenant, shared singleton map for CLI & API) ─
+
+_RUNTIMES: dict[str, AgentRuntime] = {}
+_RUNTIME_LOCK = threading.Lock()
 
 
-class RuntimeFactory:
-    """Factory for AgentRuntime that supports test override.
+def get_runtime(tenant_id: str = "default") -> AgentRuntime:
+    """Get or create a per-tenant AgentRuntime instance.
 
-    Shared singleton used by both CLI (cli.py) and API server
-    (api/server.py) to avoid dual-runtime anti-pattern.
+    Each tenant gets its own lazy-initialized runtime.  The ``"default"``
+    tenant is used by the CLI and API routes that do not pass an explicit
+    tenant ID.  API routes that receive an ``X-Tenant-ID`` header can call
+    ``get_runtime(tenant_id=header_value)`` for future per-tenant isolation.
+
+    Args:
+        tenant_id: Tenant namespace (default ``"default"``).
+
+    Returns:
+        The AgentRuntime for the given tenant.
     """
-
-    def __init__(self):
-        self._runtime: AgentRuntime | None = None
-
-    def get(self) -> AgentRuntime:
-        if self._runtime is None:
-            self._runtime = AgentRuntime()
-        return self._runtime
-
-    def set(self, runtime: AgentRuntime) -> None:
-        self._runtime = runtime
+    global _RUNTIMES
+    with _RUNTIME_LOCK:
+        if tenant_id not in _RUNTIMES:
+            _RUNTIMES[tenant_id] = AgentRuntime()
+        return _RUNTIMES[tenant_id]
 
 
-_runtime_factory = RuntimeFactory()
+def reset_runtime(tenant_id: Optional[str] = None) -> None:
+    """Reset runtime(s). Used in tests.
+
+    Args:
+        tenant_id: If set, reset only that tenant's runtime.
+            If ``None`` (default), reset all runtimes.
+    """
+    global _RUNTIMES
+    with _RUNTIME_LOCK:
+        if tenant_id is not None:
+            rt = _RUNTIMES.pop(tenant_id, None)
+            if rt is not None:
+                try:
+                    rt.close()
+                except Exception as e:
+                    logger.warning("Runtime close during reset failed: %s", e)
+        else:
+            for tid, rt in _RUNTIMES.items():
+                try:
+                    rt.close()
+                except Exception as e:
+                    logger.warning(
+                        "Runtime close for '%s' during reset failed: %s", tid, e
+                    )
+            _RUNTIMES.clear()
 
 
-def get_runtime() -> AgentRuntime:
-    """Get the current AgentRuntime singleton."""
-    return _runtime_factory.get()
+# ── Legacy test support ────────────────────────────────────────────
 
 
-def set_runtime(runtime: AgentRuntime) -> None:
-    """Override the runtime singleton (used in tests)."""
-    _runtime_factory.set(runtime)
+def set_runtime(runtime: AgentRuntime, tenant_id: str = "default") -> None:
+    """Override a per-tenant runtime instance (for test injection).
+
+    Deprecated: use ``reset_runtime()`` in teardown instead.
+    """
+    global _RUNTIMES
+    with _RUNTIME_LOCK:
+        old = _RUNTIMES.get(tenant_id)
+        if old is not None and old is not runtime:
+            try:
+                old.close()
+            except Exception as e:
+                logger.warning(
+                    "Runtime close during set_runtime for '%s' failed: %s",
+                    tenant_id, e,
+                )
+        _RUNTIMES[tenant_id] = runtime

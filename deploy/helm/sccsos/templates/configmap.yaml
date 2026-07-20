@@ -1,0 +1,26 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sccsos-config
+  namespace: {{ .Values.namespace | default "sccsos" }}
+data:
+  sccsos.yaml: |
+    project:
+      name: sccsos
+      version: {{ .Values.image.tag | quote }}
+    database:
+      driver: {{ .Values.config.database.driver }}
+      path: {{ .Values.config.database.path }}
+    logging:
+      level: {{ .Values.config.logging.level }}
+    tracing:
+      enabled: {{ .Values.config.tracing.enabled }}
+    webhooks:
+      enabled: {{ .Values.webhooks.enabled }}
+      {{- if .Values.webhooks.endpoints }}
+      endpoints:
+      {{- range .Values.webhooks.endpoints }}
+        - url: {{ .url }}
+          events: [{{ join "," .events }}]
+      {{- end }}
+      {{- end }}

@@ -21,7 +21,8 @@ from typing import Optional
 
 import yaml
 
-from sccsos.core.database import Database
+from sccsos.core.db import Database
+from sccsos.core.db import crud
 
 
 @dataclass
@@ -61,14 +62,10 @@ class PersonalityVersionManager:
         versions = self._get_existing_versions(personality_name)
         next_ver = self._next_version(versions)
 
-        self._db.execute(
-            """INSERT OR REPLACE INTO personality_versions
-               (personality_name, version, content, change_log, created_at)
-               VALUES (?, ?, ?, ?, ?)""",
-            (personality_name, next_ver, content, change_log,
-             datetime.now(timezone.utc).isoformat()),
+        crud.insert_personality_version(
+            self._db, personality_name, next_ver, content, change_log,
+            datetime.now(timezone.utc).isoformat(),
         )
-        self._db.commit()
         return next_ver
 
     def list_versions(self, personality_name: str) -> list[PersonalityVersion]:
@@ -122,7 +119,17 @@ class PersonalityVersionManager:
                ORDER BY created_at DESC LIMIT 1""",
             (personality_name,),
         )
-        return row[0] if row else None
+        if not row:
+            return None
+        # sqlite3.Row supports dict() conversion and key access
+        return row["content"]
+
+    def delete_version(self, personality_name: str, version: str) -> None:
+        """Delete a specific version snapshot."""
+        self._db.execute(
+            "DELETE FROM personality_versions WHERE personality_name = ? AND version = ?",
+            (personality_name, version),
+        )
 
     def list_all_personalities(self) -> list[str]:
         """List all personality names that have version history."""

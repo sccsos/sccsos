@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
-from sccsos.core.database import Database
+from sccsos.core.db import Database
 
 if TYPE_CHECKING:
     from sccsos.observability.otel_tracer import OTelTracerBridge

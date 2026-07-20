@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Optional
 
-from sccsos.core.database import Database
+from sccsos.core.db import Database
 from sccsos.observability.pricing import PricingTable
 
 
@@ -195,3 +195,32 @@ class Auditor:
                 (limit,),
             ).fetchall()
         return [dict(r) for r in rows]
+
+
+# ── CLI entry helper ──────────────────────────────────────────────
+
+
+def print_billing_summary(report: dict) -> str:
+    """Format an audit report as a human-readable billing summary."""
+    s = report.get("summary", {})
+    lines = [
+        "Billing Summary",
+        "================",
+        f"  Period:          {report.get('generated_at', 'now')[:10]}",
+        f"  Total calls:     {s.get('total_calls', 0)}",
+        f"  Total tokens:    {s.get('total_tokens', 0):,}",
+        f"  Total cost:      ${s.get('total_cost', 0):.4f}",
+        f"  Avg duration:    {s.get('avg_duration_ms', 0):.0f}ms",
+        f"  Success rate:    {s.get('success_count', 0)}/{s.get('total_calls', 0)}",
+        "",
+        "Cost by Model:",
+    ]
+    for m in report.get("by_model", []):
+        lines.append(f"  {m['model_name']:25s}  ${m['cost']:>8.4f}  ({m['tokens']:>8,} tokens)")
+
+    lines.append("")
+    lines.append("Cost by Day (last 7):")
+    for d in report.get("cost_by_day", [])[-7:]:
+        lines.append(f"  {d['day']}  ${d['cost']:.4f}")
+
+    return "\n".join(lines)

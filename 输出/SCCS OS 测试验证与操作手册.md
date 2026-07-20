@@ -1,6 +1,6 @@
-# SCCS OS v0.6.4 — 测试验证指南
+# SCCS OS v0.11.0 — 测试验证指南
 
-> 版本: v0.6.4 | 更新: 2026-07-19
+> 版本: v0.11.0 | 更新: 2026-07-22
 > 涵盖：功能验证 · 集成测试 · 部署验证 · 操作案例
 > 别名：`sc` 等价于 `sccsos`（全部命令可用）
 
@@ -42,15 +42,15 @@ pip install -e .
 
 # 验证 CLI 可用
 sccsos version
-# 预期: sccsos v0.6.4
-
+# 预期: sccsos v0.11.0
+#
 # 查看帮助
 sccsos --help
-# 预期: 显示 agent/workflow/trace/audit/health/memory/init/version 9 个命令
+# 预期: 显示 agent/workflow/trace/audit/health/memory/init/version/serve 10 个命令
 
 # 简写别名
 sc version
-# 预期: sccsos v0.6.4
+# 预期: sccsos v0.11.0
 sc --help
 # 预期: 与 sccsos --help 输出一致
 ```
@@ -83,7 +83,7 @@ cat sccsos.yaml | head -5
 ```bash
 sccsos health
 # 预期输出示例:
-#   sccsos v0.6.4
+#   sccsos v0.11.0
 #   Database: ok (0 agents)
 #   Hermes:   OK
 #   Agents:   0 registered
@@ -182,7 +182,7 @@ sccsos trace list
 
 # 版本查询
 sccsos version
-# 预期: sccsos v0.6.4
+# 预期: sccsos v0.11.0
 
 # 简写别名
 # sccsos 的全部命令均可通过 sc 简写执行
@@ -295,8 +295,8 @@ sccsos workflow run workflows/冒烟测试.yaml
 ### 4.1 API 租户隔离
 
 ```bash
-# 启动 API 服务器
-python -m sccsos.api.server --port 8765 &
+# 启动 API 服务器（FastAPI 模式）
+sccsos serve --port 8765
 
 # 注册 Agent（租户 A）
 curl -X POST http://localhost:8765/agents/register \
@@ -1087,7 +1087,147 @@ sccsos init --force
 - [ ] Webhook 通知可推送
 - [ ] AlertManager 告警评估
 - [ ] MemoryStore 持久记忆读写（save/get/list/delete/clear + **TTL 过期**）
+- [ ] 自动化测试套件 322+ 通过，新模块测试覆盖 RetryPolicy/ContextBuilder/MultiTenant
 - [ ] Personality 注入正常（3 个角色：architect/doc-writer/code-reviewer）
 - [ ] API Server 全部端点正常（含 pause/resume/restart/ask）
 - [ ] `{{ memory }}` 模板变量在工作流步骤中可用
 - [ ] Docker 构建 + 运行正常
+
+---
+
+## 第13章 RetryPolicy 测试场景
+
+### 13.1 成功路径
+
+```bash
+python3 -c "
+from sccsos.core.retry_policy import RetryPolicy
+import threading
+
+policy = RetryPolicy(None, threading.Lock())
+# 零失败：fn 第一次就成功
+result = policy.execute(lambda: 'ok', max_attempts=3)
+assert result == 'ok'
+print('✅ RetryPolicy 成功路径验证通过')
+"
+```
+
+### 13.2 重试后成功
+
+```bash
+python3 -c "
+from sccsos.core.retry_policy import RetryPolicy
+import threading
+
+policy = RetryPolicy(None, threading.Lock())
+attempts = [0]
+def flaky():
+    attempts[0] += 1
+    if attempts[0] < 3:
+        raise ValueError('transient')
+    return 'finally_ok'
+
+result = policy.execute(flaky, step_id='test', max_attempts=5)
+assert result == 'finally_ok'
+assert attempts[0] == 3
+print('✅ RetryPolicy 重试后成功验证通过')
+"
+```
+
+### 13.3 重试耗尽
+
+```bash
+python3 -c "
+from sccsos.core.retry_policy import RetryPolicy
+import threading
+
+policy = RetryPolicy(None, threading.Lock())
+try:
+    policy.execute(lambda: (_ for _ in ()).throw(ValueError('boom')),
+                   step_id='exhaust', max_attempts=2)
+    assert False, 'Should have raised'
+except Exception as e:
+    assert 'failed after 2 attempts' in str(e)
+    print('✅ RetryPolicy 重试耗尽验证通过')
+"
+```
+
+### 13.4 非重试异常不予重试
+
+```bash
+python3 -c "
+from sccsos.core.retry_policy import RetryPolicy
+import threading
+
+policy = RetryPolicy(None, threading.Lock())
+try:
+    policy.execute(lambda: (_ for _ in ()).throw(ValueError('Policy rejected')),
+                   step_id='noretry', max_attempts=5)
+    assert False, 'Should have raised'
+except ValueError:
+    print('✅ RetryPolicy 非重试异常验证通过')
+"
+```
+
+### 13.5 取消信号中断
+
+```bash
+python3 -c "
+from sccsos.core.retry_policy import RetryPolicy
+import threading
+
+policy = RetryPolicy(None, threading.Lock())
+evt = threading.Event()
+evt.set()  # 立即取消
+
+try:
+    policy.execute(lambda: None, step_id='cancel', max_attempts=5, cancel_event=evt)
+    assert False, 'Should have raised'
+except Exception as e:
+    assert 'cancelled' in str(e)
+    print('✅ RetryPolicy 取消信号验证通过')
+"
+```
+
+---
+
+## 第14章 ContextBuilder 测试场景
+
+### 14.1 基础上下文构建
+
+```bash
+python3 -c "
+from sccsos.core.context_builder import ContextBuilder
+from types import SimpleNamespace
+
+cb = ContextBuilder()
+step = SimpleNamespace(agent='test', name='step1', prompt='hello')
+ctx, render_fn = cb.build(step, {'prev': {'response': 'ok'}}, 'run-1')
+
+assert ctx['steps'] == {'prev': {'response': 'ok'}}
+assert ctx['run_id'] == 'run-1'
+assert 'knowledge' not in ctx
+assert 'memory' not in ctx
+print('✅ ContextBuilder 基础上下文验证通过')
+"
+```
+
+### 14.2 记忆注入
+
+```bash
+python3 -c "
+from sccsos.core.context_builder import ContextBuilder
+from types import SimpleNamespace
+
+# 模拟 memory_store
+class FakeMemory:
+    def get_all(self, agent):
+        return {'language': 'Python'}
+
+cb = ContextBuilder(memory_store=FakeMemory())
+step = SimpleNamespace(agent='coder', name='step1', prompt='write code')
+ctx, _ = cb.build(step, {}, 'run-1')
+assert ctx['memory'] == {'language': 'Python'}
+print('✅ ContextBuilder 记忆注入验证通过')
+"
+```

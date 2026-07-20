@@ -12,10 +12,10 @@ from sccsos.core.config import AgentOSConfig, get_config, reload_config, set_con
 from sccsos.core.hermes_adapter import MockHermesAdapter
 from sccsos.core.agent_runner import AgentProcess, AgentRunner
 from sccsos.core.supervisor import Supervisor
-from sccsos.core.orchestrator import (
+from sccsos.core.workflow import (
     WorkflowDef, WorkflowEngine, WorkflowStepDef, ParallelGroupDef,
-    WorkflowExecutionError,
 )
+from sccsos.core.step_executor import WorkflowExecutionError
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -227,7 +227,7 @@ class TestWorkflowEdgeCases:
         )
         run_id = engine.execute(wf)
         # Cancel immediately (works because it runs synchronously)
-        from sccsos.core.orchestrator import WorkflowExecutionError
+        from sccsos.core.step_executor import WorkflowExecutionError
         try:
             engine.cancel_run(run_id)
         except WorkflowExecutionError:

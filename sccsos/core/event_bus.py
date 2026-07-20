@@ -3,33 +3,137 @@
 Decouples event producers (WorkflowEngine, StepExecutor) from
 observers (Tracer, Auditor, WebhookNotifier, AlertManager).
 
-Usage:
-    bus = EventBus.get_instance()
+Architecture::
 
-    # Subscribe
-    bus.on("workflow.completed", tracer_span_handler)
+    EventBusABC  (abstract interface)
+        │
+        ├── LocalEventBus  (in-process, singleton, with persistence)
+        └── KafkaEventBus  (distributed, via kafka-python, sccsos[kafka])
 
-    # Emit
-    bus.emit("workflow.completed", run_id="xxx", status="ok")
+Usage::
+
+    # Default (local in-process)
+    from sccsos.core.event_bus import LocalEventBus
+    bus = LocalEventBus.get_instance()
+    bus.on("workflow.completed", my_handler)
+    bus.emit("workflow.completed", run_id="xxx")
+
+    # Kafka backend (requires sccsos[kafka] extras)
+    from sccsos.core.event_bus import configure_event_bus
+    configure_event_bus(backend="kafka", bootstrap_servers="localhost:9092")
+    bus = EventBus.get_instance()  # Now returns KafkaEventBus
+
+Event name constants are in ``sccsos.core.events``::
+
+    from sccsos.core.events import WORKFLOW_COMPLETED
 """
 
 from __future__ import annotations
 
 import logging
+from abc import ABC, abstractmethod
 from typing import Any, Callable
+
+from sccsos.core.events import (
+    WORKFLOW_STARTED,
+    WORKFLOW_COMPLETED,
+    WORKFLOW_FAILED,
+    WORKFLOW_CANCELLED,
+    STEP_STARTED,
+    STEP_COMPLETED,
+    STEP_FAILED,
+    STEP_SKIPPED,
+)
+
 
 logger = logging.getLogger("sccsos.event_bus")
 
+
+# ── Abstract Interface ─────────────────────────────────────────────
+
+
+class EventBusABC(ABC):
+    """Abstract event bus — allows swapping in-process pub/sub for
+    a distributed message broker (Kafka, RabbitMQ) without changing
+    producers or consumers.
+    """
+
+    @abstractmethod
+    def on(self, event: str, handler: Callable[..., Any]) -> None:
+        """Register a handler for an event pattern."""
+
+    @abstractmethod
+    def off(self, event: str, handler: Callable[..., Any]) -> None:
+        """Remove a specific handler from an event."""
+
+    @abstractmethod
+    def emit(self, event: str, **data: Any) -> None:
+        """Emit an event to all registered handlers."""
+
+    @abstractmethod
+    def has_handlers(self, event: str) -> bool:
+        """Check if an event has any registered handlers."""
+
+    @abstractmethod
+    def clear(self) -> None:
+        """Remove all handlers."""
+
+    def set_persist(self, fn: Callable[[str, dict], None] | None) -> None:
+        """Set an optional persistence callback (not all backends
+        support this)."""
+        pass
+
+
 # Module-level singleton (shared across the process)
-_event_bus: EventBus | None = None
+_local_bus: EventBusABC | None = None
 
 
-class EventBus:
-    """Lightweight pub/sub event bus with isolated handler failures.
+def configure_event_bus(
+    backend: str = "local",
+    bootstrap_servers: str = "localhost:9092",
+    client_id: str = "sccsos",
+    group_id: str = "sccsos-events",
+) -> None:
+    """Configure the global event bus backend.
+
+    Must be called before the first ``get_instance()`` call or
+    before any handlers are registered.  Call it early in
+    ``AgentRuntime.initialize()``.
+
+    Args:
+        backend: ``"local"`` (default, in-process) or ``"kafka"``.
+        bootstrap_servers: Kafka broker address (ignored for ``"local"``).
+        client_id: Kafka producer/consumer client ID.
+        group_id: Kafka consumer group ID.
+    """
+    global _local_bus
+    if _local_bus is not None:
+        logger.warning("Event bus already initialised; reconfiguring")
+
+    if backend == "kafka":
+        from sccsos.core.event_bus_kafka import KafkaEventBus
+        _local_bus = KafkaEventBus(
+            bootstrap_servers=bootstrap_servers,
+            client_id=client_id,
+            group_id=group_id,
+        )  # type: ignore[assignment]
+        logger.info(
+            "Event bus backend set to kafka (%s)", bootstrap_servers,
+        )
+    else:
+        _local_bus = LocalEventBus()
+        logger.info("Event bus backend set to local (in-process)")
+
+
+class LocalEventBus(EventBusABC):
+    """In-process pub/sub event bus with isolated handler failures.
 
     Each handler runs inside a try/except — a single failing handler
     never blocks others. Exceptions are logged at ERROR level but
     never propagated to the emitter.
+
+    Supports an optional persistence callback for durable event storage
+    (e.g. to SQLite) so events can survive process restarts.
     """
 
     def __init__(self) -> None:
@@ -103,30 +207,37 @@ class EventBus:
     # ── Singleton ────────────────────────────────────────────────
 
     @classmethod
-    def get_instance(cls) -> EventBus:
-        """Get the process-wide EventBus singleton."""
-        global _event_bus
-        if _event_bus is None:
-            _event_bus = cls()
-        return _event_bus
+    def get_instance(cls) -> EventBusABC:
+        """Get the process-wide LocalEventBus singleton."""
+        global _local_bus
+        if _local_bus is None:
+            _local_bus = cls()
+        return _local_bus
 
     @classmethod
     def reset_instance(cls) -> None:
         """Reset the singleton (used in tests)."""
-        global _event_bus
-        _event_bus = None
+        global _local_bus
+        _local_bus = None
 
 
-# ── Event name constants ────────────────────────────────────────────
-# Canonical event names used throughout the system.  Import these
-# instead of using raw strings to avoid typos.
+# ── Backward-compatible aliases ────────────────────────────────────
 
-WORKFLOW_STARTED = "workflow.started"
-WORKFLOW_COMPLETED = "workflow.completed"
-WORKFLOW_FAILED = "workflow.failed"
-WORKFLOW_CANCELLED = "workflow.cancelled"
+EventBus = LocalEventBus
+"""Backward-compatible alias: ``EventBus`` is now ``LocalEventBus``.
+New code should prefer ``LocalEventBus`` for clarity or use
+``EventBusABC`` for polymorphism."""
 
-STEP_STARTED = "step.started"
-STEP_COMPLETED = "step.completed"
-STEP_FAILED = "step.failed"
-STEP_SKIPPED = "step.skipped"
+# -- Public API: get_instance delegates to whichever backend is configured --
+
+def get_bus() -> EventBusABC:
+    """Get the configured event bus instance.
+
+    Returns the global event bus (local or Kafka, depending on
+    ``configure_event_bus()``).  Falls back to ``LocalEventBus``
+    if not yet configured.
+    """
+    global _local_bus
+    if _local_bus is None:
+        _local_bus = LocalEventBus()
+    return _local_bus

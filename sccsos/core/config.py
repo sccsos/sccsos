@@ -18,11 +18,26 @@ DEFAULT_CONFIG_PATH = "sccsos.yaml"
 
 @dataclass
 class DatabaseConfig:
+    """Database connection configuration.
+
+    Supports multiple backends via ``driver`` and ``dsn``:
+
+    - SQLite (default)::
+          driver: sqlite
+          path: ./data/sccsos.db
+
+    - PostgreSQL (optional ``sccsos[pg]`` extras)::
+          driver: postgres
+          dsn: postgresql://user:pass@localhost:5432/sccsos
+    """
+    driver: str = "sqlite"
     path: str = "./data/sccsos.db"
+    dsn: str = ""
 
 
 @dataclass
 class DefaultsConfig:
+    """Runtime defaults for agent execution."""
     hermes_profile: str = "sccsos"
     max_turns: int = 90
     timeout: int = 1800
@@ -30,6 +45,7 @@ class DefaultsConfig:
 
 @dataclass
 class LoggingConfig:
+    """Structured logging configuration."""
     level: str = "INFO"
     format: str = "json"
     directory: str = "./logs"
@@ -38,47 +54,51 @@ class LoggingConfig:
 
 @dataclass
 class TracingConfig:
+    """OpenTelemetry tracing configuration."""
     enabled: bool = True
     export_path: str = "./traces/"
-    pricing_path: str = ""  # Deprecated: use pricing.path instead
+    pricing_path: Optional[str] = None  # Deprecated — use pricing.path
 
 
 @dataclass
 class PricingConfig:
-    """Pricing configuration — model cost estimation data."""
-    path: str = ""  # Path to pricing.json
+    """LLM pricing table configuration."""
+    path: str = "./config/pricing.json"
 
 
 @dataclass
 class AgentsConfig:
+    """Agent-related paths."""
     path: str = "./agents"
-    wiki_path: str = ""  # Optional: path to wiki .md files for KB context injection
-    personalities_path: str = "./personalities"  # Optional: path to personality YAML files
+    wiki_path: str = "./wiki"
+    personalities_path: str = "./personalities"
 
 
 @dataclass
 class PolicyDefaults:
-    max_tokens_per_session: int = 100000
+    """Default security policy applied to all agents.
+
+    Per-agent overrides are in the ``named`` dict of ``PoliciesConfig``.
+    """
+    max_tokens_per_session: int = 100_000
+    max_turns_per_session: int = 200
     max_cost_usd: float = 5.0
-    allowed_tools: list[str] = field(default_factory=lambda: [
-        "read_file", "search_files", "web_search", "web_extract", "terminal",
-    ])
+    allowed_tools: list[str] = field(default_factory=list)
     blocked_tools: list[str] = field(default_factory=list)
-    allowed_commands: list[str] = field(default_factory=lambda: [
-        "hermes", "git", "ls", "cat", "head", "tail", "echo",
-        "python3", "pip3", "node", "npm", "which",
-    ])
-    dangerous_patterns: list[str] = field(default_factory=list)
+    allowed_commands: list[str] = field(default_factory=list)
+    blocked_commands: list[str] = field(default_factory=list)
+    allowed_models: list[str] = field(default_factory=list)
+    blocked_models: list[str] = field(default_factory=list)
+    dangerous_patterns: list[str] | None = None
 
 
 @dataclass
 class PoliciesConfig:
-    """Policy configuration with default + named policies.
+    """Named security policies keyed by policy name.
 
-    Usage:
-        cfg.policies.default          # Global default
-        cfg.policies.get("restricted")  # Named policy from YAML
-        cfg.policies.named             # All named policies dict
+    The ``default`` policy applies to all agents unless overridden.
+    Additional named policies can be assigned to specific agents
+    via ``AgentSpec.policy``.
     """
     default: PolicyDefaults = field(default_factory=PolicyDefaults)
     named: dict[str, PolicyDefaults] = field(default_factory=dict)
@@ -151,9 +171,27 @@ class WebhooksConfig:
 
 
 @dataclass
+class EventBusConfig:
+    """Event bus backend configuration.
+
+    Supports switching between in-process and distributed backends::
+
+        event_bus:
+          backend: local       # "local" (default) or "kafka"
+          bootstrap_servers: localhost:9092   # Kafka only
+          client_id: sccsos
+          group_id: sccsos-events
+    """
+    backend: str = "local"  # "local" or "kafka"
+    bootstrap_servers: str = "localhost:9092"
+    client_id: str = "sccsos"
+    group_id: str = "sccsos-events"
+
+
+@dataclass
 class ProjectConfig:
     name: str = "sccsos"
-    version: str = "0.10.0"
+    version: str = "0.12.1"
 
 
 # ── Auto-merge helper ──────────────────────────────────────────────
@@ -204,6 +242,8 @@ class AgentOSConfig:
     agents: AgentsConfig = field(default_factory=AgentsConfig)
     policies: PoliciesConfig = field(default_factory=PoliciesConfig)
     webhooks: WebhooksConfig = field(default_factory=WebhooksConfig)
+    event_bus: EventBusConfig = field(default_factory=EventBusConfig)
+    model_pool: dict = field(default_factory=dict)
 
     @classmethod
     def load(cls, path: Optional[str] = None) -> "AgentOSConfig":

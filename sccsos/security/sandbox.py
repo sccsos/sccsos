@@ -14,20 +14,9 @@ from __future__ import annotations
 
 import re
 import shlex
-from dataclasses import dataclass, field
 from typing import Optional
 
-
-class SandboxViolation(Exception):
-    """Raised when a command is blocked by the sandbox."""
-    pass
-
-
-@dataclass
-class SandboxResult:
-    """Result of a sandbox check."""
-    allowed: bool = True
-    reason: str = ""
+from sccsos.security.base import SandboxABC, SandboxResult, SandboxViolation
 
 
 # Commands that are ALWAYS blocked regardless of whitelist
@@ -42,7 +31,7 @@ DANGEROUS_PATTERNS: list[str] = [
 ]
 
 
-class CommandWhitelist:
+class CommandWhitelist(SandboxABC):
     """Whitelist-based command checker.
 
     Two-layer protection:

@@ -8,7 +8,7 @@ from pathlib import Path
 import click
 
 from sccsos.core.agent_runtime import get_runtime as _get_runtime
-from sccsos.core.orchestrator import WorkflowDef, WorkflowValidationError
+from sccsos.core.workflow import WorkflowDef, WorkflowValidationError
 
 
 # ── workflow commands ──────────────────────────────────────────────

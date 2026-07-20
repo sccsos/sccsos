@@ -1,0 +1,54 @@
+# SCCS OS — Observability Stack (Grafana + Jaeger + Prometheus)
+#
+# Usage:
+#   docker compose -f docker-compose.observability.yaml up -d
+#   Jaeger:   http://localhost:16686
+#   Grafana:  http://localhost:3000  (admin/admin)
+#   Prometheus: http://localhost:9090
+#
+# Configure sccsos.yaml to export traces:
+#   tracing:
+#     enabled: true
+#     otlp_endpoint: http://localhost:4318/v1/traces
+#     otlp_headers:
+#       - "Authorization="
+
+version: "3.8"
+
+services:
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: sccsos-jaeger
+    ports:
+      - "16686:16686"   # UI
+      - "4318:4318"     # OTLP HTTP
+      - "4317:4317"     # OTLP gRPC
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: sccsos-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - prometheus_data:/prometheus
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: sccsos-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_INSTALL_PLUGINS=
+    volumes:
+      - grafana_data:/var/lib/grafana
+    restart: unless-stopped
+
+volumes:
+  prometheus_data:
+  grafana_data:

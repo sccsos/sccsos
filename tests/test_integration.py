@@ -15,14 +15,15 @@ import pytest
 import yaml
 
 from sccsos.core.config import AgentOSConfig, PoliciesConfig, PolicyDefaults
-from sccsos.core.database import Database
+from sccsos.core.db import Database
 from sccsos.core.registry import AgentSpec, AgentRegistry
 from sccsos.core.lifecycle import LifecycleManager, AgentStatus
 from sccsos.core.hermes_adapter import MockHermesAdapter, TaskResult
-from sccsos.core.orchestrator import (
+from sccsos.core.workflow import (
     WorkflowDef, WorkflowEngine, WorkflowStepDef,
-    WorkflowValidationError, WorkflowExecutionError,
+    WorkflowValidationError,
 )
+from sccsos.core.step_executor import WorkflowExecutionError
 from sccsos.security.policy import PolicyEngine, BudgetTracker
 
 
@@ -438,16 +439,43 @@ class TestToolPermissions:
         config.policies.default.blocked_tools = ["terminal"]
         runtime = AgentRuntime(config=config)
         # Manually wire minimal services so initialize succeeds
-        runtime._db = db
-        runtime._adapter = adapter
-        from sccsos.core.registry import AgentRegistry
-        runtime._registry = AgentRegistry()
+        runtime._core = type("FakeCore", (), {
+            "_db": db,
+            "_adapter": adapter,
+            "_registry": AgentRegistry(),
+            "_runner": None,
+            "_memory_store": None,
+            "_session_manager": None,
+            "_supervisor": None,
+            "_knowledge_base": None,
+            "_model_router": None,
+            "db": db,
+            "adapter": adapter,
+            "registry": AgentRegistry(),
+            "runner": None,
+            "memory_store": None,
+            "session_manager": None,
+            "supervisor": None,
+            "knowledge_base": None,
+            "model_router": None,
+        })()
+        runtime._obs = type("FakeObs", (), {
+            "_tracer": None,
+            "_auditor": None,
+            "tracer": None,
+            "auditor": None,
+        })()
+        runtime._wf = type("FakeWF", (), {
+            "_engine": None,
+            "engine": None,
+        })()
         runtime._initialized = True
 
         # Create minimal WorkflowEngine with policy engine
-        from sccsos.core.orchestrator import WorkflowEngine
+        from sccsos.core.workflow import WorkflowEngine
         engine = WorkflowEngine(db, adapter, config=config)
-        runtime._engine = engine
+        runtime._wf._engine = engine
+        runtime._wf.engine = engine  # also set property for runtime access
 
         spec = AgentSpec(name="bad-agent", toolsets=["terminal"])
         with pytest.raises(PolicyViolation, match="blocked"):
@@ -740,9 +768,7 @@ class TestEndToEnd:
 
     def test_workflow_with_input(self, db, adapter, tmp_path):
         """Workflow with --input should make {{ steps.input }} available."""
-        from sccsos.core.orchestrator import (
-            WorkflowEngine, WorkflowDef, WorkflowStepDef,
-        )
+        from sccsos.core.workflow import WorkflowEngine, WorkflowDef, WorkflowStepDef
         engine = WorkflowEngine(db, adapter)
         wf = WorkflowDef(
             name="input-test",
@@ -760,9 +786,7 @@ class TestEndToEnd:
 
     def test_workflow_without_input_still_works(self, db, adapter):
         """Workflow without input should not fail (input is optional)."""
-        from sccsos.core.orchestrator import (
-            WorkflowEngine, WorkflowDef, WorkflowStepDef,
-        )
+        from sccsos.core.workflow import WorkflowEngine, WorkflowDef, WorkflowStepDef
         engine = WorkflowEngine(db, adapter)
         wf = WorkflowDef(
             name="no-input",
@@ -937,21 +961,21 @@ class TestWorkflowSchemaValidation:
     """Tests for WorkflowDef.from_yaml schema validation."""
 
     def test_empty_steps_raises(self, tmp_path):
-        from sccsos.core.orchestrator import WorkflowDef, WorkflowValidationError
+        from sccsos.core.workflow import WorkflowDef, WorkflowValidationError
         path = tmp_path / "empty.yaml"
         path.write_text("name: test\nsteps: []")
         with pytest.raises(WorkflowValidationError, match="at least one step"):
             WorkflowDef.from_yaml(str(path))
 
     def test_missing_step_id_raises(self, tmp_path):
-        from sccsos.core.orchestrator import WorkflowDef, WorkflowValidationError
+        from sccsos.core.workflow import WorkflowDef, WorkflowValidationError
         path = tmp_path / "bad.yaml"
         path.write_text("name: test\nsteps:\n  - agent: architect\n    prompt: hello")
         with pytest.raises(WorkflowValidationError, match="missing 'id'"):
             WorkflowDef.from_yaml(str(path))
 
     def test_duplicate_step_id_raises(self, tmp_path):
-        from sccsos.core.orchestrator import WorkflowDef, WorkflowValidationError
+        from sccsos.core.workflow import WorkflowDef, WorkflowValidationError
         path = tmp_path / "dup.yaml"
         path.write_text(yaml.dump({
             "name": "test",
@@ -964,7 +988,7 @@ class TestWorkflowSchemaValidation:
             WorkflowDef.from_yaml(str(path))
 
     def test_missing_agent_raises(self, tmp_path):
-        from sccsos.core.orchestrator import WorkflowDef, WorkflowValidationError
+        from sccsos.core.workflow import WorkflowDef, WorkflowValidationError
         path = tmp_path / "no-agent.yaml"
         path.write_text(yaml.dump({
             "name": "test",
@@ -974,7 +998,7 @@ class TestWorkflowSchemaValidation:
             WorkflowDef.from_yaml(str(path))
 
     def test_no_prompt_or_condition_raises(self, tmp_path):
-        from sccsos.core.orchestrator import WorkflowDef, WorkflowValidationError
+        from sccsos.core.workflow import WorkflowDef, WorkflowValidationError
         path = tmp_path / "no-prompt.yaml"
         path.write_text(yaml.dump({
             "name": "test",
@@ -985,7 +1009,7 @@ class TestWorkflowSchemaValidation:
 
     def test_input_field_accepted(self, tmp_path):
         """Steps with 'input' but no 'prompt' should pass validation."""
-        from sccsos.core.orchestrator import WorkflowDef
+        from sccsos.core.workflow import WorkflowDef
         path = tmp_path / "input-only.yaml"
         path.write_text(yaml.dump({
             "name": "test",
@@ -996,7 +1020,7 @@ class TestWorkflowSchemaValidation:
         assert wf.steps[0].id == "s1"
 
     def test_invalid_timeout_raises(self, tmp_path):
-        from sccsos.core.orchestrator import WorkflowDef, WorkflowValidationError
+        from sccsos.core.workflow import WorkflowDef, WorkflowValidationError
         path = tmp_path / "bad-timeout.yaml"
         path.write_text(yaml.dump({
             "name": "test",
@@ -1006,7 +1030,7 @@ class TestWorkflowSchemaValidation:
             WorkflowDef.from_yaml(str(path))
 
     def test_valid_workflow_passes(self, tmp_path):
-        from sccsos.core.orchestrator import WorkflowDef
+        from sccsos.core.workflow import WorkflowDef
         path = tmp_path / "good.yaml"
         path.write_text(yaml.dump({
             "name": "test",
@@ -1021,7 +1045,7 @@ class TestWorkflowSchemaValidation:
         assert len(wf.steps) == 2
 
     def test_parallel_group_unknown_step_raises(self, tmp_path):
-        from sccsos.core.orchestrator import WorkflowDef, WorkflowValidationError
+        from sccsos.core.workflow import WorkflowDef, WorkflowValidationError
         path = tmp_path / "bad-parallel.yaml"
         path.write_text(yaml.dump({
             "name": "test",
@@ -1041,9 +1065,7 @@ class TestConditionBranch:
     """Tests for workflow condition step skipping."""
 
     def test_condition_true_executes(self, db, adapter):
-        from sccsos.core.orchestrator import (
-            WorkflowDef, WorkflowStepDef, WorkflowEngine,
-        )
+        from sccsos.core.workflow import WorkflowDef, WorkflowStepDef, WorkflowEngine
         engine = WorkflowEngine(db, adapter)
         wf = WorkflowDef(
             name="cond-true",
@@ -1061,9 +1083,7 @@ class TestConditionBranch:
         assert status["status"] == "completed"
 
     def test_condition_false_skips(self, db, adapter):
-        from sccsos.core.orchestrator import (
-            WorkflowDef, WorkflowStepDef, WorkflowEngine,
-        )
+        from sccsos.core.workflow import WorkflowDef, WorkflowStepDef, WorkflowEngine
         engine = WorkflowEngine(db, adapter)
         wf = WorkflowDef(
             name="cond-false",
@@ -1188,9 +1208,7 @@ class TestStepTimeout:
 
     def test_step_timeout_passed_to_adapter(self, db):
         """Verify that timeout from WorkflowStepDef reaches delegate_task."""
-        from sccsos.core.orchestrator import (
-            WorkflowDef, WorkflowStepDef, WorkflowEngine,
-        )
+        from sccsos.core.workflow import WorkflowDef, WorkflowStepDef, WorkflowEngine
         from sccsos.core.hermes_adapter import MockHermesAdapter, TaskResult
 
         class TimeoutCapturingAdapter(MockHermesAdapter):

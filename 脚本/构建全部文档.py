@@ -101,6 +101,18 @@ DOCUMENTS = [
         "source": OUTPUT_DIR / "SCCS OS 部署与操作手册.md",
         "workdir": OUTPUT_DIR,
     },
+    {
+        "name": "轻量化内部版部署与操作手册",
+        "title": "SCCS OS 轻量化内部版部署与操作手册",
+        "source": OUTPUT_DIR / "SCCS OS 轻量化内部版部署与操作手册.md",
+        "workdir": OUTPUT_DIR,
+    },
+    {
+        "name": "企业级商用版部署与操作手册",
+        "title": "SCCS OS 企业级商用版部署与操作手册",
+        "source": OUTPUT_DIR / "SCCS OS 企业级商用版部署与操作手册.md",
+        "workdir": OUTPUT_DIR,
+    },
 ]
 
 

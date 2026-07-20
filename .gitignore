@@ -36,3 +36,9 @@ Thumbs.db
 
 # Debug scratch
 _debug_session.py
+
+# Build output
+sccsos/api/static/
+frontend/node_modules/
+.coverage
+.pytest_cache/

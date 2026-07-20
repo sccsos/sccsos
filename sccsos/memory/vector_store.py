@@ -6,10 +6,13 @@ Zero external dependencies — pure Python stdlib.
 Can be used standalone or as a backend for KnowledgeBase.
 
 Usage:
-    vs = VectorStore()
+    vs = TFIDFVectorStore()
     vs.add_document("doc1", "The quick brown fox")
     vs.add_document("doc2", "Jumping over the lazy dog")
     results = vs.search("fox jumping", top_k=2)
+
+Legacy alias:
+    VectorStore = TFIDFVectorStore  (backward compatible)
 """
 
 from __future__ import annotations
@@ -19,6 +22,8 @@ import re
 from collections import Counter
 from dataclasses import dataclass, field
 from typing import Optional
+
+from sccsos.memory.base import VectorStoreABC
 
 
 @dataclass
@@ -30,7 +35,7 @@ class VectorEntry:
     metadata: dict = field(default_factory=dict)
 
 
-class VectorStore:
+class TFIDFVectorStore(VectorStoreABC):
     """Lightweight vector store using TF-IDF + cosine similarity.
 
     Args:
@@ -214,3 +219,11 @@ class VectorStore:
             return 0.0
 
         return dot_product / (math.sqrt(query_norm) * math.sqrt(doc_norm))
+
+
+# ── Backward-compatible alias ──────────────────────────────────────
+
+VectorStore = TFIDFVectorStore
+"""Alias for backward compatibility — ``VectorStore`` now refers to
+the TF-IDF implementation.  New code should prefer ``TFIDFVectorStore``
+for clarity, or use ``VectorStoreABC`` for polymorphism."""

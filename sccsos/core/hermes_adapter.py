@@ -109,33 +109,9 @@ class HermesSubprocessAdapter(HermesAdapter):
         returns a cancelled TaskResult.
         """
         # ── Policy pre-flight ─────────────────────────────────────
-        if policy_engine is not None:
-            from sccsos.security.policy import PolicyViolation
-
-            # Budget check
-            estimated_cost = max(0.001, (len(prompt) / 3.5) * 0.000_000_28 * 2)
-            result = policy_engine.check_delegation(
-                agent_name=agent_name,
-                model=model or "deepseek-v4-flash",
-                estimated_cost=estimated_cost,
-            )
-            if not result.allowed:
-                return TaskResult(
-                    response="",
-                    success=False,
-                    error=f"Policy rejected: {result.reason}",
-                )
-
-            # Tool access check — defense-in-depth
-            tool_result = policy_engine.check_tool_access(
-                agent_name, "delegate_task"
-            )
-            if not tool_result.allowed:
-                return TaskResult(
-                    response="",
-                    success=False,
-                    error=f"Tool rejected: {tool_result.reason}",
-                )
+        policy_error = self._policy_preflight(agent_name, prompt, model, policy_engine)
+        if policy_error:
+            return policy_error
 
         cmd = [self._hermes_bin, "-p", profile, "-z", prompt]
         if model:
@@ -152,7 +128,7 @@ class HermesSubprocessAdapter(HermesAdapter):
 
         start_time = time.time()
         # ── Subprocess execution with retry for transient failures ──
-        max_attempts = self._retry_count + 1  # 1 initial + N retries
+        max_attempts = self._retry_count + 1
         last_error = ""
         for attempt in range(max_attempts):
             # Check cancellation before each attempt
@@ -165,82 +141,21 @@ class HermesSubprocessAdapter(HermesAdapter):
                     error=f"Task cancelled (agent: {agent_name})",
                 )
 
-            try:
-                proc = subprocess.Popen(
-                    cmd,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True,
-                )
+            result = self._run_single_attempt(
+                cmd, agent_name, cancel_event, start_time, timeout,
+                prompt=prompt,
+            )
 
-                # Poll with cancel_event check (1s intervals)
-                deadline = start_time + timeout
-                while time.time() < deadline:
-                    # Check cancellation
-                    if cancel_event is not None and cancel_event.is_set():
-                        proc.kill()
-                        proc.wait(timeout=5)
-                        duration_ms = int((time.time() - start_time) * 1000)
-                        return TaskResult(
-                            response="",
-                            duration_ms=duration_ms,
-                            success=False,
-                            error=f"Task cancelled (agent: {agent_name})",
-                        )
-                    # Check if process finished
-                    ret = proc.poll()
-                    if ret is not None:
-                        break
-                    time.sleep(0.5)
-                else:
-                    # Deadline reached — kill and timeout
-                    proc.kill()
-                    proc.wait(timeout=5)
-                    duration_ms = int((time.time() - start_time) * 1000)
-                    if attempt < max_attempts - 1:
-                        last_error = f"Hermes task timed out (agent: {agent_name})"
-                        time.sleep(min(2 ** attempt, 10))
-                        continue  # Retry
-                    return TaskResult(
-                        response="",
-                        duration_ms=duration_ms,
-                        success=False,
-                        error=last_error,
-                    )
+            # If succeeded or permanent failure, return immediately
+            if result.success or result.error.startswith("Hermes CLI"):
+                return result
 
-                stdout, stderr = proc.communicate(timeout=5)
-                duration_ms = int((time.time() - start_time) * 1000)
-
-                if proc.returncode == 0:
-                    response = stdout.strip()
-                    tokens_in, tokens_out = _estimate_tokens(prompt, response)
-                    return TaskResult(
-                        response=response,
-                        duration_ms=duration_ms,
-                        tokens_input=tokens_in,
-                        tokens_output=tokens_out,
-                        success=True,
-                    )
-                else:
-                    error = stderr.strip() or f"exit code {proc.returncode}"
-                    if attempt < max_attempts - 1:
-                        last_error = error
-                        time.sleep(min(2 ** attempt, 10))
-                        continue  # Retry
-                    return TaskResult(
-                        response="",
-                        duration_ms=duration_ms,
-                        success=False,
-                        error=error,
-                    )
-
-            except FileNotFoundError:
-                # Don't retry FileNotFoundError — hermes CLI missing is permanent
-                return TaskResult(
-                    response="",
-                    success=False,
-                    error=f"Hermes CLI '{self._hermes_bin}' not found",
-                )
+            # If timed out or transient failure, record and retry
+            last_error = result.error
+            if attempt < max_attempts - 1:
+                time.sleep(min(2 ** attempt, 10))
+                continue
+            return result
 
         # All attempts exhausted
         return TaskResult(
@@ -248,6 +163,117 @@ class HermesSubprocessAdapter(HermesAdapter):
             success=False,
             error=f"Task failed after {max_attempts} attempts: {last_error}",
         )
+
+    def _policy_preflight(
+        self, agent_name: str, prompt: str,
+        model: Optional[str], policy_engine,
+    ) -> Optional[TaskResult]:
+        """Run policy pre-flight checks. Returns TaskResult if blocked, None if OK."""
+        if policy_engine is None:
+            return None
+        from sccsos.security.policy import PolicyViolation
+
+        # Budget check
+        estimated_cost = max(0.001, (len(prompt) / 3.5) * 0.000_000_28 * 2)
+        result = policy_engine.check_delegation(
+            agent_name=agent_name,
+            model=model or "deepseek-v4-flash",
+            estimated_cost=estimated_cost,
+        )
+        if not result.allowed:
+            return TaskResult(
+                response="",
+                success=False,
+                error=f"Policy rejected: {result.reason}",
+            )
+
+        # Tool access check — defense-in-depth
+        tool_result = policy_engine.check_tool_access(
+            agent_name, "delegate_task"
+        )
+        if not tool_result.allowed:
+            return TaskResult(
+                response="",
+                success=False,
+                error=f"Tool rejected: {tool_result.reason}",
+            )
+        return None
+
+    def _run_single_attempt(
+        self, cmd: list[str], agent_name: str,
+        cancel_event: threading.Event | None,
+        start_time: float, timeout: int, prompt: str = "",
+    ) -> TaskResult:
+        """Run a single subprocess attempt. Returns a TaskResult.
+
+        Handles spawn, poll-with-cancel, timeout, stdout/stderr parsing,
+        and token estimation.
+        """
+        try:
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+
+            # Poll with cancel_event check (1s intervals)
+            deadline = start_time + timeout
+            while time.time() < deadline:
+                if cancel_event is not None and cancel_event.is_set():
+                    proc.kill()
+                    proc.wait(timeout=5)
+                    duration_ms = int((time.time() - start_time) * 1000)
+                    return TaskResult(
+                        response="",
+                        duration_ms=duration_ms,
+                        success=False,
+                        error=f"Task cancelled (agent: {agent_name})",
+                    )
+                ret = proc.poll()
+                if ret is not None:
+                    break
+                time.sleep(0.5)
+            else:
+                # Deadline reached — kill and timeout
+                proc.kill()
+                proc.wait(timeout=5)
+                duration_ms = int((time.time() - start_time) * 1000)
+                return TaskResult(
+                    response="",
+                    duration_ms=duration_ms,
+                    success=False,
+                    error=f"Hermes task timed out (agent: {agent_name})",
+                )
+
+            stdout, stderr = proc.communicate(timeout=5)
+            duration_ms = int((time.time() - start_time) * 1000)
+
+            if proc.returncode == 0:
+                response = stdout.strip()
+                tokens_in, tokens_out = _estimate_tokens(prompt, response)
+                return TaskResult(
+                    response=response,
+                    duration_ms=duration_ms,
+                    tokens_input=tokens_in,
+                    tokens_output=tokens_out,
+                    success=True,
+                )
+            else:
+                error = stderr.strip() or f"exit code {proc.returncode}"
+                return TaskResult(
+                    response="",
+                    duration_ms=duration_ms,
+                    success=False,
+                    error=error,
+                )
+
+        except FileNotFoundError:
+            return TaskResult(
+                response="",
+                success=False,
+                error=f"Hermes CLI '{self._hermes_bin}' not found",
+            )
 
     def check_connectivity(self) -> bool:
         """Check hermes CLI is available and responds."""

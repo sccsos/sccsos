@@ -25,13 +25,13 @@ def server():
     runtime.initialize()
     # Override the real adapter with mock after initialization
     from sccsos.core.hermes_adapter import create_adapter as _create_adapter
-    runtime._adapter = _create_adapter("mock")
+    runtime._core._adapter = _create_adapter("mock")
     # Also update runner's adapter
-    if runtime._runner is not None:
-        runtime._runner._adapter = runtime._adapter
+    if runtime._core._runner is not None:
+        runtime._core._runner._adapter = runtime._core._adapter
         # Ensure no running processes from previous sessions
-        runtime._runner.stop_all()
-    runtime._tracer._export_path = None  # Don't write trace files in tests
+        runtime._core._runner.stop_all()
+    runtime._obs._tracer._export_path = None  # Don't write trace files in tests
     set_runtime(runtime)
 
     t = threading.Thread(target=lambda: run_server(port=PORT), daemon=True)
@@ -73,7 +73,7 @@ class TestAPIEndpoints:
     def test_01_health(self):
         status, data = _get("/health")
         assert status == 200
-        assert data.get("version") == "0.10.0"
+        assert data.get('version') == '0.12.1'
         assert "initialized" in data
 
     def test_02_agents_list(self):

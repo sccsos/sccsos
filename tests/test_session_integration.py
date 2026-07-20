@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from sccsos.core.database import Database
+from sccsos.core.db import Database
 from sccsos.core.session import AgentSessionManager
 from sccsos.core.agent_runner import AgentRunner, AgentProcess
 from sccsos.core.hermes_adapter import MockHermesAdapter

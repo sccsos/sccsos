@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from sccsos.core.database import Database
+from sccsos.core.db import Database
 from sccsos.core.config import AgentOSConfig
 from sccsos.observability.webhook import WebhookNotifier
 

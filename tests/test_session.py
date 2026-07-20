@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from sccsos.core.database import Database
+from sccsos.core.db import Database
 from sccsos.core.session import AgentSessionManager, _format_history, Message
 
 

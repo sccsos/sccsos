@@ -10,7 +10,7 @@ steps:
     prompt: |
       请回复以下确认信息，仅返回 JSON 格式：
 
-      {"status": "ok", "agent": "architect", "version": "0.6.4", "message": "Hermes agent is reachable"}
+      {"status": "ok", "agent": "architect", "version": "0.11.4", "message": "Hermes agent is reachable"}
 
   - id: info
     name: 环境信息

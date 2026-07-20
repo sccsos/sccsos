@@ -24,7 +24,7 @@ import uuid
 from enum import Enum
 from typing import Optional
 
-from sccsos.core.database import Database
+from sccsos.core.db import Database
 from sccsos.core.registry import AgentSpec, AgentRegistry
 
 

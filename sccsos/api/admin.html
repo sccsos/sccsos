@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SCCS OS 运营大盘</title>
+<style>
+  :root {
+    --bg: #0f172a; --bg2: #1e293b; --bg3: #334155;
+    --text: #e2e8f0; --text2: #94a3b8;
+    --accent: #38bdf8; --green: #4ade80; --red: #f87171;
+    --amber: #fbbf24; --purple: #a78bfa;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, 'Segoe UI', system-ui, sans-serif;
+         background: var(--bg); color: var(--text); padding: 24px;
+         line-height: 1.6; }
+  h1 { font-size: 1.8rem; margin-bottom: 8px; display: flex;
+       align-items: center; gap: 12px; }
+  h1 small { font-size: 0.9rem; color: var(--text2); font-weight: normal; }
+  .subtitle { color: var(--text2); margin-bottom: 24px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+          gap: 16px; margin-bottom: 24px; }
+  .card { background: var(--bg2); border-radius: 12px; padding: 20px;
+          border: 1px solid var(--bg3); }
+  .card h3 { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em;
+             color: var(--text2); margin-bottom: 12px; }
+  .stat { font-size: 2rem; font-weight: 700; }
+  .stat.green { color: var(--green); }
+  .stat.blue { color: var(--accent); }
+  .stat.amber { color: var(--amber); }
+  .stat.red { color: var(--red); }
+  .stat.purple { color: var(--purple); }
+  .stat-label { font-size: 0.85rem; color: var(--text2); }
+  .row { display: flex; justify-content: space-between; padding: 6px 0; }
+  .row:nth-child(even) { background: rgba(255,255,255,0.03); }
+  .tag { display: inline-block; padding: 2px 8px; border-radius: 4px;
+         font-size: 0.75rem; font-weight: 600; }
+  .tag.ok { background: rgba(74,222,128,0.15); color: var(--green); }
+  .tag.warn { background: rgba(251,191,36,0.15); color: var(--amber); }
+  .tag.err { background: rgba(248,113,113,0.15); color: var(--red); }
+  table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+  th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--bg3); }
+  th { color: var(--text2); font-weight: 600; font-size: 0.8rem;
+       text-transform: uppercase; letter-spacing: 0.05em; }
+  .section-title { font-size: 1.1rem; margin: 24px 0 12px 0;
+                   color: var(--accent); }
+  .loading { text-align: center; padding: 48px; color: var(--text2); }
+  .error-box { background: rgba(248,113,113,0.1); border: 1px solid var(--red);
+               border-radius: 8px; padding: 16px; margin: 12px 0;
+               color: var(--red); }
+  .bar { height: 8px; border-radius: 4px; background: var(--bg3);
+         margin-top: 8px; overflow: hidden; }
+  .bar-fill { height: 100%; border-radius: 4px; transition: width 0.5s; }
+  .bar-fill.green { background: var(--green); }
+  .bar-fill.amber { background: var(--amber); }
+  .bar-fill.red { background: var(--red); }
+  .flex { display: flex; gap: 12px; align-items: center; }
+  @media (max-width: 640px) {
+    .grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<h1>📊 SCCS OS 运营大盘 <small id="version"></small></h1>
+<p class="subtitle" id="timestamp"></p>
+
+<div id="error" class="error-box" style="display:none"></div>
+
+<div class="grid" id="stat-cards"></div>
+
+<div class="grid" style="grid-template-columns: 1fr 1fr;">
+  <div class="card" id="quota-card">
+    <h3>📋 资源配额</h3>
+    <div id="quota-content"><div class="loading">加载中...</div></div>
+  </div>
+  <div class="card" id="billing-card">
+    <h3>💰 今日计费</h3>
+    <div id="billing-content"><div class="loading">加载中...</div></div>
+  </div>
+</div>
+
+<h3 class="section-title">🤖 Agent 列表</h3>
+<div class="card" id="agents-card">
+  <div id="agents-content"><div class="loading">加载中...</div></div>
+</div>
+
+<div style="display:flex; gap:16px; align-items:center;">
+  <h3 class="section-title">🔄 最近追踪</h3>
+  <span class="tag ok" id="ws-status">● 离线</span>
+</div>
+<div class="card" id="traces-card">
+  <div id="traces-content"><div class="loading">加载中...</div></div>
+</div>
+
+<h3 class="section-title">⚡ 实时事件流</h3>
+<div class="card">
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+    <span style="color:var(--text2);font-size:0.85rem" id="event-count"></span>
+    <button onclick="clearEvents()" style="background:none;border:1px solid var(--bg3);color:var(--text2);padding:4px 12px;border-radius:4px;cursor:pointer;font-size:0.8rem">清空</button>
+  </div>
+  <div id="event-stream" style="max-height:300px;overflow-y:auto;font-family:monospace;font-size:0.8rem;line-height:1.8">
+    <div style="color:var(--text2);padding:8px;text-align:center">等待事件...</div>
+  </div>
+</div>
+
+<script>
+async function loadData() {
+  try {
+    const now = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
+    document.getElementById('timestamp').textContent = `更新时间: ${now}`;
+
+    // ── Health ──
+    const healthResp = await fetch('/api/v1/health');
+    const health = await healthResp.json();
+    document.getElementById('version').textContent = `v${health.version}`;
+
+    if (health.status === 'not_initialized') {
+      showError('系统未初始化');
+      return;
+    }
+
+    // Stat cards
+    const dbStatus = health.database?.status === 'ok' ? '✅' : '❌';
+    document.getElementById('stat-cards').innerHTML = `
+      <div class="card">
+        <h3>版本</h3>
+        <div class="stat blue">v${health.version}</div>
+        <div class="stat-label">${health.initialized ? '已初始化' : '未初始化'}</div>
+      </div>
+      <div class="card">
+        <h3>Agent 数量</h3>
+        <div class="stat green">${health.agents ?? '?'}</div>
+        <div class="stat-label">已注册</div>
+      </div>
+      <div class="card">
+        <h3>数据库</h3>
+        <div class="stat ${dbStatus === '✅' ? 'green' : 'red'}">${dbStatus}</div>
+        <div class="stat-label">${health.database?.path || ''}</div>
+      </div>
+      <div class="card">
+        <h3>Hermes 连接</h3>
+        <div class="stat ${health.hermes ? 'green' : 'red'}">${health.hermes ? '✅ 在线' : '❌ 离线'}</div>
+        <div class="stat-label">运行时状态</div>
+      </div>
+    `;
+
+    // ── Quota ──
+    const quotaResp = await fetch('/api/v1/quotas/default');
+    if (quotaResp.ok) {
+      const quota = await quotaResp.json();
+      const agentPct = quota.max_agents > 0 ? Math.round(quota.current_agents / quota.max_agents * 100) : 0;
+      const tokenPct = quota.max_tokens_per_day > 0 ? Math.round(quota.tokens_today / quota.max_tokens_per_day * 100) : 0;
+      const costPct = quota.max_cost_per_day > 0 ? Math.round(quota.cost_today / quota.max_cost_per_day * 100) : 0;
+      document.getElementById('quota-content').innerHTML = `
+        <div class="row"><span>Active Agents</span><span>${quota.current_agents} / ${quota.max_agents}</span></div>
+        <div class="bar"><div class="bar-fill ${agentPct > 80 ? 'red' : agentPct > 50 ? 'amber' : 'green'}" style="width:${Math.min(agentPct, 100)}%"></div></div>
+        <div class="row"><span>Tokens Today</span><span>${(quota.tokens_today / 1000).toFixed(1)}K / ${(quota.max_tokens_per_day / 1000).toFixed(0)}K</span></div>
+        <div class="bar"><div class="bar-fill ${tokenPct > 80 ? 'red' : tokenPct > 50 ? 'amber' : 'green'}" style="width:${Math.min(tokenPct, 100)}%"></div></div>
+        <div class="row"><span>Cost Today</span><span>$${quota.cost_today.toFixed(4)} / $${quota.max_cost_per_day.toFixed(2)}</span></div>
+        <div class="bar"><div class="bar-fill ${costPct > 80 ? 'red' : costPct > 50 ? 'amber' : 'green'}" style="width:${Math.min(costPct, 100)}%"></div></div>
+      `;
+    }
+
+    // ── Billing ──
+    const today = new Date().toISOString().slice(0, 10);
+    const billResp = await fetch(`/api/v1/billing/summary?start=${today}&end=${today}`);
+    if (billResp.ok) {
+      const bill = await billResp.json();
+      document.getElementById('billing-content').innerHTML = `
+        <div class="row"><span>Calls Today</span><span class="stat-label">${bill.total_calls ?? 0}</span></div>
+        <div class="row"><span>Tokens Today</span><span class="stat-label">${(bill.total_tokens ?? 0).toLocaleString()}</span></div>
+        <div class="row"><span>Cost Today</span><span class="stat blue">$${(bill.total_cost ?? 0).toFixed(4)}</span></div>
+        ${bill.by_model ? '<hr style="border-color:var(--bg3);margin:8px 0">' : ''}
+        ${bill.by_model ? Object.entries(bill.by_model).slice(0, 5).map(([m, c]) =>
+          `<div class="row"><span>${m}</span><span>$${c.toFixed(4)}</span></div>`
+        ).join('') : ''}
+      `;
+    }
+
+    // ── Agents ──
+    const agentsResp = await fetch('/api/v1/agents');
+    if (agentsResp.ok) {
+      const agents = await agentsResp.json();
+      if (Array.isArray(agents) && agents.length > 0) {
+        document.getElementById('agents-content').innerHTML = `
+          <table>
+            <thead><tr><th>Name</th><th>Status</th><th>Spec</th><th>Tokens</th><th>Errors</th></tr></thead>
+            <tbody>
+              ${agents.slice(0, 20).map(a => `
+                <tr>
+                  <td><strong>${a.name || a.id}</strong></td>
+                  <td><span class="tag ${a.status === 'running' ? 'ok' : a.status === 'failed' ? 'err' : 'warn'}">${a.status}</span></td>
+                  <td>${a.spec_version || '-'}</td>
+                  <td>${(a.total_tokens || 0).toLocaleString()}</td>
+                  <td>${a.error_count || 0}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+          ${agents.length > 20 ? `<p style="color:var(--text2);margin-top:8px">... 仅显示最近 20 条</p>` : ''}
+        `;
+      } else {
+        document.getElementById('agents-content').innerHTML = '<p style="color:var(--text2)">暂无 Agent</p>';
+      }
+    }
+
+    // ── Traces ──
+    const tracesResp = await fetch('/api/v1/traces?limit=10');
+    if (tracesResp.ok) {
+      const traces = await tracesResp.json();
+      const traceList = Array.isArray(traces) ? traces : (traces.data || []);
+      if (traceList.length > 0) {
+        document.getElementById('traces-content').innerHTML = `
+          <table>
+            <thead><tr><th>Trace ID</th><th>Name</th><th>Agent</th><th>Status</th><th>Duration</th></tr></thead>
+            <tbody>
+              ${traceList.slice(0, 10).map(t => `
+                <tr>
+                  <td style="font-family:monospace;font-size:0.8rem">${(t.trace_id || '').slice(0, 12)}</td>
+                  <td>${t.name || '-'}</td>
+                  <td>${t.agent_name || '-'}</td>
+                  <td><span class="tag ${t.status === 'ok' ? 'ok' : t.status === 'error' ? 'err' : 'warn'}">${t.status || '?'}</span></td>
+                  <td>${t.duration_ms ? (t.duration_ms / 1000).toFixed(1) + 's' : '-'}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        `;
+      } else {
+        document.getElementById('traces-content').innerHTML = '<p style="color:var(--text2)">暂无追踪记录</p>';
+      }
+    }
+  } catch (err) {
+    showError(`加载失败: ${err.message}`);
+  }
+}
+
+function showError(msg) {
+  const el = document.getElementById('error');
+  el.textContent = msg;
+  el.style.display = 'block';
+}
+
+// WebSocket real-time event stream
+let ws = null;
+let eventCount = 0;
+
+function connectWebSocket() {
+  const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const wsUrl = `${protocol}//${location.host}/api/v1/ws`;
+  const statusEl = document.getElementById('ws-status');
+
+  ws = new WebSocket(wsUrl);
+  ws.onopen = () => {
+    statusEl.textContent = '● 在线';
+    statusEl.className = 'tag ok';
+  };
+  ws.onclose = () => {
+    statusEl.textContent = '● 离线';
+    statusEl.className = 'tag err';
+    // Reconnect after 5s
+    setTimeout(connectWebSocket, 5000);
+  };
+  ws.onerror = () => {
+    statusEl.textContent = '● 错误';
+    statusEl.className = 'tag err';
+  };
+  ws.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data);
+      appendEvent(data.event || 'unknown', data);
+      // Auto-refresh sections on certain events
+      if (['workflow.completed', 'workflow.started', 'workflow.failed'].includes(data.event)) {
+        setTimeout(loadData, 500); // Lazy refresh
+      }
+    } catch (e) {
+      // ignore parse errors
+    }
+  };
+}
+
+function appendEvent(eventName, data) {
+  const el = document.getElementById('event-stream');
+  const countEl = document.getElementById('event-count');
+  eventCount++;
+
+  // Remove "等待事件" placeholder
+  const placeholder = el.querySelector('div');
+  if (placeholder && el.children.length === 1 && placeholder.textContent === '等待事件...') {
+    el.innerHTML = '';
+  }
+
+  const time = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+  const icon = eventName.includes('started') ? '▶' :
+               eventName.includes('completed') ? '✅' :
+               eventName.includes('failed') ? '❌' : '●';
+  const extra = data.run_id ? ` run=${data.run_id.slice(0, 12)}` : '';
+  const row = document.createElement('div');
+  row.innerHTML = `<span style="color:var(--text2)">[${time}]</span> <span style="color:var(--accent)">${icon}</span> ${eventName}${extra}`;
+  el.prepend(row);
+
+  // Keep max 100 events
+  while (el.children.length > 100) {
+    el.removeChild(el.lastChild);
+  }
+
+  countEl.textContent = `共 ${eventCount} 个事件`;
+}
+
+function clearEvents() {
+  const el = document.getElementById('event-stream');
+  el.innerHTML = '<div style="color:var(--text2);padding:8px;text-align:center">已清空</div>';
+  eventCount = 0;
+  document.getElementById('event-count').textContent = '';
+}
+
+// Init: load data + connect WebSocket
+loadData();
+connectWebSocket();
+setInterval(loadData, 30000);
+</script>
+</body>
+</html>

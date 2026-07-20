@@ -1,6 +1,6 @@
 [project]
 name = "sccsos"
-version = "0.10.0"
+version = "0.12.1"
 description = "SCCS Operating System — Smart Agent Runtime Platform for SCCS-T Product Ecosystem"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -16,6 +16,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0",
+    "pytest-cov>=4.0",
     "build>=1.0",
     "httpx>=0.27,<1",
 ]
@@ -29,10 +30,22 @@ otel = [
     "opentelemetry-sdk>=1.20,<2",
     "opentelemetry-exporter-otlp-proto-http>=1.20,<2",
 ]
+kafka = [
+    "kafka-python>=2.0,<3",
+]
+chroma = [
+    "chromadb>=0.5,<1",
+]
+pg = [
+    "psycopg2-binary>=2.9,<3",
+]
 all = [
     "sccsos[dev]",
     "sccsos[api]",
     "sccsos[otel]",
+    "sccsos[kafka]",
+    "sccsos[chroma]",
+    "sccsos[pg]",
 ]
 
 [project.scripts]
@@ -48,8 +61,16 @@ where = ["."]
 include = ["sccsos*"]
 
 [tool.setuptools.package-data]
-sccsos = ["agents/*.yaml", "workflows/*.yaml"]
+sccsos = ["agents/*.yaml", "workflows/*.yaml", "api/*.html"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
+filterwarnings = [
+    "ignore::DeprecationWarning:starlette.testclient",
+]
+addopts = "--cov=sccsos --cov-report=term-missing --cov-fail-under=70"
+
+[tool.coverage.run]
+source = ["sccsos"]
+omit = ["sccsos/api/server.py", "sccsos/cli/system_cmd.py"]

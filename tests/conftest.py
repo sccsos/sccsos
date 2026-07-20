@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from sccsos.core.database import Database
+from sccsos.core.db import Database
 from sccsos.core.hermes_adapter import MockHermesAdapter
 
 

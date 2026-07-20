@@ -20,10 +20,14 @@ from dataclasses import dataclass, field
 from typing import Callable, Optional, TYPE_CHECKING
 
 from sccsos.core.hermes_adapter import HermesAdapter, TaskResult
+from sccsos.observability.logger import get_logger
+
+logger = get_logger()
 
 if TYPE_CHECKING:
     from sccsos.core.session import AgentSessionManager
     from sccsos.memory.memory_store import MemoryStore
+    from sccsos.memory.knowledge_base import KnowledgeBase
     from sccsos.core.supervisor import Supervisor
 
 
@@ -58,7 +62,8 @@ class AgentProcess:
                  cancel_event: "threading.Event | None" = None,
                  memory_store: "MemoryStore | None" = None,
                  session_manager: "AgentSessionManager | None" = None,
-                 heartbeat_callback: "Optional[Callable[[str], None]]" = None):
+                 heartbeat_callback: "Optional[Callable[[str], None]]" = None,
+                 knowledge_base: "Optional[KnowledgeBase]" = None):
         self.name = name
         self.profile = profile
         self._adapter = adapter
@@ -68,6 +73,7 @@ class AgentProcess:
         self._memory_store = memory_store
         self._session_manager = session_manager
         self._heartbeat_callback = heartbeat_callback
+        self._knowledge_base = knowledge_base
         self._session_id: str | None = None
         self._task_queue: queue.Queue = queue.Queue()
         self._stop_event = threading.Event()
@@ -86,8 +92,8 @@ class AgentProcess:
             try:
                 session = self._session_manager.get_or_create(self.name)
                 self._session_id = session.id
-            except Exception:
-                pass  # Non-fatal — proceed without session
+            except Exception as e:
+                logger.warning("Failed to create session for agent '%s': %s", self.name, e)
 
         self._stop_event.clear()
         self._paused.clear()
@@ -109,8 +115,8 @@ class AgentProcess:
                 self._session_manager.close_session(
                     self._session_id, new_status="closed"
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Agent '%s' %s: %s", self.name, "session operation failed", e)
         self._stop_event.set()
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=timeout)
@@ -128,8 +134,8 @@ class AgentProcess:
                 self._session_manager.close_session(
                     self._session_id, new_status="paused"
                 )
-            except Exception:
-                pass  # Non-fatal
+            except Exception as e:
+                logger.warning("Agent '%s' %s: %s", self.name, "session operation failed", e)  # Non-fatal
 
     def resume(self) -> None:
         """Resume this agent — clear paused flag and create new session.
@@ -144,8 +150,8 @@ class AgentProcess:
                 paused = self._session_manager.get_paused_session(self.name)
                 if paused is not None:
                     prev_summary = paused.context_summary
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Agent '%s' %s: %s", self.name, "session operation failed", e)
 
         self._paused.clear()
 
@@ -159,8 +165,8 @@ class AgentProcess:
                     self._session_manager.update_summary(
                         session.id, prev_summary
                     )
-            except Exception:
-                pass  # Non-fatal
+            except Exception as e:
+                logger.warning("Agent '%s' %s: %s", self.name, "session operation failed", e)  # Non-fatal
 
     def ask(self, prompt: str, timeout: float = 300.0) -> AskResult:
         """Send a prompt to this agent and wait for a response.
@@ -203,6 +209,7 @@ class AgentProcess:
         """Build the full prompt with memory and session history injected.
 
         Order:
+          0. Knowledge base context (wiki, optional)
           1. Persistent memory (KV facts from MemoryStore)
           2. Session history (recent conversation turns from AgentSessionManager)
           3. User prompt
@@ -214,6 +221,21 @@ class AgentProcess:
             Enriched prompt string.
         """
         parts = []
+
+        # Layer 0: Knowledge base context
+        if self._knowledge_base is not None:
+            try:
+                kb_result = self._knowledge_base.get_context_for(
+                    f"{self.name} {user_prompt[:200]}"
+                )
+                if kb_result:
+                    lines = kb_result.split("\n") if isinstance(kb_result, str) else [str(kb_result)]
+                    kb_context = "\n".join(lines[:20])  # cap at 20 lines
+                    parts.append(
+                        f"[Knowledge base context]\n{kb_context}"
+                    )
+            except Exception as e:
+                logger.warning("Agent '%s' %s: %s", self.name, "session operation failed", e)  # Non-fatal — proceed without KB
 
         # Layer 1: Persistent memory
         if self._memory_store is not None:
@@ -326,11 +348,15 @@ class AgentRunner:
 
     def __init__(self, adapter: HermesAdapter, memory_store=None,
                  session_manager: "AgentSessionManager | None" = None,
-                 supervisor: "Optional[Supervisor]" = None):
+                 supervisor: "Optional[Supervisor]" = None,
+                 model_router=None,
+                 knowledge_base: "Optional[KnowledgeBase]" = None):
         self._adapter = adapter
         self._memory_store = memory_store
         self._session_manager = session_manager
         self._supervisor = supervisor
+        self._model_router = model_router
+        self._knowledge_base = knowledge_base
         self._processes: dict[str, AgentProcess] = {}
         self._lock = threading.Lock()
 
@@ -340,11 +366,13 @@ class AgentRunner:
                      policy_engine=None, model: Optional[str] = None) -> bool:
         """Start an agent process in the background.
 
+        If ``model`` is not provided, resolves via ModelRouter (if available).
+
         Args:
             name: Agent name.
             profile: Hermes profile to use.
             policy_engine: Optional PolicyEngine for pre-flight checks.
-            model: Optional model override.
+            model: Optional model override. Resolved via ModelRouter if None.
 
         Returns:
             True if started, False if already running.
@@ -352,6 +380,10 @@ class AgentRunner:
         with self._lock:
             if name in self._processes and self._processes[name].is_alive:
                 return False
+
+            # Resolve model via router if not explicitly set
+            if model is None and self._model_router is not None:
+                model = self._model_router.resolve_for_agent(name)
 
             # Wire heartbeat callback from Supervisor
             heartbeat_cb = None
@@ -362,7 +394,8 @@ class AgentRunner:
                                 policy_engine=policy_engine, model=model,
                                 memory_store=self._memory_store,
                                 session_manager=self._session_manager,
-                                heartbeat_callback=heartbeat_cb)
+                                heartbeat_callback=heartbeat_cb,
+                                knowledge_base=self._knowledge_base)
             proc.start()
             self._processes[name] = proc
             if self._supervisor is not None:

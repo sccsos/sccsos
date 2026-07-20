@@ -10,11 +10,12 @@ into the HermesAdapter as an optional pre-flight guard.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 
 from sccsos.core.config import AgentOSConfig, PoliciesConfig
-from sccsos.core.database import Database
+from sccsos.core.db import Database
+from sccsos.security.base import PolicyEngineABC, PolicyResult, PolicyViolation
 
 
 # ── Default tool allowlist (used as fallback) ──────────────────────
@@ -25,18 +26,6 @@ DEFAULT_ALLOWED_TOOLS: list[str] = [
 ]
 
 DEFAULT_BLOCKED_TOOLS: list[str] = []
-
-
-class PolicyViolation(Exception):
-    """Raised when a policy check fails (budget exceeded, tool denied)."""
-    pass
-
-
-@dataclass
-class PolicyResult:
-    """Result of a policy check."""
-    allowed: bool = True
-    reason: str = ""
 
 
 class BudgetTracker:
@@ -96,7 +85,7 @@ class BudgetTracker:
         return PolicyResult(allowed=True)
 
 
-class PolicyEngine:
+class PolicyEngine(PolicyEngineABC):
     """Central policy enforcement point for agent operations.
 
     Usage:

@@ -1,0 +1,116 @@
+# SCCS OS — CI Pipeline
+#
+# Runs on every push and pull request to main/develop.
+# Stages: lint → test (374+ cases) → build check
+
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "wiki/**"
+      - "输出/**"
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "wiki/**"
+      - "输出/**"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.11"
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Check syntax with py_compile
+        run: |
+          python -m compileall -q sccsos/
+
+      - name: Check importability
+        run: |
+          python -c "from sccsos import __version__; print(f'sccsos v{__version__}')"
+
+  test:
+    name: Test (Python ${{ env.PYTHON_VERSION }})
+    needs: [lint]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,api]"
+
+      - name: Run tests
+        run: |
+          python -m pytest --tb=short -q -o "addopts=" -k "not test_fastapi" 2>&1 | tail -20
+
+      - name: Run FastAPI tests (with extras)
+        run: |
+          python -m pytest --tb=short -q -o "addopts=" tests/test_fastapi_server.py 2>&1 | tail -10
+
+      - name: Upload test results (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-report
+          path: .pytest_cache/
+          retention-days: 7
+
+  build-check:
+    name: Build Check
+    needs: [test]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install build tools
+        run: |
+          python -m pip install --upgrade pip build
+
+      - name: Build wheel
+        run: |
+          python -m build --wheel --sdist
+          ls -la dist/
+
+      - name: Verify wheel installs
+        run: |
+          pip install dist/*.whl
+          python -c "from sccsos import __version__; print(f'sccsos v{__version__} — installed OK')"

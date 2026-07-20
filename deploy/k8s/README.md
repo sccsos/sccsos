@@ -4,9 +4,9 @@
 
 ```bash
 # 1. Build and push the container image
-docker build -t sccsos:0.10.0 .
-docker tag sccsos:0.10.0 your-registry/sccsos:0.10.0
-docker push your-registry/sccsos:0.10.0
+docker build -t sccsos:0.11.4 .
+docker tag sccsos:0.11.4 your-registry/sccsos:0.11.4
+docker push your-registry/sccsos:0.11.4
 
 # 2. Update image in 30-deployment.yaml, then apply
 kubectl apply -f deploy/k8s/

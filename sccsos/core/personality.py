@@ -18,6 +18,9 @@ from pathlib import Path
 from typing import Optional
 
 import yaml
+from sccsos.observability.logger import get_logger
+
+logger = get_logger()
 
 
 @dataclass
@@ -80,8 +83,8 @@ class PersonalityRegistry:
                             temperature=float(data.get("temperature", 0.7)),
                         )
                         count += 1
-                except Exception:
-                    pass  # Skip invalid files
+                except Exception as e:
+                    logger.warning("Failed to load personality file '%s': %s", fpath.name, e)
         return count
 
     def register(self, personality: Personality) -> str:

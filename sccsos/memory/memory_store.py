@@ -19,7 +19,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Optional
 
-from sccsos.core.database import Database
+from sccsos.core.db import Database
 
 
 class MemoryStore:

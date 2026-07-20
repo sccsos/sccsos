@@ -12,7 +12,7 @@ RUN pip install --no-cache-dir build && \
 FROM python:3.11-slim
 
 LABEL org.sccsos.name="sccsos" \
-      org.sccsos.version="0.9.0" \
+      org.sccsos.version="0.11.4" \
       org.sccsos.description="SCCS OS — Smart Agent Runtime Platform"
 
 # Install system dependencies (hermes CLI needs git for some operations)
@@ -26,8 +26,9 @@ WORKDIR /sccsos
 # Copy built wheel from builder
 COPY --from=builder /build/dist/*.whl /tmp/
 
-# Install SCCS OS with API extras (FastAPI support)
-RUN pip install --no-cache-dir "/tmp/*.whl[api]" && \
+# Install SCCS OS with API extras
+RUN pip install --no-cache-dir /tmp/*.whl && \
+    pip install --no-cache-dir "sccsos[api] @ file:///tmp/sccsos-0.11.4-py3-none-any.whl" && \
     rm /tmp/*.whl
 
 # Create default directories
