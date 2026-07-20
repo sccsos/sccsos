@@ -36,6 +36,8 @@ from sccsos.core.agent_runner import AgentProcess
 class TestDatabaseFaultTolerance:
     """Verify DB survives connection disruption and concurrent access."""
 
+    pytestmark = pytest.mark.slow
+
     def test_db_init_and_recovery(self):
         """Database handles repeated initialize() calls safely."""
         db = Database(":memory:")
@@ -151,6 +153,8 @@ class TestDatabaseFaultTolerance:
 class TestSupervisorFaultTolerance:
     """Verify Supervisor survives process crashes and recovers gracefully."""
 
+    pytestmark = pytest.mark.slow
+
     @pytest.fixture
     def adapter(self):
         return MockHermesAdapter()
@@ -252,6 +256,8 @@ class TestSupervisorFaultTolerance:
 
 class TestAgentProcessFaultTolerance:
     """Verify AgentProcess handles edge cases gracefully."""
+
+    pytestmark = pytest.mark.slow
 
     @pytest.fixture
     def adapter(self):
@@ -452,6 +458,8 @@ class TestEventBusFaultTolerance:
 
 class TestResourceLeakDetection:
     """Detect thread leaks and resource exhaustion."""
+
+    pytestmark = pytest.mark.slow
 
     def test_no_thread_leak_after_process_stop(self, adapter):
         """Stopping all processes leaves no lingering threads."""

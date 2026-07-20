@@ -1,7 +1,9 @@
 """Session routes — sccsos API."""
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+
+from sccsos.security.rbac import require_permission
 from sccsos.core.agent_runtime import get_runtime
 
 router = APIRouter(prefix="/api/v1", tags=["sessions"])
@@ -9,6 +11,7 @@ router = APIRouter(prefix="/api/v1", tags=["sessions"])
 
 @router.get("/sessions")
 async def list_sessions(
+    _: None = Depends(require_permission("sessions:read")),
     agent: str = "",
     tenant_id: str = "default",
     status: str = "",
@@ -36,7 +39,10 @@ async def list_sessions(
 
 
 @router.get("/sessions/{session_id}")
-async def session_detail(session_id: str):
+async def session_detail(
+    session_id: str,
+    _: None = Depends(require_permission("sessions:read")),
+):
     runtime = get_runtime()
     sessions = runtime.session_manager.list_sessions()
     session_obj = next((s for s in sessions if s.id == session_id), None)
@@ -53,7 +59,10 @@ async def session_detail(session_id: str):
 
 
 @router.get("/sessions/{session_id}/messages")
-async def session_messages(session_id: str):
+async def session_messages(
+    session_id: str,
+    _: None = Depends(require_permission("sessions:read")),
+):
     runtime = get_runtime()
     messages = runtime.session_manager.get_history(session_id, limit=50)
     return {
@@ -73,7 +82,10 @@ async def session_messages(session_id: str):
 
 
 @router.post("/sessions/{session_id}/close")
-async def close_session(session_id: str):
+async def close_session(
+    session_id: str,
+    _: None = Depends(require_permission("sessions:write")),
+):
     runtime = get_runtime()
     sessions = runtime.session_manager.list_sessions()
     session_obj = next((s for s in sessions if s.id == session_id), None)

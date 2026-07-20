@@ -1,7 +1,8 @@
 """Workflow routes — sccsos API."""
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sccsos.security.rbac import require_permission
 from sccsos.core.agent_runtime import get_runtime
 from sccsos.core.workflow import WorkflowDef
 from sccsos.api.models import RunWorkflowRequest, ValidateWorkflowRequest
@@ -10,14 +11,19 @@ router = APIRouter(prefix="/api/v1", tags=["workflows"])
 
 
 @router.get("/workflows")
-async def list_workflows():
+async def list_workflows(
+    _: None = Depends(require_permission("workflows:read")),
+):
     runtime = get_runtime()
     runs = runtime.engine.list_runs(limit=20)
     return {"runs": runs, "count": len(runs)}
 
 
 @router.post("/workflows/run", status_code=201)
-async def run_workflow(req: RunWorkflowRequest):
+async def run_workflow(
+    req: RunWorkflowRequest,
+    _: None = Depends(require_permission("workflows:write")),
+):
     runtime = get_runtime()
     try:
         wf = WorkflowDef.from_yaml(req.file)
@@ -31,7 +37,10 @@ async def run_workflow(req: RunWorkflowRequest):
 
 
 @router.post("/workflows/validate")
-async def validate_workflow(req: ValidateWorkflowRequest):
+async def validate_workflow(
+    req: ValidateWorkflowRequest,
+    _: None = Depends(require_permission("workflows:read")),
+):
     runtime = get_runtime()
     try:
         wf = WorkflowDef.from_yaml(req.file)
@@ -48,7 +57,10 @@ async def validate_workflow(req: ValidateWorkflowRequest):
 
 
 @router.get("/workflows/visualize")
-async def visualize_workflow(file: str = Query(...)):
+async def visualize_workflow(
+    file: str = Query(...),
+    _: None = Depends(require_permission("workflows:read")),
+):
     try:
         wf = WorkflowDef.from_yaml(file)
         mermaid = wf.to_mermaid()
@@ -58,7 +70,10 @@ async def visualize_workflow(file: str = Query(...)):
 
 
 @router.get("/workflows/{run_id}")
-async def workflow_status(run_id: str):
+async def workflow_status(
+    run_id: str,
+    _: None = Depends(require_permission("workflows:read")),
+):
     runtime = get_runtime()
     try:
         return runtime.engine.get_run_status(run_id)
@@ -67,7 +82,10 @@ async def workflow_status(run_id: str):
 
 
 @router.post("/workflows/{run_id}/cancel")
-async def cancel_workflow(run_id: str):
+async def cancel_workflow(
+    run_id: str,
+    _: None = Depends(require_permission("workflows:write")),
+):
     runtime = get_runtime()
     try:
         runtime.engine.get_run_status(run_id)

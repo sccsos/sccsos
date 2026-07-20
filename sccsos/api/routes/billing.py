@@ -6,9 +6,10 @@ import io
 from datetime import date
 from typing import Optional
 
-from fastapi import APIRouter, Query
+from fastapi import Depends, APIRouter, Query
 from fastapi.responses import StreamingResponse
 
+from sccsos.security.rbac import require_permission
 from sccsos.core.agent_runtime import get_runtime
 from sccsos.observability.billing import BillingExporter
 
@@ -17,6 +18,7 @@ router = APIRouter(prefix="/api/v1/billing", tags=["billing"])
 
 @router.get("/summary")
 async def billing_summary(
+    _: None = Depends(require_permission("billing:read")),
     start: str = Query(default_factory=lambda: date.today().isoformat()),
     end: str = Query(default_factory=lambda: date.today().isoformat()),
     tenant: Optional[str] = Query(default=None),
@@ -39,6 +41,7 @@ async def billing_summary(
 
 @router.get("/export")
 async def billing_export(
+    _: None = Depends(require_permission("billing:export")),
     start: str = Query(default_factory=lambda: date.today().isoformat()),
     end: str = Query(default_factory=lambda: date.today().isoformat()),
     tenant: Optional[str] = Query(default=None),

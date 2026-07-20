@@ -3,8 +3,10 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+
+from sccsos.security.rbac import require_permission
 
 router = APIRouter(prefix="/api/v1/webhooks", tags=["webhooks"])
 
@@ -17,7 +19,9 @@ class WebhookEndpoint(BaseModel):
 
 
 @router.get("")
-async def list_webhooks():
+async def list_webhooks(
+    _: None = Depends(require_permission("webhooks:read")),
+):
     """List all configured webhook endpoints."""
     from sccsos.core.config import get_config
     cfg = get_config()
@@ -36,7 +40,10 @@ async def list_webhooks():
 
 
 @router.post("")
-async def add_webhook(ep: WebhookEndpoint):
+async def add_webhook(
+    ep: WebhookEndpoint,
+    _: None = Depends(require_permission("webhooks:write")),
+):
     """Add a webhook endpoint."""
     from sccsos.core.config import get_config, reload_config, _config_path
     from pathlib import Path
@@ -68,7 +75,10 @@ async def add_webhook(ep: WebhookEndpoint):
 
 
 @router.delete("")
-async def remove_webhook(url: str):
+async def remove_webhook(
+    url: str,
+    _: None = Depends(require_permission("webhooks:write")),
+):
     """Remove a webhook endpoint by URL."""
     from sccsos.core.config import get_config, reload_config, _config_path
     from pathlib import Path
@@ -94,7 +104,10 @@ async def remove_webhook(url: str):
 
 
 @router.post("/toggle")
-async def toggle_webhooks(enabled: bool):
+async def toggle_webhooks(
+    enabled: bool,
+    _: None = Depends(require_permission("webhooks:write")),
+):
     """Enable or disable webhooks globally."""
     from sccsos.core.config import get_config, reload_config, _config_path
     from pathlib import Path

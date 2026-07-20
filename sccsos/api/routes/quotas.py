@@ -3,9 +3,10 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from sccsos.security.rbac import require_permission
 from sccsos.core.agent_runtime import get_runtime
 from sccsos.core.quota_manager import QuotaManager
 
@@ -21,7 +22,10 @@ class QuotaUpdateRequest(BaseModel):
 
 
 @router.get("/{tenant_id}")
-async def quota_status(tenant_id: str = "default"):
+async def quota_status(
+    _: None = Depends(require_permission("quota:read")),
+    tenant_id: str = "default",
+):
     """Get current quota usage and limits for a tenant."""
     runtime = get_runtime()
     mgr = QuotaManager(runtime.db)
@@ -45,7 +49,11 @@ async def quota_status(tenant_id: str = "default"):
 
 
 @router.post("/{tenant_id}")
-async def quota_update(tenant_id: str, req: QuotaUpdateRequest):
+async def quota_update(
+    tenant_id: str,
+    req: QuotaUpdateRequest,
+    _: None = Depends(require_permission("quota:write")),
+):
     """Update quota limits for a tenant."""
     runtime = get_runtime()
     mgr = QuotaManager(runtime.db)

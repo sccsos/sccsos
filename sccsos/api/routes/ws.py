@@ -6,7 +6,7 @@ All EventBus events are broadcast to all connected WebSocket clients.
 Event types broadcast:
 - workflow.started / completed / failed
 - agent.created / started / stopped / paused / resumed / failed
-- skill.submitted / approved / rejected
+- skill.submitted / approved / rejected / rated
 - system.health (periodic status summary)
 """
 
@@ -70,3 +70,4 @@ def wire_eventbus() -> None:
     bus.on("skill.submitted", lambda **kw: broadcast("skill.submitted", **kw))
     bus.on("skill.approved", lambda **kw: broadcast("skill.approved", **kw))
     bus.on("skill.rejected", lambda **kw: broadcast("skill.rejected", **kw))
+    bus.on("skill.rated", lambda **kw: broadcast("skill.rated", **kw))

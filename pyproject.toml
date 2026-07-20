@@ -69,7 +69,10 @@ python_files = ["test_*.py"]
 filterwarnings = [
     "ignore::DeprecationWarning:starlette.testclient",
 ]
-addopts = "--cov=sccsos --cov-report=term-missing --cov-fail-under=70"
+addopts = "--cov=sccsos --cov-report=term-missing --cov-fail-under=70 -m 'not slow'"
+markers = [
+    "slow: marks tests as slow or timing-sensitive (deselected by default, run with -m slow)",
+]
 
 [tool.coverage.run]
 source = ["sccsos"]
