@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 from sccsos.core.agent_runtime import get_runtime
+from sccsos.api.routes.ws import get_redis_bridge_status
 
 router = APIRouter(prefix="/api/v1", tags=["health"])
 
@@ -10,4 +11,7 @@ router = APIRouter(prefix="/api/v1", tags=["health"])
 @router.get("/health")
 async def health():
     runtime = get_runtime()
-    return runtime.health()
+    result = runtime.health()
+    # Append Redis bridge status for multi-process visibility
+    result["redis_bridge"] = get_redis_bridge_status()
+    return result

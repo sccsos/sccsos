@@ -9,9 +9,18 @@ defaults:
   max_turns: 90
   timeout: 1800
 hermes:
-  adapter: subprocess
+  adapter: auto
   binary: hermes
   profile: sccsos
+  home: ""
+  code_path: ""
+  docker:
+    container: hermes-agent
+    network: host
+  remote:
+    url: ""
+    token: ""
+    timeout: 60
   setup:
     api_key: ''
     base_url: ''
@@ -51,7 +60,11 @@ pricing:
   path: ./config/pricing.json
 project:
   name: sccsos
-  version: 0.14.2
+  version: 0.15.0
+redis:
+  url: redis://localhost:6379/0
+  channel: sccsos:events
+  enabled: false
 tracing:
   enabled: true
   export_path: ./traces/

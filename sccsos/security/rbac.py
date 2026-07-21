@@ -71,6 +71,10 @@ class Permissions:
     # Traces / Observability
     TRACES_READ: str = "traces:read"
 
+    # Sessions
+    SESSIONS_READ: str = "sessions:read"
+    SESSIONS_WRITE: str = "sessions:write"
+
     # Webhooks
     WEBHOOKS_READ: str = "webhooks:read"
     WEBHOOKS_WRITE: str = "webhooks:write"
@@ -93,6 +97,7 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         P.QUOTA_READ, P.QUOTA_WRITE,
         P.BILLING_READ, P.BILLING_EXPORT,
         P.TRACES_READ,
+        P.SESSIONS_READ, P.SESSIONS_WRITE,
         P.WEBHOOKS_READ, P.WEBHOOKS_WRITE,
         P.ADMIN,
     },
@@ -102,6 +107,7 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         P.QUOTA_READ,
         P.BILLING_READ,
         P.TRACES_READ,
+        P.SESSIONS_READ,
         P.WEBHOOKS_READ,
     },
     "viewer": {
@@ -110,6 +116,7 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         P.QUOTA_READ,
         P.BILLING_READ,
         P.TRACES_READ,
+        P.SESSIONS_READ,
         P.WEBHOOKS_READ,
     },
 }

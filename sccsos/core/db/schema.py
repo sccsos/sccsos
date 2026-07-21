@@ -268,6 +268,19 @@ CREATE INDEX IF NOT EXISTS idx_skill_ratings_skill
     ON skill_ratings(skill_name, skill_version);
 CREATE INDEX IF NOT EXISTS idx_skill_ratings_score
     ON skill_ratings(score);
+
+-- v0.15.0: Subscriptions table for multi-tier billing
+CREATE TABLE IF NOT EXISTS subscriptions (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL UNIQUE,
+    tier TEXT NOT NULL DEFAULT 'pay_per_token',
+    monthly_fee REAL DEFAULT 0.0,
+    flat_fee_per_call REAL DEFAULT 0.01,
+    model_rates TEXT DEFAULT '{}',
+    active INTEGER DEFAULT 1,
+    created_at TEXT DEFAULT '',
+    updated_at TEXT DEFAULT ''
+);
 """
 
 # ── PostgreSQL schema (without SQLite-specific features) ───────────
@@ -471,6 +484,19 @@ CREATE INDEX IF NOT EXISTS idx_agents_tenant ON agents(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_audit_tenant ON audit_log(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_session_messages_session ON session_messages(session_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_agent_sessions_agent ON agent_sessions(tenant_id, agent_name, status);
+
+-- v0.15.0: Subscriptions table (PostgreSQL variant)
+CREATE TABLE IF NOT EXISTS subscriptions (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL UNIQUE,
+    tier TEXT NOT NULL DEFAULT 'pay_per_token',
+    monthly_fee REAL DEFAULT 0.0,
+    flat_fee_per_call REAL DEFAULT 0.01,
+    model_rates TEXT DEFAULT '{}',
+    active INTEGER DEFAULT 1,
+    created_at TEXT DEFAULT '',
+    updated_at TEXT DEFAULT ''
+);
 """
 
 
@@ -622,6 +648,26 @@ def apply_migrations(conn) -> None:
             conn.execute(
                 "ALTER TABLE skill_market ADD COLUMN category TEXT DEFAULT ''"
             )
+            conn.commit()
+
+        # Migration v9: Create subscriptions table
+        tables = [r[0] for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        ).fetchall()]
+        if 'subscriptions' not in tables:
+            conn.executescript("""
+                CREATE TABLE IF NOT EXISTS subscriptions (
+                    id TEXT PRIMARY KEY,
+                    tenant_id TEXT NOT NULL UNIQUE,
+                    tier TEXT NOT NULL DEFAULT 'pay_per_token',
+                    monthly_fee REAL DEFAULT 0.0,
+                    flat_fee_per_call REAL DEFAULT 0.01,
+                    model_rates TEXT DEFAULT '{}',
+                    active INTEGER DEFAULT 1,
+                    created_at TEXT DEFAULT '',
+                    updated_at TEXT DEFAULT ''
+                );
+            """)
             conn.commit()
     except Exception as e:
         logger.warning("Migration failed (schema may be compatible): %s", e)

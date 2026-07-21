@@ -4,10 +4,8 @@ Initialises Tracer, Auditor, PricingTable, AlertManager, WebhookNotifier,
 and optional OpenTelemetry bridge.  Depends on Database and Config from
 RuntimeCore.
 """
-
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 from typing import Optional
 
@@ -17,8 +15,9 @@ from sccsos.observability.auditor import Auditor
 from sccsos.observability.pricing import PricingTable
 from sccsos.observability.webhook import WebhookNotifier
 from sccsos.observability.alert_manager import AlertManager
+from sccsos.observability.logger import get_logger
 
-logger = logging.getLogger("sccsos.runtime_observability")
+logger = get_logger()
 
 
 class ObservabilityRuntime:
@@ -67,8 +66,11 @@ class ObservabilityRuntime:
                     otlp_endpoint=otlp_endpoint,
                     otlp_headers=otel_headers or [],
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning(
+                    "OTel bridge init failed — OTEL tracing DISABLED: %s", exc,
+                    exc_info=True,
+                )
 
         self._tracer = Tracer(
             self._db,

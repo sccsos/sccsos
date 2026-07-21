@@ -116,7 +116,7 @@ def configure_event_bus(
             bootstrap_servers=bootstrap_servers,
             client_id=client_id,
             group_id=group_id,
-        )  # type: ignore[assignment]
+        )
         logger.info(
             "Event bus backend set to kafka (%s)", bootstrap_servers,
         )
@@ -221,14 +221,7 @@ class LocalEventBus(EventBusABC):
         _local_bus = None
 
 
-# ── Backward-compatible aliases ────────────────────────────────────
-
-EventBus = LocalEventBus
-"""Backward-compatible alias: ``EventBus`` is now ``LocalEventBus``.
-New code should prefer ``LocalEventBus`` for clarity or use
-``EventBusABC`` for polymorphism."""
-
-# -- Public API: get_instance delegates to whichever backend is configured --
+# -- Public API: get_bus is the single entry point --
 
 def get_bus() -> EventBusABC:
     """Get the configured event bus instance.

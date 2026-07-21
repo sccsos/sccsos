@@ -1,6 +1,6 @@
 [project]
 name = "sccsos"
-version = "0.14.2"
+version = "0.15.0"
 description = "SCCS Operating System — Smart Agent Runtime Platform for SCCS-T Product Ecosystem"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -39,6 +39,12 @@ chroma = [
 pg = [
     "psycopg2-binary>=2.9,<3",
 ]
+remote = [
+    "httpx>=0.27,<1",
+]
+redis = [
+    "redis>=5.0,<6",
+]
 all = [
     "sccsos[dev]",
     "sccsos[api]",
@@ -46,6 +52,8 @@ all = [
     "sccsos[kafka]",
     "sccsos[chroma]",
     "sccsos[pg]",
+    "sccsos[remote]",
+    "sccsos[redis]",
 ]
 
 [project.scripts]

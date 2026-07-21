@@ -48,6 +48,19 @@ img {
   display: block;
 }
 
+/* 图片下方的斜体图注居中 */
+em {
+  display: block;
+  text-align: center;
+  font-family: "Microsoft YaHei", "PingFang SC", STHeiti, sans-serif;
+  font-size: 10pt;
+  color: #475569;
+  font-style: italic;
+  margin-top: 2pt;
+  margin-bottom: 12pt;
+  text-indent: 0;
+}
+
 table {
   width: 100%;
   border-collapse: collapse;

@@ -1,10 +1,9 @@
 """Tests for EventBus and Config auto-merge."""
-
 from __future__ import annotations
 
 import pytest
 
-from sccsos.core.event_bus import EventBus, WORKFLOW_STARTED, WORKFLOW_COMPLETED, WORKFLOW_FAILED
+from sccsos.core.event_bus import get_bus, LocalEventBus, WORKFLOW_STARTED, WORKFLOW_COMPLETED, WORKFLOW_FAILED
 from sccsos.core.config import AgentOSConfig
 
 
@@ -16,10 +15,10 @@ from sccsos.core.config import AgentOSConfig
 @pytest.fixture
 def bus():
     """Fresh EventBus for each test (no state leakage)."""
-    EventBus.reset_instance()
-    b = EventBus.get_instance()
+    LocalEventBus.reset_instance()
+    b = get_bus()
     yield b
-    EventBus.reset_instance()
+    LocalEventBus.reset_instance()
 
 
 class TestEventBusCore:
@@ -92,10 +91,10 @@ class TestEventBusCore:
         assert not bus.has_handlers("b")
 
     def test_singleton(self):
-        """get_instance() should return the same instance."""
-        EventBus.reset_instance()
-        a = EventBus.get_instance()
-        b = EventBus.get_instance()
+        """get_bus() should return the same instance."""
+        LocalEventBus.reset_instance()
+        a = get_bus()
+        b = get_bus()
         assert a is b
 
 
@@ -213,7 +212,7 @@ class TestConfigAutoMerge:
         """Empty data should produce all defaults."""
         cfg = AgentOSConfig._from_dict({})
         assert cfg.project.name == "sccsos"
-        assert cfg.project.version == '0.14.2'
+        assert cfg.project.version == '0.15.0'
         assert cfg.database.path == "./data/sccsos.db"
         assert cfg.defaults.hermes_profile == "sccsos"
         assert cfg.defaults.max_turns == 90
@@ -226,7 +225,7 @@ class TestConfigAutoMerge:
         cfg = AgentOSConfig._from_dict(data)
         assert cfg.project.name == "custom"
         # Unspecified fields keep defaults
-        assert cfg.project.version == '0.14.2'
+        assert cfg.project.version == '0.15.0'
         assert cfg.database.path == "./data/sccsos.db"
         assert cfg.tracing.enabled is True
         assert cfg.pricing.path == "./config/pricing.json"

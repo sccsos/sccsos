@@ -189,6 +189,23 @@ class EventBusConfig:
 
 
 @dataclass
+class RedisConfig:
+    """Redis connection configuration for cross-process EventBus bridge.
+
+    Used by the Redis PubSub bridge to broadcast EventBus events
+    across multiple uvicorn workers (multi-process).::
+
+        redis:
+          url: redis://localhost:6379/0
+          channel: sccsos:events
+          enabled: false
+    """
+    url: str = "redis://localhost:6379/0"
+    channel: str = "sccsos:events"
+    enabled: bool = False
+
+
+@dataclass
 class HermesSetupConfig:
     """Hermes one-click setup configuration.
 
@@ -212,6 +229,31 @@ class HermesSetupConfig:
 
 
 @dataclass
+class HermesDockerConfig:
+    """Docker Hermes adapter configuration."""
+    container: str = "hermes-agent"
+    network: str = "host"
+
+
+@dataclass
+class HermesRemoteConfig:
+    """Remote Hermes adapter configuration.
+
+    Used when Hermes Agent is deployed on a remote server and
+    accessed via HTTP API instead of a local CLI or Docker::
+
+        hermes:
+          remote:
+            url: http://hermes-node:8080
+            token: my-secret-token
+            timeout: 60
+    """
+    url: str = ""
+    token: str = ""
+    timeout: int = 60
+
+
+@dataclass
 class HermesConfig:
     """Hermes Agent connection and setup configuration.
 
@@ -219,26 +261,43 @@ class HermesConfig:
     Hermes Agent CLI.  The ``setup`` subsection is used by
     ``sccsos hermes setup`` for one-click profile creation.
 
+    ``home`` and ``code_path`` override the ``HERMES_HOME`` and
+    ``HERMES_CODE_PATH`` environment variables respectively.
+    When empty, the environment variable or system default is used.
+
     Example YAML::
 
         hermes:
           profile: sccsos            # Hermes profile name
           binary: hermes             # Hermes CLI path
-          adapter: subprocess        # subprocess / mock
+          home: ""                   # HERMES_HOME override
+          code_path: ""              # HERMES_CODE_PATH override
+          adapter: auto              # subprocess / docker-exec / mock / remote / auto
           setup:
             provider: deepseek
             model: deepseek-v4-flash
+          docker:
+            container: hermes-agent
+            network: host
+          remote:
+            url: http://hermes-node:8080
+            token: ""
+            timeout: 60
     """
     profile: str = "sccsos"
     binary: str = "hermes"
-    adapter: str = "subprocess"
+    home: str = ""                     # HERMES_HOME override
+    code_path: str = ""                # HERMES_CODE_PATH override
+    adapter: str = "auto"              # subprocess / docker-exec / mock / remote / auto
     setup: HermesSetupConfig = field(default_factory=HermesSetupConfig)
+    docker: HermesDockerConfig = field(default_factory=HermesDockerConfig)
+    remote: HermesRemoteConfig = field(default_factory=HermesRemoteConfig)
 
 
 @dataclass
 class ProjectConfig:
     name: str = "sccsos"
-    version: str = "0.14.2"
+    version: str = "0.15.0"
 
 
 # ── Auto-merge helper ──────────────────────────────────────────────
@@ -291,6 +350,7 @@ class AgentOSConfig:
     policies: PoliciesConfig = field(default_factory=PoliciesConfig)
     webhooks: WebhooksConfig = field(default_factory=WebhooksConfig)
     event_bus: EventBusConfig = field(default_factory=EventBusConfig)
+    redis: RedisConfig = field(default_factory=RedisConfig)
     model_pool: dict = field(default_factory=dict)
 
     @classmethod

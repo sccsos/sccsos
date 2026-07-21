@@ -12,7 +12,7 @@ import logging
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Optional
 
-from sccsos.core.event_bus import EventBus
+from sccsos.core.event_bus import get_bus
 from sccsos.core.events import (
     WORKFLOW_STARTED, WORKFLOW_COMPLETED, WORKFLOW_FAILED,
 )
@@ -57,21 +57,23 @@ class WorkflowRuntime:
         if personalities_dir.exists():
             self._personality_registry.load_from_dir(personalities_dir)
 
-        # Workflow engine
-        self._engine = WorkflowEngine(
-            core.db, core.adapter,
-            tracer=self._obs.tracer,
-            auditor=self._obs.auditor,
-            config=cfg,
-            registry=core.registry,
-            knowledge_base=core.knowledge_base,
-            memory_store=core.memory_store,
-            personality_registry=self._personality_registry,
-            model_router=core.model_router,
+        # Workflow engine (via builder)
+        from sccsos.core.workflow.builder import WorkflowEngineBuilder
+        self._engine = (
+            WorkflowEngineBuilder(core.db, core.adapter)
+            .with_tracer(self._obs.tracer)
+            .with_auditor(self._obs.auditor)
+            .with_config(cfg)
+            .with_registry(core.registry)
+            .with_knowledge_base(core.knowledge_base)
+            .with_memory_store(core.memory_store)
+            .with_personality_registry(self._personality_registry)
+            .with_model_router(core.model_router)
+            .build()
         )
 
         # EventBus wiring
-        bus = EventBus.get_instance()
+        bus = get_bus()
 
         def _persist_event(event: str, data: dict) -> None:
             crud.insert_event_queue_item(

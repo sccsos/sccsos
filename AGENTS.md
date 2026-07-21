@@ -2,23 +2,21 @@
 
 > 基于 Hermes Agent 运行时的智能体操作系统平台。
 >
-> **当前版本**: v0.14.2 (2026-07-26)
-> **架构基线**: Python ~15.8K 逻辑行 + Vue 3 SPA (7 页面) + 测试 994 用例 / 52 文件 / 176 测试类
-> **健康评分**: 9.0/10 (12 维度)  [🏆 架构深度审计 + 优化：PolicyEngine 日志提升, ThreadPoolExecutor, Config deprecation, 971 测试通过]
+> **当前版本**: v0.15.0 (2026-07-26)
+> **架构基线**: Python ~16K 逻辑行 + Vue 3 SPA (7 页面) + 测试 1021 用例 / 54 文件 / 176+ 测试类
+> **健康评分**: 9.2/10 (12 维度)  [🏆 P2 架构扩展：Redis PubSub 多进程 WS 桥接 + RemoteHermesAdapter HTTP 代理; 1021 测试通过]
 > **许可证**: MIT
 
-## Roadmap — v0.15.0 规划
+## Roadmap — v0.16.0 规划
 
 | 方向 | 项目 | 优先级 |
 |------|------|--------|
 | **企业级规模化** | Locust 500+ 并发压测 + 性能基线报告 | P0 |
 | **企业级规模化** | 72h 长期运行稳定性验证 + 资源泄漏监控 | P0 |
 | **企业级规模化** | Billing 多层级计费（按 Token/按订阅/按调用量） | P1 |
-| **企业级规模化** | Kafka EventBus 正式生产适配器（Circuit Breaker + 自动重连） | P1 |
-| **文档知识库** | ADR 覆盖所有版本 v0.9.0~v0.14.2 | P0 |
-| **文档知识库** | Wiki 架构框架同步到最新评分 9.0/10 | P0 |
-| **架构优化** | KnowledgeBase 惰性索引 + 持久化缓存 | P1 |
-| **架构优化** | 多进程 WebSocket 桥接（EventBus → Redis PubSub） | P2 |
+| **文档知识库** | ADR 覆盖所有版本 v0.9.0~v0.15.0 | P0 |
+| **文档知识库** | Wiki 架构框架同步到最新评分 9.2/10 | P0 |
+| **架构优化** | K8s 生产环境全流程验证（Helm + HPA） | P1 |
 
 ## 项目概述
 
@@ -123,8 +121,13 @@ sccsos/
 │   │   ├── schema.py        # 表定义 + 迁移
 │   │   └── crud.py          # DAO 操作
 │   ├── event_bus.py         # EventBusABC + LocalEventBus
+│   ├── event_bus_kafka.py   # Kafka backend
+│   ├── event_bus_redis.py   # Redis PubSub 桥接 (多进程 WS) 🆕
 │   ├── events.py            # 事件常量
 │   ├── hermes_adapter.py    # Hermes CLI 适配器 + 安全防线
+│   ├── hermes_docker_adapter.py  # Docker Hermes 适配器
+│   ├── hermes_manager.py   # Hermes 安装发现与管理
+│   ├── hermes_remote_adapter.py  # 远程 HTTP Hermes 适配器 🆕
 │   ├── context_builder.py   # Jinja2 上下文装配
 │   ├── retry_policy.py      # 指数退避重试策略
 │   ├── lifecycle.py         # 5 状态状态机
@@ -212,7 +215,7 @@ sccsos/
 ||------|--------|------|
 ||| **Phase 1 (P0)** 基础适配与最小可用 | **100%** | Hermes 适配/租户隔离/Agent 管控就绪 ✅ |
 ||| **Phase 2 (P1)** 能力完善与生产稳定 | **100%** | 安全/可观测/PostgreSQL/Chroma/技能审批/12 xfail 全部修复全到位 ✅ |
-||| **Phase 3 (P2)** 集群高阶与商业化 | **95%** | EventBus/模型路由/CI-CD/Billing 三层计费/配额/技能市场/RBAC/审批评论/版本diff/压测就绪 ✅ |
+||| **Phase 3 (P2)** 集群高阶与商业化 | **98%** | EventBus/模型路由/CI-CD/Billing 三层计费/配额/技能市场/RBAC/审批评论/版本diff/压测就绪/RemoteHermesAdapter/Redis PubSub WS 桥接 ✅ |
 
 ## 开发约定
 

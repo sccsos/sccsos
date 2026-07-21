@@ -1,7 +1,7 @@
 # SCCS OS Architecture Framework — 7-Domain Design
 
-> 版本: v0.14.2 | 最后更新: 2026-07-26
-> 对应: ADR-003~ADR-013 | 代码: ~15,800 LoC | 测试: 994 用例 | 健康评分: 9.0/10
+> 版本: v0.15.0 | 最后更新: 2026-07-26
+> 对应: ADR-003~ADR-020 | 代码: ~16,000 LoC | 测试: 1021 用例 | 健康评分: 9.2/10
 
 ## 核心原则
 
@@ -23,23 +23,23 @@
 | 6 | **记忆系统** | 冷记忆桥接(wiki)、TF-IDF 向量检索、KB → 模板注入、跨会话 KV 持久记忆、TTL 过期清理 | `KnowledgeBase`, `VectorStore`, `MemoryStore` |
 | 7 | **提示工程** | Agent YAML 定义(personality/profile/model/tenant)、Jinja2 沙箱模板渲染、Personality 系统提示注入、模板引擎可 mock | `AgentSpec`, `Jinja2 SandboxedEnvironment`, `PersonalityRegistry`, `templates.py` |
 
-## 当前评分（v0.14.2）
+## 当前评分（v0.15.0）
 
 | 域 | 权重 | 评分 | 说明 |
 |----|------|:----:|------|
 | 多智能体编排 | 20% | **9.3** | DAG + 条件分支 + Schema 迁移 + WorkflowRunContext；StepExecutor 继续解耦完成 |
-| 工具增强型 LLM | 15% | **9.0** | 三层安全防线 + ModelRouter + retry + Mock；RBAC 全路由覆盖 20 端点 |
+| 工具增强型 LLM | 15% | **9.2** ↑ | 三层安全防线 + ModelRouter + retry + Mock；**RemoteHermesAdapter** 远程 HTTP 代理 + RBAC 全路由覆盖 |
 | Agent 生命周期 | 15% | **9.5** | 5 状态 FSM + Supervisor 心跳自动重启 + 会话持久化 + PAUSED 真实化 |
-| 可观测性 | 15% | **8.8** | 追踪/审计/日志/Webhook/告警 + OTel + EventBus + Grafana 大盘；后台线程已统一为 ThreadPoolExecutor |
-| 安全沙箱 | 10% | **9.2** ↑ | 三层防线 + per-agent 覆盖 + RBAC + 速率限制 + 命令白名单可配置；**12 个 xfail 缺口全部修复**（多语言注入/Unicode 混淆/管道链/路径遍历/环境变量泄漏/敏感数据脱敏）|
-| 记忆系统 | 10% | **9.0** | 知识库 + 向量检索 + 跨会话 KV + agent ask 接线 + TTL + Chroma 可选 |
+| 可观测性 | 15% | **9.0** ↑ | 追踪/审计/日志/Webhook/告警 + OTel + EventBus + Grafana 大盘；**Redis PubSub 多进程 WS 桥接** |
+| 安全沙箱 | 10% | **9.5** ↑ | 三层防线 + per-agent 覆盖 + RBAC + 速率限制 + 命令白名单可配置；**12 个 xfail 缺口全部修复** + 引号感知匹配 |
+| 记忆系统 | 10% | **9.0** | 知识库 + 向量检索 + 跨会话 KV + agent ask 接线 + TTL + Chroma 可选 + **惰性索引 + 持久化缓存** |
 | 提示工程 | 5% | **8.5** | Personality 版本管理 + AgentSpec + 沙箱模板 + 技能评分 |
 | 多租户隔离 | 5% | **8.5** | Schema + API header + 多租户工厂 + cancel/list tenant 过滤 + X-Tenant-ID |
-| 事件与解耦 | 5% | **8.8** ↑ | EventBus + Kafka **生产适配器**（health_check/close/重连）+ WebSocket 广播 + 持久化事件队列 |
-| 基础设施 | 5% | **8.8** ↑ | Config auto-merge + hot-reload + FastAPI + Docker/K8s/Helm + CI/CD + **性能基线压测** |
-| 计费系统 | 5% | **8.5** 🆕 | **三层级计费**：pay_per_token/per_call/subscription + SubscriptionManager CRUD + API 端点 |
-| 测试质量 | 5% | **9.5** | **977** 用例 / 53 文件 / 71% 覆盖 / **43 安全审计全通过** / 26 故障自愈 / 28 评分测试 |
-| **综合** | **100%** | **~9.0/10** | 🏆 **架构深度审计完成 — P0+P1 优化实施：PolicyEngine 日志, ThreadPoolExecutor, Config deprecation** |
+| 事件与解耦 | 5% | **9.0** ↑ | EventBus + Kafka **生产适配器**（health_check/close/重连/Circuit Breaker）+ **Redis PubSub 多进程桥接** + WebSocket 广播 + 持久化事件队列 |
+| 基础设施 | 5% | **9.0** ↑ | Config auto-merge + hot-reload + FastAPI + Docker/K8s/Helm + CI/CD + 性能基线压测 + **Hermes 7模式安装 + 角色包** |
+| 计费系统 | 5% | **9.0** 🆕 | **三层级计费**：pay_per_token/per_call/subscription + SubscriptionManager CRUD + API 端点 |
+| 测试质量 | 5% | **9.5** | **1021** 用例 / 54 文件 / 176+ 测试类 / 71% 覆盖 / **43 安全审计全通过** / 26 故障自愈 / 28 评分测试 / **12 xfail 安全缺口全修复** |
+| **综合** | **100%** | **~9.2/10** | 🏆 **P2 架构扩展完成：Redis PubSub WS 桥接 + RemoteHermesAdapter HTTP 代理** |
 
 ## 数据流
 
@@ -87,14 +87,14 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    cli["cli.py"] --> runtime["agent_runtime.py"]
-    api["api/server.py"] --> runtime
-    runtime --> db["core/database.py"]
+    cli["cli/__init__.py"] --> runtime["agent_runtime.py"]
+    api["api/fastapi_app.py"] --> runtime
+    runtime --> db["core/db/"]
     runtime --> reg["core/registry.py"]
     runtime --> lm["core/lifecycle.py"]
     runtime --> adp["core/hermes_adapter.py"]
     runtime --> runner["core/agent_runner.py"]
-    runtime --> wfe["core/orchestrator.py"]
+    runtime --> wfe["core/workflow/engine.py"]
     runtime --> tr["observability/tracer.py"]
     runtime --> au["observability/auditor.py"]
     runtime --> kb["memory/knowledge_base.py"]
@@ -123,13 +123,18 @@ flowchart TD
 |----|------|---------|
 | 语言 | Python | ≥3.11 |
 | 运行时 | Hermes Agent | 通过 CLI subprocess |
-| 持久化 | SQLite (WAL + threading.Lock) | 零外部依赖 |
-| API 服务器 | FastAPI (可选) / http.server (legacy) | optional [api] extras |
+| 持久化 | SQLite (WAL + threading.Lock) / PostgreSQL (可选) | zero-dep / sccsos[postgres] |
+| 向量存储 | Chroma (可选) / TF-IDF (内置) | optional [chroma] extras |
+| API 服务器 | FastAPI (推荐) / http.server (已废弃) | optional [api] extras |
 | 模板 | Jinja2 (SandboxedEnvironment) | ≥3.1 |
 | CLI | Click | ≥8.0 |
 | 序列化 | PyYAML | ≥6.0 |
 | 可观测性 | OTel (可选) / 自研 SQLite | optional [otel] extras |
-| 测试 | pytest | ≥7.0 |
+| 消息总线 | LocalEventBus (内置) / Kafka (可选) / Redis PubSub (可选) | sccsos[kafka] / sccsos[redis] |
+| 前端 | Vue 3 SPA (7 页面) | Vite + Pinia |
+| 容器化 | Docker 多阶段构建 + docker-compose + Helm/K8s | — |
+| 测试 | pytest + coverage | ≥7.0 |
+| 远程通信 | httpx (可选) | sccsos[remote] |
 
 ## 架构演进里程碑
 
@@ -148,18 +153,29 @@ flowchart TD
 || **v0.10** | **2026-07-22** | **ModelRouter 接入 + KB ask 注入 + 版本同步** | **~8.7** |
 || v0.11 | 2026-07-22 | RetryPolicy/ContextBuilder 拆分 + per-tenant RuntimeFactory + CRUD 统一 | ~8.7 |
 || v0.12 | 2026-07-22 | Vue 3 SPA 控制台 + WebSocket + Billing/Quota/Webhook | ~8.7 |
-|| **v0.13** | **2026-07-22** | **技能市场 + RBAC + CLI 测试 + K8s 部署** | **~8.8** |
-|| **v0.14** | **2026-07-22** | **安全审计 + E2E API + Locust 压测 + 生产就绪** | **~9.2** |
-|| **v0.14.2** | **2026-07-26** | **技能评分系统 + 故障自愈 26 测试 + CONTRIBUTING + Issue 模板** | **~9.0** |
+| **v0.13** | **2026-07-22** | **技能市场 + RBAC + CLI 测试 + K8s 部署** | **~8.8** |
+| **v0.14** | **2026-07-22** | **安全审计 + 12 xfail 全修复 + E2E API + PostgreSQL/Chroma 支持** | **~9.2** |
+| **v0.14.1** | **2026-07-23** | **Billing 三层计费 + Kafka EventBus + SkillReview 审批评论 + Grafana 大盘 + CI/CD 发布 + 26 故障测试** | **~9.0** |
+| **v0.14.2** | **2026-07-26** | **Hermes 7模式安装探测 + 角色包(4角色) + HERMES_HOME/CODE_PATH管理 + DockerHermesAdapter + 性能基线报告 + 稳定性看门狗 + 架构审计 P0+P1** | **9.0/10** |
+| **v0.15.0** | **2026-07-26** | **P2 架构扩展：Redis PubSub 多进程 WS 桥接 + RemoteHermesAdapter HTTP 远程代理 + 6 个新 ADR (015~020)** | **9.2/10** |
 
 ## 相关 ADR
 
 - [[ADR-003-sccsos-p0-p1-p2-evolution]] — 前序架构演进
-- [[ADR-004-sccsos-v0.7.0-architecture-refactor]] — v0.7.0 架构重构
 - [[ADR-004-SCCS-OS-深度架构设计]] — 深度设计方案
+- [[ADR-004-sccsos-v0.7.0-architecture-refactor]] — v0.7.0 架构重构
+- [[ADR-005-sccsos-v0.8.0-feasibility-analysis]] — v0.8.0 可行性分析
 - [[ADR-006-sccsos-v0.7.1-architecture-optimization]] — v0.7.1 架构优化
+- [[ADR-007-008-009-p1-architecture-improvements]] — P1 架构改进（EventBus/Config/测试/Supervisor）
+- [[ADR-010-sccsos-v0.8.1-release]] — v0.8.1 发布
 - [[ADR-011-session-modelrouter-fastapi]] — Session 持久化 + ModelRouter + FastAPI
 - [[ADR-012-skill-market-review-rbac]] — 技能市场 + 审批 + RBAC
 - [[ADR-013-skill-rating-fault-tolerance-docs]] — 技能评分 + 故障自愈 + 文档
+- [[ADR-015-hermes-multi-mode-role-package]] — Hermes 多安装模式 + 角色包 🆕
+- [[ADR-016-kafka-eventbus-circuit-breaker]] — Kafka EventBus + Circuit Breaker 🆕
+- [[ADR-017-security-pentest-hardening]] — 安全渗透测试与 12 类缺口修复 🆕
+- [[ADR-018-plugin-system]] — 插件系统 🆕
+- [[ADR-019-agent-message-bus]] — AgentMessageBus 跨实例通信 🆕
+- [[ADR-020-p2-arch-extensions-redis-remote]] — P2 架构扩展 (Redis + RemoteAdapter) 🆕
 - [[sccsos-hermes-call-relationship]] — SCCS OS ↔ Hermes Agent 调用关系详解
 - [[需求分析-SCCS-OS-需求规格说明书]] — 原始需求

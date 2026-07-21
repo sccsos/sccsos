@@ -5,6 +5,13 @@ Provides an Agent-accessible query layer over:
   - Hermes skills (SKILL.md files)
   - Persistent memory entries
 
+Features:
+- **Lazy loading**: files are scanned on first query, not construction
+- **Incremental refresh**: only reloads files whose mtime has changed
+- **Persistent cache**: serialized index survives process restarts
+  (avoids full re-index on startup when files are unchanged)
+- **TTL-based refresh**: periodic full rescan when cache expires
+
 Usage:
     kb = KnowledgeBase(wiki_path="/path/to/wiki")
     results = kb.query("database schema")
@@ -13,9 +20,10 @@ Usage:
 
 from __future__ import annotations
 
+import json
 import re
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import Optional
 
@@ -44,19 +52,23 @@ class KnowledgeEntry:
 class KnowledgeBase:
     """Read-only knowledge base over Hermes wiki, skills, and memory.
 
-    Walks configured directories on construction and caches
-    file contents. Supports basic keyword search (substring/word
-    matching). TTL-based cache refresh.
+    Lazy-loads file contents on first query.  Uses file modification
+    timestamps to detect changes and only re-index changed files.
+    A persistent cache file (JSON) avoids full re-indexing across
+    process restarts when no files have changed.
 
     Args:
-        wiki_path: Directory containing wiki `.md` files.
+        wiki_path: Directory containing wiki ``.md`` files.
         skill_path: Directory containing skill files.
-        ttl_seconds: How long to cache file contents (default 120s).
+        ttl_seconds: How long before a full rescan (default 300s).
+        cache_path: Where to store the persistent index cache
+            (default ``~/.cache/sccsos/knowledge_cache.json``).
     """
 
     def __init__(self, wiki_path: Optional[str | Path] = None,
                  skill_path: Optional[str | Path] = None,
-                 ttl_seconds: int = 120,
+                 ttl_seconds: int = 300,
+                 cache_path: Optional[str | Path] = None,
                  use_vector: bool = False):
         self._wiki_path = Path(wiki_path) if wiki_path else None
         self._skill_path = Path(skill_path) if skill_path else None
@@ -65,6 +77,16 @@ class KnowledgeBase:
         self._entries: list[KnowledgeEntry] = []
         self._vector_store: VectorStore | None = None
         self._loaded_at: float = 0.0
+
+        # File manifest: relative_path → mtime_ns  (for incremental refresh)
+        self._manifest: dict[str, int] = {}
+
+        # Persistent cache path (default: ~/.cache/sccsos/knowledge_cache.json)
+        if cache_path:
+            self._cache_path = Path(cache_path)
+        else:
+            self._cache_path = Path.home() / ".cache" / "sccsos" / "knowledge_cache.json"
+        self._cache_path.parent.mkdir(parents=True, exist_ok=True)
 
     # ── Public API ───────────────────────────────────────────────
 
@@ -82,7 +104,7 @@ class KnowledgeBase:
         Returns:
             List of KnowledgeEntry sorted by relevance (descending).
         """
-        self._refresh_if_stale()
+        self._ensure_loaded()
         if not self._entries:
             return []
 
@@ -130,33 +152,190 @@ class KnowledgeBase:
 
     def list_sources(self) -> list[str]:
         """List all available knowledge sources (wiki/skill/memory)."""
-        self._refresh_if_stale()
+        self._ensure_loaded()
         sources = set()
         for e in self._entries:
             sources.add(e.source)
         return sorted(sources)
 
     def reload(self) -> None:
-        """Force-reload all entries from disk."""
+        """Force-reload all entries from disk.
+
+        Clears the persistent cache to ensure a full rebuild.
+        """
+        self._manifest = {}
         self._entries = []
         self._load_entries()
         self._loaded_at = time.monotonic()
+        self._save_cache()
 
-    # ── Internal ─────────────────────────────────────────────────
+    # ── Internal — Lazy / Incremental / Cached ──────────────────
 
-    def _refresh_if_stale(self) -> None:
+    def _ensure_loaded(self) -> None:
+        """Lazy load: populate entries on first call, or refresh if stale.
+
+        Uses three strategies, in priority order:
+
+        1. **Persistent cache** — if no files changed since last run,
+           restore from JSON cache (instant, no disk I/O for content).
+        2. **Incremental refresh** — if only some files changed,
+           only load/re-index the changed ones.
+        3. **Full load** — on first run or after TTL expiry.
+        """
         if not self._entries:
-            self.reload()
-        elif time.monotonic() - self._loaded_at > self._ttl:
-            self.reload()
+            # First call: try persistent cache, fall back to full load
+            if not self._try_restore_cache():
+                self._load_entries()
+            self._loaded_at = time.monotonic()
+            return
 
-    def _load_entries(self) -> None:
-        """Load entries from all configured sources."""
+        # Stale: check for changes
+        if time.monotonic() - self._loaded_at > self._ttl:
+            changed = self._scan_changed_files()
+            if changed:
+                self._load_entries(changed_only=True, changed_paths=changed)
+                self._save_cache()
+            else:
+                self._refresh_manifest()  # Update mtimes even if content unchanged
+                self._save_cache()
+            self._loaded_at = time.monotonic()
+
+    def _try_restore_cache(self) -> bool:
+        """Try to restore entries from persistent cache.
+
+        Returns:
+            True if cache was loaded successfully and is up to date.
+        """
+        if not self._cache_path.exists():
+            return False
+        try:
+            data = json.loads(self._cache_path.read_text(encoding="utf-8"))
+            cache_manifest = data.get("manifest", {})
+            entries_data = data.get("entries", [])
+
+            # Verify no files have changed since cache was built
+            current_manifest = self._build_file_manifest()
+            if cache_manifest != current_manifest:
+                return False  # Stale cache
+
+            # Restore entries
+            self._manifest = current_manifest
+            for ed in entries_data:
+                self._entries.append(KnowledgeEntry(**ed))
+            self._loaded_at = time.monotonic()
+
+            # Rebuild vector index if needed
+            if self._use_vector:
+                self._vector_store = VectorStore()
+                for entry in self._entries:
+                    self._vector_store.add_document(
+                        entry.path, entry.content,
+                        metadata={"source": entry.source, "title": entry.title},
+                    )
+            return True
+        except Exception:
+            return False
+
+    def _save_cache(self) -> None:
+        """Persist current entries and manifest to JSON cache."""
+        try:
+            data = {
+                "manifest": self._manifest,
+                "entries": [
+                    {k: v for k, v in asdict(e).items() if k != "relevance"}
+                    for e in self._entries
+                ],
+            }
+            self._cache_path.write_text(
+                json.dumps(data, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+        except Exception:
+            pass  # Cache is best-effort
+
+    def _build_file_manifest(self) -> dict[str, int]:
+        """Build a dict of relative_path → mtime_ns for all source files.
+
+        This is the fingerprint used to detect changes across restarts.
+        """
+        manifest: dict[str, int] = {}
         if self._wiki_path and self._wiki_path.exists():
-            self._load_from_dir(self._wiki_path, "wiki", "*.md")
+            for fpath in self._wiki_path.rglob("*.md"):
+                if fpath.name.startswith("."):
+                    continue
+                rel = str(fpath.relative_to(self._wiki_path.parent)
+                          if self._wiki_path.parent else fpath)
+                manifest[rel] = fpath.stat().st_mtime_ns
         if self._skill_path and self._skill_path.exists():
-            self._load_from_dir(self._skill_path, "skill", "SKILL.md")
-        # Build vector index if enabled
+            for fpath in self._skill_path.rglob("SKILL.md"):
+                if fpath.name.startswith("."):
+                    continue
+                rel = str(fpath.relative_to(self._skill_path.parent)
+                          if self._skill_path.parent else fpath)
+                manifest[rel] = fpath.stat().st_mtime_ns
+        return manifest
+
+    def _refresh_manifest(self) -> None:
+        """Update the manifest without reloading content."""
+        self._manifest = self._build_file_manifest()
+
+    def _scan_changed_files(self) -> list[Path]:
+        """Check which files have changed since last load.
+
+        Returns:
+            List of file paths that are new or modified.
+        """
+        current = self._build_file_manifest()
+        changed: list[Path] = []
+
+        for rel_path, mtime in current.items():
+            old_mtime = self._manifest.get(rel_path)
+            if old_mtime != mtime:
+                # Resolve the file path
+                for base, source in [
+                    (self._wiki_path, "wiki"),
+                    (self._skill_path, "skill"),
+                ]:
+                    if base and base.parent:
+                        full = base.parent / rel_path
+                        if full.exists():
+                            changed.append(full)
+                            break
+
+        # Deleted files: remove from entries
+        removed = [k for k in self._manifest if k not in current]
+        if removed:
+            self._entries = [e for e in self._entries if e.path not in removed]
+
+        self._manifest = current
+        return changed
+
+    def _load_entries(self, changed_only: bool = False,
+                      changed_paths: Optional[list[Path]] = None) -> None:
+        """Load entries from all configured sources.
+
+        Args:
+            changed_only: If True, only load files in *changed_paths*.
+            changed_paths: List of file paths that have changed.
+        """
+        if not changed_only:
+            self._entries = []
+            self._manifest = self._build_file_manifest()
+
+        if self._wiki_path and self._wiki_path.exists():
+            files = changed_paths if changed_only else None
+            self._load_from_dir(
+                self._wiki_path, "wiki", "*.md",
+                filter_files=files,
+            )
+        if self._skill_path and self._skill_path.exists():
+            files = changed_paths if changed_only else None
+            self._load_from_dir(
+                self._skill_path, "skill", "SKILL.md",
+                filter_files=files,
+            )
+
+        # Rebuild vector index if enabled (always full rebuild for simplicity)
         if self._use_vector:
             self._vector_store = VectorStore()
             for entry in self._entries:
@@ -165,11 +344,25 @@ class KnowledgeBase:
                     metadata={"source": entry.source, "title": entry.title},
                 )
 
+        # Save persistent cache
+        if not changed_only:
+            self._save_cache()
+
     def _load_from_dir(self, directory: Path, source: str,
-                       glob_pattern: str) -> None:
-        """Load knowledge entries from a directory."""
+                       glob_pattern: str,
+                       filter_files: Optional[list[Path]] = None) -> None:
+        """Load knowledge entries from a directory.
+
+        Args:
+            directory: Base directory to scan.
+            source: Source label ("wiki" or "skill").
+            glob_pattern: File glob pattern (e.g. ``*.md``).
+            filter_files: Optional list of files to load (load all if None).
+        """
         for fpath in directory.rglob(glob_pattern):
             if fpath.name.startswith("."):
+                continue
+            if filter_files is not None and fpath not in filter_files:
                 continue
             try:
                 content = fpath.read_text(encoding="utf-8", errors="replace")

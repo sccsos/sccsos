@@ -97,6 +97,71 @@
     <p v-if="!summary" class="loading">选择日期范围后查看计费数据</p>
 
     <p v-if="downloadMsg" :style="{ color: downloadOk ? 'var(--green)' : 'var(--red)', marginTop: '8px', fontSize: '0.85rem' }">{{ downloadMsg }}</p>
+
+    <!-- ── Subscription Plan Management ────────────────────────── -->
+    <h3 class="section-title" style="margin-top:24px">📋 计费方案</h3>
+    <div class="card">
+      <div class="form-row">
+        <div class="form-group">
+          <label>租户 ID</label>
+          <input type="text" v-model="planForm.tenant_id" placeholder="default" />
+        </div>
+        <div class="form-group">
+          <label>计费模式</label>
+          <select v-model="planForm.tier" class="form-select">
+            <option value="pay_per_token">按 Token (pay_per_token)</option>
+            <option value="per_call">按调用 (per_call)</option>
+            <option value="subscription">月度订阅 (subscription)</option>
+          </select>
+        </div>
+        <div class="form-group" v-if="planForm.tier === 'subscription'">
+          <label>月费 ($)</label>
+          <input type="number" v-model.number="planForm.monthly_fee" step="1" min="0" />
+        </div>
+        <div class="form-group" v-if="planForm.tier === 'per_call'">
+          <label>每次调用费 ($)</label>
+          <input type="number" v-model.number="planForm.flat_fee_per_call" step="0.001" min="0" />
+        </div>
+      </div>
+
+      <div class="form-row" style="margin-top:8px">
+        <div class="form-group" style="flex:1">
+          <label>模型费率 (JSON: { \"model\": rate_per_1M })</label>
+          <input type="text" v-model="planForm.modelRatesStr" placeholder='{"deepseek": 0.002, "gpt-4": 0.03}' class="form-input-wide" />
+        </div>
+        <div class="form-group" style="align-self:flex-end">
+          <label style="visibility:hidden">.</label>
+          <label class="checkbox-label">
+            <input type="checkbox" v-model="planForm.active" /> 激活
+          </label>
+        </div>
+      </div>
+
+      <div class="form-actions" style="margin-top:12px">
+        <button class="btn btn-sm btn-accent" @click="savePlan">💾 保存方案</button>
+        <button class="btn btn-sm btn-outline" @click="loadPlan" style="margin-left:8px">🔄 加载</button>
+        <button class="btn btn-sm btn-danger" @click="resetPlan" style="margin-left:8px">🗑 重置</button>
+      </div>
+      <p v-if="planMsg" :style="{ color: planOk ? 'var(--green)' : 'var(--red)', marginTop: '8px', fontSize: '0.85rem' }">{{ planMsg }}</p>
+    </div>
+
+    <!-- Existing Plans -->
+    <div class="card" style="margin-top:8px" v-if="plans.length > 0">
+      <div class="card-title">已配置方案</div>
+      <table>
+        <thead><tr><th>租户</th><th>模式</th><th>月费</th><th>调用费</th><th>模型费率</th><th>状态</th></tr></thead>
+        <tbody>
+          <tr v-for="p in plans" :key="p.tenant_id" @click="editPlan(p)" style="cursor:pointer">
+            <td>{{ p.tenant_id }}</td>
+            <td><span class="tier-badge">{{ p.tier }}</span></td>
+            <td>{{ p.tier === 'subscription' ? '$' + p.monthly_fee : '-' }}</td>
+            <td>{{ p.tier === 'per_call' ? '$' + p.flat_fee_per_call : '-' }}</td>
+            <td style="font-size:0.8rem">{{ Object.keys(p.model_rates || {}).slice(0,3).join(', ') }}{{ Object.keys(p.model_rates || {}).length > 3 ? '...' : '' }}</td>
+            <td>{{ p.active ? '✅' : '⛔' }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
   </div>
 </template>
 
@@ -111,6 +176,96 @@ const tenant = ref('');
 const summary = ref(null);
 const downloadMsg = ref('');
 const downloadOk = ref(false);
+
+// Subscription plan management
+const plans = ref([]);
+const planMsg = ref('');
+const planOk = ref(false);
+const planForm = ref({
+  tenant_id: 'default',
+  tier: 'pay_per_token',
+  monthly_fee: 0,
+  flat_fee_per_call: 0.01,
+  modelRatesStr: '{}',
+  active: true,
+});
+
+function planToForm(p) {
+  planForm.value.tenant_id = p.tenant_id || 'default';
+  planForm.value.tier = p.tier || 'pay_per_token';
+  planForm.value.monthly_fee = p.monthly_fee || 0;
+  planForm.value.flat_fee_per_call = p.flat_fee_per_call || 0.01;
+  planForm.value.modelRatesStr = JSON.stringify(p.model_rates || {}, null, 0);
+  planForm.value.active = p.active !== false;
+}
+
+async function loadPlans() {
+  try {
+    const resp = await api.billingPlans();
+    plans.value = resp.plans || [];
+  } catch (e) {
+    plans.value = [];
+  }
+}
+
+async function loadPlan() {
+  try {
+    const tid = planForm.value.tenant_id || 'default';
+    const p = await api.billingPlanGet(tid);
+    planToForm(p);
+    planMsg.value = `✅ 已加载 ${tid} 的方案`;
+    planOk.value = true;
+  } catch (e) {
+    planMsg.value = `❌ 加载失败: ${e.message}`;
+    planOk.value = false;
+  }
+}
+
+async function savePlan() {
+  try {
+    let modelRates = {};
+    try {
+      modelRates = JSON.parse(planForm.value.modelRatesStr || '{}');
+    } catch {
+      planMsg.value = '❌ 模型费率 JSON 格式错误';
+      planOk.value = false;
+      return;
+    }
+    const data = {
+      tenant_id: planForm.value.tenant_id || 'default',
+      tier: planForm.value.tier,
+      monthly_fee: planForm.value.monthly_fee || 0,
+      flat_fee_per_call: planForm.value.flat_fee_per_call || 0.01,
+      model_rates: modelRates,
+      active: planForm.value.active,
+    };
+    const resp = await api.billingPlanSet(data);
+    planMsg.value = `✅ ${resp.tenant_id} 方案已更新 (${resp.tier})`;
+    planOk.value = true;
+    await loadPlans();
+  } catch (e) {
+    planMsg.value = `❌ 保存失败: ${e.message}`;
+    planOk.value = false;
+  }
+}
+
+async function resetPlan() {
+  try {
+    const tid = planForm.value.tenant_id || 'default';
+    await api.billingPlanReset(tid);
+    planMsg.value = `✅ ${tid} 方案已重置`;
+    planOk.value = true;
+    planToForm({ tenant_id: tid });
+    await loadPlans();
+  } catch (e) {
+    planMsg.value = `❌ 重置失败: ${e.message}`;
+    planOk.value = false;
+  }
+}
+
+function editPlan(p) {
+  planToForm(p);
+}
 
 const modelCount = computed(() => Object.keys(summary.value?.by_model || {}).length);
 const agentCount = computed(() => Object.keys(summary.value?.by_agent || {}).length);
@@ -175,7 +330,10 @@ async function downloadCSV() {
   }
 }
 
-onMounted(load);
+onMounted(() => {
+  load();
+  loadPlans();
+});
 </script>
 
 <style scoped>
@@ -188,4 +346,14 @@ onMounted(load);
 .bar-mini { height: 4px; background: var(--accent); border-radius: 2px; margin-top: 2px; min-width: 4px; }
 .btn-accent { background: var(--accent); color: var(--bg); border: none; padding: 8px 16px; border-radius: 6px; font-weight: 600; cursor: pointer; }
 .btn-accent:hover { filter: brightness(1.2); }
+.btn-outline { background: transparent; color: var(--accent); border: 1px solid var(--accent); padding: 8px 16px; border-radius: 6px; font-weight: 600; cursor: pointer; }
+.btn-outline:hover { background: var(--accent); color: var(--bg); }
+.btn-danger { background: var(--red, #e74c3c); color: #fff; border: none; padding: 8px 16px; border-radius: 6px; font-weight: 600; cursor: pointer; }
+.form-select { background: var(--bg3); color: var(--text); border: 1px solid var(--bg3); border-radius: 6px; padding: 8px 12px; font-size: 0.9rem; }
+.form-select:focus { outline: none; border-color: var(--accent); }
+.form-input-wide { background: var(--bg3); color: var(--text); border: 1px solid var(--bg3); border-radius: 6px; padding: 8px 12px; font-size: 0.85rem; width: 100%; box-sizing: border-box; }
+.form-input-wide:focus { outline: none; border-color: var(--accent); }
+.checkbox-label { display: flex; align-items: center; gap: 6px; font-size: 0.9rem; cursor: pointer; }
+.tier-badge { background: var(--accent); color: var(--bg); padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; }
+
 </style>

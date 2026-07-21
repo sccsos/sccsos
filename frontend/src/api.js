@@ -99,4 +99,12 @@ export const api = {
 
   // Audit
   audit: (limit = 50) => fetchJSON(`/audit?limit=${limit}`),
+
+  // Billing Plans (Subscription tiers)
+  billingPlans: () => fetchJSON('/billing/plans'),
+  billingPlanGet: (tenant) => fetchJSON(`/billing/plans/${encodeURIComponent(tenant)}`),
+  billingPlanSet: (data) => fetchJSON('/billing/plans', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data),
+  }),
+  billingPlanReset: (tenant) => fetchJSON(`/billing/plans/${encodeURIComponent(tenant)}`, { method: 'DELETE' }),
 };

@@ -50,16 +50,75 @@ PROVIDER_DEFAULT_URLS: dict[str, str] = {
 # ── Helpers ─────────────────────────────────────────────────────────
 
 
+def _resolve_hermes_binary() -> str:
+    """Resolve Hermes binary path: env var > config > default."""
+    from_env = os.environ.get("HERMES_BINARY", "")
+    if from_env:
+        return from_env
+    try:
+        cfg = _get_hermes_config()
+        if cfg.binary:
+            return cfg.binary
+    except Exception:
+        pass
+    return "hermes"
+
+
+def _get_hermes_home() -> str:
+    """Get HERMES_HOME: env var > config > default (~/.hermes)."""
+    from_env = os.environ.get("HERMES_HOME", "")
+    if from_env:
+        return from_env
+    try:
+        cfg = _get_hermes_config()
+        if cfg.home:
+            return cfg.home
+    except Exception:
+        pass
+    return str(Path.home() / ".hermes")
+
+
+def _get_hermes_code_path() -> str:
+    """Get HERMES_CODE_PATH: env var > config > default.
+
+    Default checks common git-installer location
+    (~/.hermes/hermes-agent/).
+    """
+    from_env = os.environ.get("HERMES_CODE_PATH", "")
+    if from_env:
+        return from_env
+    try:
+        cfg = _get_hermes_config()
+        if cfg.code_path:
+            return cfg.code_path
+    except Exception:
+        pass
+    # Default: check common git-installer location
+    default_path = Path.home() / ".hermes" / "hermes-agent"
+    if default_path.exists():
+        return str(default_path)
+    return ""
+
+
 def _run_hermes(args: list[str], timeout: int = 30) -> tuple[str, str, int]:
-    """Run a hermes CLI command and return (stdout, stderr, returncode)."""
+    """Run a hermes CLI command and return (stdout, stderr, returncode).
+
+    Resolves the Hermes binary via :func:`_resolve_hermes_binary`,
+    which respects ``HERMES_BINARY`` env var, ``sccsos.yaml``'s
+    ``hermes.binary`` setting, or falls back to ``hermes``.
+    """
+    binary = _resolve_hermes_binary()
     try:
         r = subprocess.run(
-            ["hermes", *args],
+            [binary, *args],
             capture_output=True, text=True, timeout=timeout,
         )
         return r.stdout.strip(), r.stderr.strip(), r.returncode
     except FileNotFoundError:
-        return "", "hermes CLI not found. Install with: pip install hermes-agent", -1
+        return "", (
+            f"Hermes CLI '{binary}' not found. "
+            f"Install with: pip install hermes-agent"
+        ), -1
     except subprocess.TimeoutExpired:
         return "", f"hermes command timed out after {timeout}s", -1
 
@@ -169,8 +228,18 @@ def doctor(fix: bool) -> None:
     issues: list[tuple[str, str, str]] = []  # (section, description, fix_hint)
 
     # 1. CLI availability
+    binary_path = _resolve_hermes_binary()
     installed = _check_hermes_installed()
     click.echo(f"  Hermes CLI:     {'✅' if installed else '❌'} {'可用' if installed else '未安装'}")
+    click.echo(f"  Binary path:    {binary_path}")
+
+    # 1b. Installation mode (via HermesManager)
+    try:
+        from sccsos.core.hermes_manager import get_manager
+        inst = get_manager().discover()
+        click.echo(f"  安装模式:       {inst.mode.value}")
+    except Exception:
+        pass
     if not installed:
         issues.append(("CLI", "Hermes CLI 未安装", "pip install hermes-agent"))
 
@@ -194,6 +263,15 @@ def doctor(fix: bool) -> None:
     # 2. Version
     out, _, _ = _run_hermes(["--version"])
     click.echo(f"  Version:        {out or 'unknown'}")
+
+    # 2b. Environment paths
+    hermes_home = _get_hermes_home()
+    hermes_code_path = _get_hermes_code_path()
+    click.echo(f"  HERMES_HOME:    {hermes_home}")
+    click.echo(f"  HERMES_CODE_PATH: {hermes_code_path or 'not detected'}")
+    home_ok = Path(hermes_home).exists()
+    if not home_ok:
+        issues.append(("home", f"HERMES_HOME 目录不存在: {hermes_home}", "sccsos hermes setup"))
 
     # 3. Hermes config directory
     hermes_dir = Path.home() / ".hermes"
@@ -273,8 +351,10 @@ def show() -> None:
 
     click.echo("── Hermes 配置 (sccsos.yaml) ──")
     click.echo(f"  Profile:    {cfg.profile}")
-    click.echo(f"  Binary:     {cfg.binary}")
+    click.echo(f"  Binary:     {cfg.binary} ({_resolve_hermes_binary()})")
     click.echo(f"  Adapter:    {cfg.adapter}")
+    click.echo(f"  HERMES_HOME: {cfg.home or _get_hermes_home()}")
+    click.echo(f"  HERMES_CODE_PATH: {cfg.code_path or _get_hermes_code_path() or '(not set)'}")
     if cfg.setup.provider:
         click.echo(f"  Provider:   {cfg.setup.provider}")
         click.echo(f"  Model:      {cfg.setup.model}")

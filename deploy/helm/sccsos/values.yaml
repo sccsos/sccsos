@@ -56,6 +56,8 @@ config:
 env:
   - name: HERMES_HOME
     value: /sccsos/hermes
+  - name: HERMES_CODE_PATH
+    value: /sccsos/hermes/hermes-agent
   - name: SCCSOS_HOME
     value: /sccsos
 

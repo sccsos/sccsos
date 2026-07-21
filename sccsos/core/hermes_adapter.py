@@ -408,20 +408,43 @@ class MockHermesAdapter(HermesAdapter):
 # ── Factory ────────────────────────────────────────────────────────
 
 
-def create_adapter(mode: str = "subprocess",
+def create_adapter(mode: str = "auto",
                    whitelist: Optional["CommandWhitelist"] = None,
                    hermes_bin: str = "hermes") -> HermesAdapter:
     """Create a Hermes adapter by mode name.
 
     Args:
-        mode: ``\\"subprocess\\"`` (default) or ``\\"mock\\"``.
+        mode: ``"subprocess"`` (default for non-auto), ``"docker-exec"``,
+              ``"mock"``, or ``"auto"`` (auto-detect from installation).
         whitelist: Optional CommandWhitelist for sandbox checks
             (only used by subprocess adapter).
         hermes_bin: Path to the Hermes CLI binary (default ``hermes``).
     """
+    if mode == "auto":
+        from sccsos.core.hermes_manager import get_manager
+        inst = get_manager().discover()
+        if inst.mode.name == "DOCKER":
+            mode = "docker-exec"
+        else:
+            mode = "subprocess"
     if mode == "mock":
         return MockHermesAdapter()
+    elif mode == "docker-exec":
+        from sccsos.core.hermes_docker_adapter import DockerHermesAdapter
+        from sccsos.core.config import get_config
+        cfg = get_config().hermes.docker
+        return DockerHermesAdapter(container=cfg.container, network=cfg.network)
+    elif mode == "remote":
+        from sccsos.core.hermes_remote_adapter import RemoteHermesAdapter
+        from sccsos.core.config import get_config
+        cfg = get_config().hermes.remote
+        return RemoteHermesAdapter(
+            url=cfg.url,
+            token=cfg.token,
+            timeout=cfg.timeout,
+        )
     elif mode == "subprocess":
         return HermesSubprocessAdapter(whitelist=whitelist, hermes_bin=hermes_bin)
     else:
-        raise ValueError(f"Unknown adapter mode: {mode}")
+        raise ValueError(f"Unknown adapter mode: {mode}. "
+                         f"Supported: subprocess, docker-exec, mock, remote, auto.")

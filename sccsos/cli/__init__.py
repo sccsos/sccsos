@@ -23,6 +23,7 @@ from sccsos.cli.config_cmd import config_show, webhook
 from sccsos.cli.maintenance_cmd import maintenance
 from sccsos.cli.plugin_cmd import plugin
 from sccsos.cli.hermes_cmd import hermes_cmd
+from sccsos.cli.role_cmd import role_cmd
 from sccsos.cli.sample_templates import SAMPLE_FILES, SAMPLE_PRICING, SAMPLE_YAML_FULL
 
 
@@ -44,13 +45,16 @@ def version():
 @click.option("--force", "-f", is_flag=True, help="Overwrite existing files")
 @click.option("--samples", "-s", is_flag=True, help="Generate sample agents, personalities, workflows")
 @click.option("--interactive", "-i", is_flag=True, help="Interactive setup wizard")
-def init(dir, force, samples, interactive):
+@click.option("--role", "-r", default=None, help="Role package to install (architect, doc-writer, code-reviewer, ...)")
+def init(dir, force, samples, interactive, role):
     """Initialize a new sccsos project in DIR.
 
     By default creates a minimal project with directory structure and
     a basic ``sccsos.yaml``.  Use ``--samples`` to also populate
     sample agents, personalities, and workflows.  Use ``--interactive``
-    for guided database / admin / pricing setup.
+    for guided database / admin / pricing setup.  Use ``--role``
+    to install a role package (personalities, agents, workflows, and
+    Hermes skills) in one step.
     """
     target = Path(dir).resolve()
     click.echo(f"Initializing sccsos project at: {target}")
@@ -201,6 +205,11 @@ auto_approve: true
 """
             admin_agent.write_text(admin_yaml.lstrip("\n"), encoding="utf-8")
             click.echo(f"  Created: agents/{admin_name}.yaml")
+
+    # ── Role package installation ────────────────────────────────
+    if role:
+        from sccsos.cli.role_cmd import install_role_on_init
+        install_role_on_init(role, str(target))
 
     click.echo("")
     click.echo("sccsos project initialized.")
@@ -441,15 +450,16 @@ main.add_command(health)
 main.add_command(doctor)
 main.add_command(serve)
 main.add_command(hermes_cmd)
+main.add_command(role_cmd)
 
 
 # ── template constants ────────────────────────────────────────────
 
 
-_DEFAULT_YAML = """# sccsos v0.14.2 project configuration
+_DEFAULT_YAML = """# sccsos v0.15.0 project configuration
 project:
   name: sccsos
-  version: 0.14.2
+  version: 0.15.0
 hermes:
   profile: sccsos
   binary: hermes

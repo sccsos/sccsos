@@ -20,7 +20,7 @@ import yaml
 from sccsos.core.db import Database
 from sccsos.core.db import crud
 from sccsos.core.hermes_adapter import HermesAdapter
-from sccsos.core.event_bus import EventBus
+from sccsos.core.event_bus import get_bus
 from sccsos.core.events import (
     WORKFLOW_STARTED, WORKFLOW_COMPLETED, WORKFLOW_FAILED,
 )
@@ -64,7 +64,7 @@ class WorkflowEngine:
         self._policy_engine = None
         self._db_lock = threading.Lock()
         self._run_contexts: dict[str, WorkflowRunContext] = {}
-        self._bus = EventBus.get_instance()
+        self._bus = get_bus()
         if config is not None:
             from sccsos.security.policy import PolicyEngine
             try:

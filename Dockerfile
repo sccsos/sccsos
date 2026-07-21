@@ -12,13 +12,14 @@ RUN pip install --no-cache-dir build && \
 FROM python:3.11-slim
 
 LABEL org.sccsos.name="sccsos" \
-      org.sccsos.version="0.11.4" \
+      org.sccsos.version="0.14.2" \
       org.sccsos.description="SCCS OS — Smart Agent Runtime Platform"
 
-# Install system dependencies (hermes CLI needs git for some operations)
+# Install system dependencies (Hermes CLI needs git/curl/xz-utils for git-installer; curl for health)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     curl \
+    xz-utils \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /sccsos
@@ -28,8 +29,20 @@ COPY --from=builder /build/dist/*.whl /tmp/
 
 # Install SCCS OS with API extras
 RUN pip install --no-cache-dir /tmp/*.whl && \
-    pip install --no-cache-dir "sccsos[api] @ file:///tmp/sccsos-0.11.4-py3-none-any.whl" && \
+    pip install --no-cache-dir "sccsos[api] @ file:///tmp/sccsos-0.14.2-py3-none-any.whl" && \
     rm /tmp/*.whl
+
+# Install Hermes Agent CLI (so SCCS OS can delegate tasks inside the container)
+RUN pip install --no-cache-dir hermes-agent && \
+    hermes --version && \
+    echo "Hermes Agent installed successfully"
+
+# Set up Hermes HOME directory and default profile
+ENV HERMES_HOME=/sccsos/hermes
+RUN mkdir -p ${HERMES_HOME}/skills ${HERMES_HOME}/sessions ${HERMES_HOME}/memories ${HERMES_HOME}/cron \
+    && hermes config set --profile sccsos provider deepseek \
+    && hermes config set --profile sccsos model deepseek-v4-flash \
+    || echo "Hermes profile init deferred (no API key in build)"
 
 # Create default directories
 RUN mkdir -p /sccsos/data /sccsos/logs /sccsos/traces \

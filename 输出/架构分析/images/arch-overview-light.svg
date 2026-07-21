@@ -1,0 +1,197 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 800" width="960" height="800">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#475569"/>
+    </marker>
+    <marker id="arrow-dashed" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#e11d48"/>
+    </marker>
+    <linearGradient id="bg-grad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f8fafc"/>
+      <stop offset="100%" stop-color="#f1f5f9"/>
+    </linearGradient>
+    <filter id="shadow" x="-2%" y="-2%" width="104%" height="108%">
+      <feDropShadow dx="0" dy="1" stdDeviation="2" flood-color="#000" flood-opacity="0.08"/>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="960" height="800" fill="url(#bg-grad)" rx="8"/>
+
+  <!-- Title -->
+  <text x="480" y="36" text-anchor="middle" font-family="'Microsoft YaHei','PingFang SC',sans-serif" font-size="16" font-weight="bold" fill="#0f172a">SCCS OS 三层子运行时架构总览</text>
+  <text x="480" y="54" text-anchor="middle" font-family="'Microsoft YaHei','PingFang SC',sans-serif" font-size="10" fill="#64748b">v0.15.0 — 智能体操作系统平台</text>
+
+  <!-- Legend -->
+  <rect x="30" y="62" width="900" height="28" rx="4" fill="#fff" stroke="#e2e8f0" stroke-width="1"/>
+  <rect x="40" y="70" width="14" height="14" rx="2" fill="#d1fae5"/>
+  <text x="58" y="81" font-family="'Microsoft YaHei',sans-serif" font-size="9" fill="#475569">核心运行时</text>
+  <rect x="155" y="70" width="14" height="14" rx="2" fill="#e0f2fe"/>
+  <text x="173" y="81" font-family="'Microsoft YaHei',sans-serif" font-size="9" fill="#475569">可观测性</text>
+  <rect x="270" y="70" width="14" height="14" rx="2" fill="#ede9fe"/>
+  <text x="288" y="81" font-family="'Microsoft YaHei',sans-serif" font-size="9" fill="#475569">工作流编排</text>
+  <rect x="385" y="70" width="14" height="14" rx="2" fill="#ffe4e6"/>
+  <text x="403" y="81" font-family="'Microsoft YaHei',sans-serif" font-size="9" fill="#475569">安全</text>
+  <rect x="460" y="70" width="14" height="14" rx="2" fill="#fef3c7"/>
+  <text x="478" y="81" font-family="'Microsoft YaHei',sans-serif" font-size="9" fill="#475569">基础设施</text>
+  <line x1="560" y1="76" x2="600" y2="76" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="608" y="81" font-family="'Microsoft YaHei',sans-serif" font-size="9" fill="#475569">数据流</text>
+  <line x1="670" y1="76" x2="700" y2="76" stroke="#e11d48" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#arrow-dashed)"/>
+  <text x="708" y="81" font-family="'Microsoft YaHei',sans-serif" font-size="9" fill="#475569">安全控制流</text>
+
+  <!-- ── Layer 1: RuntimeCore ── -->
+  <rect x="30" y="98" width="900" height="180" rx="6" fill="#d1fae5" fill-opacity="0.25" stroke="#059669" stroke-width="1.5" stroke-dasharray="6,3"/>
+  <text x="45" y="115" font-family="'Microsoft YaHei',sans-serif" font-size="11" font-weight="bold" fill="#059669">① RuntimeCore — 核心运行时（必须子系统）</text>
+
+  <!-- Core components -->
+  <rect x="45" y="125" width="120" height="44" rx="6" fill="#d1fae5" stroke="#059669" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="105" y="144" text-anchor="middle" font-family="'Microsoft YaHei',sans-serif" font-size="9" font-weight="bold" fill="#065f46">数据库</text>
+  <text x="105" y="158" text-anchor="middle" font-family="'Microsoft YaHei',sans-serif" font-size="7" fill="#047857">SQLite/PostgreSQL</text>
+
+  <rect x="180" y="125" width="120" height="44" rx="6" fill="#d1fae5" stroke="#059669" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="240" y="144" text-anchor="middle" font-family="'Microsoft YaHei',sans-serif" font-size="9" font-weight="bold" fill="#065f46">AgentRegistry</text>
+  <text x="240" y="158" text-anchor="middle" font-family="'Microsoft YaHei',sans-serif" font-size="7" fill="#047857">YAML 定义管理</text>
+
+  <rect x="315" y="125" width="120" height="44" rx="6" fill="#d1fae5" stroke="#059669" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="375" y="144" text-anchor="middle" font-family="'Microsoft YaHei',sans-serif" font-size="9" font-weight="bold" fill="#065f46">HermesAdapter</text>
+  <text x="375" y="158" text-anchor="middle" font-family="'Microsoft YaHei',sans-serif" font-size="7" fill="#047857">4 种适配模式</text>
+
+  <rect x="450" y="125" width="120" height="44" rx="6" fill="#d1fae5" stroke="#059669" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="510" y="144" text-anchor="middle" font-family="'Microsoft YaHei',sans-serif" font-size="9" font-weight="bold" fill="#065f46">LifecycleManager</text>
+  <text x="510" y="158" text-anchor="middle" font-family="'Microsoft YaHei',sans-serif" font-size="7" fill="#047857">5 状态状态机</text>
+
+  <rect x="585" y="125" width="120" height="44" rx="6" fill="#d1fae5" stroke="#059669" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="645" y="144" text-anchor="middle" font-family="'Microsoft YaHei',sans-serif" font-size="9" font-weight="bold" fill="#065f46">AgentRunner</text>
+  <text x="645" y="158" text-anchor="middle" font-family="'Microsoft YaHei',sans-serif" font-size="7" fill="#047857">后台线程管理</text>
+
+  <rect x="720" y="125" width="100" height="44" rx="6" fill="#d1fae5" stroke="#059669" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="770" y="144" text-anchor="middle" font-family="'Microsoft YaHei',sans-serif" font-size="9" font-weight="bold" fill="#065f46">Supervisor</text>
+  <text x="770" y="158" text-anchor="middle" font-family="'Microsoft YaHei',sans-serif" font-size="7" fill="#047857">心跳守护</text>
+
+  <rect x="45" y="180" width="160" height="40" rx="6" fill="#d1fae5" fill-opacity="0.6" stroke="#059669" stroke-width="1" stroke-dasharray="3,2" filter="url(#shadow)"/>
+  <text x="125" y="200" text-anchor="middle" font-family="'Microsoft YaHei',sans-serif" font-size="9" font-weight="bold" fill="#065f46">MemoryStore</text>
+  <text x="125" y="213" text-anchor="middle" font-family="'Microsoft YaHei',sans-serif" font-size="7" fill="#047857">持久 KV + TTL</text>
+
+  <rect x="220" y="180" width="160" height="40" rx="6" fill="#d1fae5" fill-opacity="0.6" stroke="#059669" stroke-width="1" stroke-dasharray="3,2" filter="url(#shadow)"/>
+  <text x="300" y="200" text-anchor="middle" font-family="'Microsoft YaHei',sans-serif" font-size="9" font-weight="bold" fill="#065f46">KnowledgeBase</text>
+  <text x="300" y="213" text-anchor="middle" font-family="'Microsoft YaHei',sans-serif" font-size="7" fill="#047857">冷记忆 / 向量检索</text>
+
+  <rect x="395" y="180" width="160" height="40" rx="6" fill="#d1fae5" fill-opacity="0.6" stroke="#059669" stroke-width="1" stroke-dasharray="3,2" filter="url(#shadow)"/>
+  <text x="475" y="200" text-anchor="middle" font-family="'Microsoft YaHei',sans-serif" font-size="9" font-weight="bold" fill="#065f46">ModelRouter</text>
+  <text x="475" y="213" text-anchor="middle" font-family="'Microsoft YaHei',sans-serif" font-size="7" fill="#047857">模型池调度</text>
+
+  <rect x="570" y="180" width="160" height="40" rx="6" fill="#d1fae5" fill-opacity="0.6" stroke="#059669" stroke-width="1" stroke-dasharray="3,2" filter="url(#shadow)"/>
+  <text x="650" y="200" text-anchor="middle" font-family="'Microsoft YaHei',sans-serif" font-size="9" font-weight="bold" fill="#065f46">SessionManager</text>
+  <text x="650" y="213" text-anchor="middle" font-family="'Microsoft YaHei',sans-serif" font-size="7" fill="#047857">会话生命期</text>
+
+  <!-- Arrow: core → obs -->
+  <path d="M 480 278 L 480 295" stroke="#475569" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+
+  <!-- ── Layer 2: ObservabilityRuntime ── -->
+  <rect x="30" y="303" width="900" height="145" rx="6" fill="#e0f2fe" fill-opacity="0.25" stroke="#0284c7" stroke-width="1.5" stroke-dasharray="6,3"/>
+  <text x="45" y="320" font-family="'Microsoft YaHei',sans-serif" font-size="11" font-weight="bold" fill="#0284c7">② ObservabilityRuntime — 可观测子系统</text>
+
+  <rect x="45" y="330" width="130" height="44" rx="6" fill="#e0f2fe" stroke="#0284c7" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="110" y="349" text-anchor="middle" font-family="'Microsoft YaHei',sans-serif" font-size="9" font-weight="bold" fill="#0369a1">Tracer</text>
+  <text x="110" y="363" text-anchor="middle" font-family="'Microsoft YaHei',sans-serif" font-size="7" fill="#0284c7">Span 链路追踪</text>
+
+  <rect x="190" y="330" width="130" height="44" rx="6" fill="#e0f2fe" stroke="#0284c7" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="255" y="349" text-anchor="middle" font-family="'Microsoft YaHei',sans-serif" font-size="9" font-weight="bold" fill="#0369a1">Auditor</text>
+  <text x="255" y="363" text-anchor="middle" font-family="'Microsoft YaHei',sans-serif" font-size="7" fill="#0284c7">Token / 成本审计</text>
+
+  <rect x="335" y="330" width="130" height="44" rx="6" fill="#e0f2fe" stroke="#0284c7" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="400" y="349" text-anchor="middle" font-family="'Microsoft YaHei',sans-serif" font-size="9" font-weight="bold" fill="#0369a1">PricingTable</text>
+  <text x="400" y="363" text-anchor="middle" font-family="'Microsoft YaHei',sans-serif" font-size="7" fill="#0284c7">模型定价表</text>
+
+  <rect x="480" y="330" width="130" height="44" rx="6" fill="#e0f2fe" stroke="#0284c7" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="545" y="349" text-anchor="middle" font-family="'Microsoft YaHei',sans-serif" font-size="9" font-weight="bold" fill="#0369a1">AlertManager</text>
+  <text x="545" y="363" text-anchor="middle" font-family="'Microsoft YaHei',sans-serif" font-size="7" fill="#0284c7">阈值告警</text>
+
+  <rect x="625" y="330" width="130" height="44" rx="6" fill="#e0f2fe" stroke="#0284c7" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="690" y="349" text-anchor="middle" font-family="'Microsoft YaHei',sans-serif" font-size="9" font-weight="bold" fill="#0369a1">Webhook</text>
+  <text x="690" y="363" text-anchor="middle" font-family="'Microsoft YaHei',sans-serif" font-size="7" fill="#0284c7">HTTP 回调 / OTel</text>
+
+  <rect x="770" y="330" width="130" height="44" rx="6" fill="#e0f2fe" stroke="#0284c7" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="835" y="349" text-anchor="middle" font-family="'Microsoft YaHei',sans-serif" font-size="9" font-weight="bold" fill="#0369a1">Billing</text>
+  <text x="835" y="363" text-anchor="middle" font-family="'Microsoft YaHei',sans-serif" font-size="7" fill="#0284c7">3 层计费 + CSV</text>
+
+  <rect x="45" y="383" width="240" height="34" rx="6" fill="#f0f9ff" stroke="#0284c7" stroke-width="1" stroke-dasharray="3,2"/>
+  <text x="165" y="404" text-anchor="middle" font-family="'Microsoft YaHei',sans-serif" font-size="8" fill="#0369a1">OTel 桥接 → Jaeger / Grafana / SigNoz</text>
+
+  <!-- Arrow: obs → wf -->
+  <path d="M 480 448 L 480 465" stroke="#475569" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+
+  <!-- ── Layer 3: WorkflowRuntime ── -->
+  <rect x="30" y="473" width="900" height="170" rx="6" fill="#ede9fe" fill-opacity="0.3" stroke="#7c3aed" stroke-width="1.5" stroke-dasharray="6,3"/>
+  <text x="45" y="490" font-family="'Microsoft YaHei',sans-serif" font-size="11" font-weight="bold" fill="#7c3aed">③ WorkflowRuntime — 工作流编排子系统</text>
+
+  <rect x="45" y="500" width="160" height="50" rx="6" fill="#ede9fe" stroke="#7c3aed" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="125" y="522" text-anchor="middle" font-family="'Microsoft YaHei',sans-serif" font-size="9" font-weight="bold" fill="#6d28d9">WorkflowEngine</text>
+  <text x="125" y="540" text-anchor="middle" font-family="'Microsoft YaHei',sans-serif" font-size="7" fill="#7c3aed">DAG 拓扑 + 并行执行</text>
+
+  <rect x="220" y="500" width="140" height="50" rx="6" fill="#ede9fe" stroke="#7c3aed" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="290" y="522" text-anchor="middle" font-family="'Microsoft YaHei',sans-serif" font-size="9" font-weight="bold" fill="#6d28d9">StepExecutor</text>
+  <text x="290" y="540" text-anchor="middle" font-family="'Microsoft YaHei',sans-serif" font-size="7" fill="#7c3aed">条件分支 + 重试</text>
+
+  <rect x="375" y="500" width="140" height="50" rx="6" fill="#ede9fe" stroke="#7c3aed" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="445" y="522" text-anchor="middle" font-family="'Microsoft YaHei',sans-serif" font-size="9" font-weight="bold" fill="#6d28d9">EventBus</text>
+  <text x="445" y="540" text-anchor="middle" font-family="'Microsoft YaHei',sans-serif" font-size="7" fill="#7c3aed">Local / Kafka / Redis</text>
+
+  <rect x="530" y="500" width="140" height="50" rx="6" fill="#ede9fe" stroke="#7c3aed" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="600" y="522" text-anchor="middle" font-family="'Microsoft YaHei',sans-serif" font-size="9" font-weight="bold" fill="#6d28d9">Personality</text>
+  <text x="600" y="540" text-anchor="middle" font-family="'Microsoft YaHei',sans-serif" font-size="7" fill="#7c3aed">角色 / 人格加载</text>
+
+  <rect x="685" y="500" width="130" height="50" rx="6" fill="#ede9fe" stroke="#7c3aed" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="750" y="522" text-anchor="middle" font-family="'Microsoft YaHei',sans-serif" font-size="9" font-weight="bold" fill="#6d28d9">AgentMsgBus</text>
+  <text x="750" y="540" text-anchor="middle" font-family="'Microsoft YaHei',sans-serif" font-size="7" fill="#7c3aed">Agent 间通信</text>
+
+  <rect x="45" y="562" width="255" height="34" rx="6" fill="#f5f3ff" stroke="#7c3aed" stroke-width="1" stroke-dasharray="3,2"/>
+  <text x="172" y="583" text-anchor="middle" font-family="'Microsoft YaHei',sans-serif" font-size="8" fill="#6d28d9">ContextBuilder(Jinja2) + RetryPolicy + 模板引擎</text>
+
+  <!-- ── Layer 4: Security + Infra ── -->
+  <rect x="30" y="658" width="900" height="130" rx="6" fill="none" stroke="#e11d48" stroke-width="1.5" stroke-dasharray="6,3"/>
+  <text x="45" y="675" font-family="'Microsoft YaHei',sans-serif" font-size="11" font-weight="bold" fill="#e11d48">安全 &amp; 基础设施层</text>
+
+  <!-- Security group -->
+  <rect x="45" y="688" width="530" height="90" rx="6" fill="#ffe4e6" fill-opacity="0.3" stroke="#fda4af" stroke-width="1"/>
+  <text x="55" y="705" font-family="'Microsoft YaHei',sans-serif" font-size="10" font-weight="bold" fill="#e11d48">纵深防御体系</text>
+
+  <rect x="55" y="715" width="90" height="32" rx="5" fill="#ffe4e6" stroke="#fb7185" stroke-width="1"/>
+  <text x="100" y="735" text-anchor="middle" font-family="'Microsoft YaHei',sans-serif" font-size="8" font-weight="bold" fill="#e11d48">沙箱</text>
+
+  <rect x="155" y="715" width="90" height="32" rx="5" fill="#ffe4e6" stroke="#fb7185" stroke-width="1"/>
+  <text x="200" y="735" text-anchor="middle" font-family="'Microsoft YaHei',sans-serif" font-size="8" font-weight="bold" fill="#e11d48">策略引擎</text>
+
+  <rect x="255" y="715" width="90" height="32" rx="5" fill="#ffe4e6" stroke="#fb7185" stroke-width="1"/>
+  <text x="300" y="735" text-anchor="middle" font-family="'Microsoft YaHei',sans-serif" font-size="8" font-weight="bold" fill="#e11d48">注入防护</text>
+
+  <rect x="355" y="715" width="90" height="32" rx="5" fill="#ffe4e6" stroke="#fb7185" stroke-width="1"/>
+  <text x="400" y="735" text-anchor="middle" font-family="'Microsoft YaHei',sans-serif" font-size="8" font-weight="bold" fill="#e11d48">速率限制</text>
+
+  <rect x="455" y="715" width="90" height="32" rx="5" fill="#ffe4e6" stroke="#fb7185" stroke-width="1"/>
+  <text x="500" y="735" text-anchor="middle" font-family="'Microsoft YaHei',sans-serif" font-size="8" font-weight="bold" fill="#e11d48">RBAC</text>
+
+  <!-- Infra group -->
+  <rect x="590" y="688" width="330" height="90" rx="6" fill="#fef3c7" fill-opacity="0.3" stroke="#fcd34d" stroke-width="1"/>
+  <text x="600" y="705" font-family="'Microsoft YaHei',sans-serif" font-size="10" font-weight="bold" fill="#d97706">基础设施</text>
+
+  <rect x="600" y="715" width="90" height="32" rx="5" fill="#fef3c7" stroke="#fbbf24" stroke-width="1"/>
+  <text x="645" y="735" text-anchor="middle" font-family="'Microsoft YaHei',sans-serif" font-size="8" font-weight="bold" fill="#d97706">Docker</text>
+
+  <rect x="700" y="715" width="90" height="32" rx="5" fill="#fef3c7" stroke="#fbbf24" stroke-width="1"/>
+  <text x="745" y="735" text-anchor="middle" font-family="'Microsoft YaHei',sans-serif" font-size="8" font-weight="bold" fill="#d97706">K8s / HPA</text>
+
+  <rect x="800" y="715" width="90" height="32" rx="5" fill="#fef3c7" stroke="#fbbf24" stroke-width="1"/>
+  <text x="845" y="735" text-anchor="middle" font-family="'Microsoft YaHei',sans-serif" font-size="8" font-weight="bold" fill="#d97706">CI/CD</text>
+
+  <!-- Cross-layer arrows -->
+  <path d="M 110 448 L 110 468" stroke="#475569" stroke-width="1" fill="none" marker-end="url(#arrow)"/>
+  <path d="M 855 448 L 855 468" stroke="#475569" stroke-width="1" fill="none" marker-end="url(#arrow)"/>
+
+  <!-- Security control flows (dashed red) -->
+  <path d="M 100 169 L 100 688" stroke="#e11d48" stroke-width="1.2" stroke-dasharray="4,3" fill="none"/>
+  <path d="M 800 170 L 800 688" stroke="#e11d48" stroke-width="1.2" stroke-dasharray="4,3" fill="none"/>
+
+  <!-- Labels -->
+  <text x="24" y="795" font-family="'Microsoft YaHei',sans-serif" font-size="8" fill="#94a3b8">SCCS OS v0.15.0 | 健康评分 9.2/10 | 1021 测试用例 | 50+ 功能模块</text>
+</svg>
