@@ -107,13 +107,19 @@ class RuntimeCore:
 
         # Adapter with sandbox
         from sccsos.security.sandbox import CommandWhitelist
+        from sccsos.core.hermes_adapter import create_adapter
         wl_allowed = cfg.policies.default.allowed_commands
         wl_dangerous = cfg.policies.default.dangerous_patterns
         sandbox = CommandWhitelist(
             allowed_commands=list(wl_allowed),
             dangerous_patterns=list(wl_dangerous) if wl_dangerous else None,
         )
-        self._adapter = create_adapter("subprocess", whitelist=sandbox)
+        hermes_cfg = cfg.hermes
+        self._adapter = create_adapter(
+            mode=hermes_cfg.adapter,
+            whitelist=sandbox,
+            hermes_bin=hermes_cfg.binary,
+        )
 
         # Memory, session, model router, KB
         self._memory_store = MemoryStore(self._db)

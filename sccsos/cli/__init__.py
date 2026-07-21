@@ -22,6 +22,7 @@ from sccsos.cli.benchmark_cmd import benchmark
 from sccsos.cli.config_cmd import config_show, webhook
 from sccsos.cli.maintenance_cmd import maintenance
 from sccsos.cli.plugin_cmd import plugin
+from sccsos.cli.hermes_cmd import hermes_cmd
 from sccsos.cli.sample_templates import SAMPLE_FILES, SAMPLE_PRICING, SAMPLE_YAML_FULL
 
 
@@ -439,6 +440,7 @@ main.add_command(maintenance)
 main.add_command(health)
 main.add_command(doctor)
 main.add_command(serve)
+main.add_command(hermes_cmd)
 
 
 # ── template constants ────────────────────────────────────────────
@@ -448,6 +450,15 @@ _DEFAULT_YAML = """# sccsos v0.14.2 project configuration
 project:
   name: sccsos
   version: 0.14.2
+hermes:
+  profile: sccsos
+  binary: hermes
+  adapter: subprocess
+  setup:
+    provider: deepseek
+    model: deepseek-v4-flash
+    api_key: ""
+    base_url: ""
 database:
   path: ./data/sccsos.db
 defaults:

@@ -189,6 +189,53 @@ class EventBusConfig:
 
 
 @dataclass
+class HermesSetupConfig:
+    """Hermes one-click setup configuration.
+
+    Used by ``sccsos hermes setup`` to automatically configure
+    a Hermes profile.  All fields are optional — missing fields
+    are prompted interactively.
+
+    Example YAML::
+
+        hermes:
+          setup:
+            provider: deepseek       # deepseek / openai / anthropic
+            model: deepseek-v4-flash
+            api_key: ""              # leave empty for interactive prompt
+            base_url: ""             # custom API endpoint (optional)
+    """
+    provider: str = ""
+    model: str = ""
+    api_key: str = ""
+    base_url: str = ""
+
+
+@dataclass
+class HermesConfig:
+    """Hermes Agent connection and setup configuration.
+
+    Controls how SCCS OS discovers and communicates with the
+    Hermes Agent CLI.  The ``setup`` subsection is used by
+    ``sccsos hermes setup`` for one-click profile creation.
+
+    Example YAML::
+
+        hermes:
+          profile: sccsos            # Hermes profile name
+          binary: hermes             # Hermes CLI path
+          adapter: subprocess        # subprocess / mock
+          setup:
+            provider: deepseek
+            model: deepseek-v4-flash
+    """
+    profile: str = "sccsos"
+    binary: str = "hermes"
+    adapter: str = "subprocess"
+    setup: HermesSetupConfig = field(default_factory=HermesSetupConfig)
+
+
+@dataclass
 class ProjectConfig:
     name: str = "sccsos"
     version: str = "0.14.2"
@@ -234,6 +281,7 @@ class AgentOSConfig:
     """Top-level configuration for a sccsos project."""
 
     project: ProjectConfig = field(default_factory=ProjectConfig)
+    hermes: HermesConfig = field(default_factory=HermesConfig)
     database: DatabaseConfig = field(default_factory=DatabaseConfig)
     defaults: DefaultsConfig = field(default_factory=DefaultsConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)

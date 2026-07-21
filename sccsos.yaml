@@ -8,6 +8,15 @@ defaults:
   hermes_profile: sccsos
   max_turns: 90
   timeout: 1800
+hermes:
+  adapter: subprocess
+  binary: hermes
+  profile: sccsos
+  setup:
+    api_key: ''
+    base_url: ''
+    model: deepseek-v4-flash
+    provider: deepseek
 logging:
   directory: ./logs
   format: json

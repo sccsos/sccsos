@@ -409,17 +409,19 @@ class MockHermesAdapter(HermesAdapter):
 
 
 def create_adapter(mode: str = "subprocess",
-                   whitelist: Optional["CommandWhitelist"] = None) -> HermesAdapter:
+                   whitelist: Optional["CommandWhitelist"] = None,
+                   hermes_bin: str = "hermes") -> HermesAdapter:
     """Create a Hermes adapter by mode name.
 
     Args:
-        mode: ``\"subprocess\"`` (default) or ``\"mock\"``.
+        mode: ``\\"subprocess\\"`` (default) or ``\\"mock\\"``.
         whitelist: Optional CommandWhitelist for sandbox checks
             (only used by subprocess adapter).
+        hermes_bin: Path to the Hermes CLI binary (default ``hermes``).
     """
     if mode == "mock":
         return MockHermesAdapter()
     elif mode == "subprocess":
-        return HermesSubprocessAdapter(whitelist=whitelist)
+        return HermesSubprocessAdapter(whitelist=whitelist, hermes_bin=hermes_bin)
     else:
         raise ValueError(f"Unknown adapter mode: {mode}")
