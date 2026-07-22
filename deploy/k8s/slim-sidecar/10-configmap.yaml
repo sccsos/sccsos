@@ -9,7 +9,7 @@ data:
   sccsos.yaml: |
     project:
       name: sccsos
-      version: "0.16.5"
+      version: "0.16.6"
     database:
       driver: sqlite
       path: /sccsos/data/sccsos.db

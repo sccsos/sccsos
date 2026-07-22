@@ -28,7 +28,7 @@ SaaS 多租户大规模部署 | K8s 集群 | PostgreSQL + Kafka
 
 ```bash
 # WHL 文件安装
-pip install dist/sccsos-0.16.5-py3-none-any.whl
+pip install dist/sccsos-0.16.6-py3-none-any.whl
 
 # WHL 安装后，补装扩展组件
 pip install "sccsos[all]"

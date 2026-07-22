@@ -6,12 +6,12 @@
 
 ```
 Pod
-├── sccsos (sccsos:0.16.5-slim)    ← 主容器，无 Hermes 嵌入
+├── sccsos (sccsos:0.16.6-slim)    ← 主容器，无 Hermes 嵌入
 │   ├── FastAPI Server :8765
 │   ├── Workflow Engine
 │   └── HermesAdapter (docker-exec)
 │
-└── hermes-agent (sccsos-hermes:0.16.5)  ← Sidecar，仅 Hermes CLI
+└── hermes-agent (sccsos-hermes:0.16.6)  ← Sidecar，仅 Hermes CLI
     └── sleep infinity (等待 docker exec 调用)
 ```
 
@@ -19,7 +19,7 @@ Pod
 
 | 维度 | 全合一 (deploy/k8s/) | Slim+Sidecar (deploy/k8s/slim-sidecar/) |
 |------|---------------------|----------------------------------------|
-| 镜像 | sccsos:0.16.5 (~600MB) | sccsos:0.16.5-slim (~350MB) + sccsos-hermes:0.16.5 (~120MB) |
+| 镜像 | sccsos:0.16.6 (~600MB) | sccsos:0.16.6-slim (~350MB) + sccsos-hermes:0.16.6 (~120MB) |
 | 总大小 | ~600MB | ~470MB |
 | 扩缩容 | 绑定 | 可独立 HPA |
 | 版本管理 | 同步升级 | 独立升级 |
@@ -29,8 +29,8 @@ Pod
 
 1. 构建 slim 和 hermes 镜像：
    ```bash
-   docker build -t sccsos:0.16.5-slim -f Dockerfile.slim .
-   docker build -t sccsos-hermes:0.16.5 -f Dockerfile.hermes .
+   docker build -t sccsos:0.16.6-slim -f Dockerfile.slim .
+   docker build -t sccsos-hermes:0.16.6 -f Dockerfile.hermes .
    ```
 
 2. 创建 API Key Secret：

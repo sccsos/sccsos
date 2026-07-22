@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.16.6] — 2026-07-27
+
+### Fixed
+
+- **`sccsos hermes install` 自定义 home/code_path 修复**: script 模式向 `install.sh` 子进程 env 注入 `HERMES_HOME` + `HERMES_CODE_PATH`，git 模式向 `pip install -e` 注入两个 env var，安装到指定路径而非默认 `~/.hermes`
+- **`_get_hermes_code_path()` fallback 修复**: 使用 `_get_hermes_home()` 解析基于自定义 home 的 code_path fallback，而非硬编码 `~/.hermes/hermes-agent`
+- **`HermesManager._resolve_code_path()` fallback 修复**: 同上，使用 `HermesManager._resolve_home()` 查找
+- **`_ensure_hermes_home()` 新增**: 安装后自动创建自定义 `HERMES_HOME` 目录结构（profiles/skills/memories/sessions/cron + config.yaml）
+- **版本同步**: 全项目文件版本号 `0.16.5` → `0.16.6`
+
 ## [0.16.5] — 2026-07-26
 
 ### Added

@@ -11,15 +11,15 @@ mode: all-in-one
 # 注: slim+sidecar 模式下，主容器使用 sccsos-slim:<slimTag>
 image:
   repository: sccsos
-  tag: 0.16.5
-  slimTag: 0.16.5-slim
+  tag: 0.16.6
+  slimTag: 0.16.6-slim
   pullPolicy: IfNotPresent
 
 # ── Hermes Sidecar 镜像 (slim+sidecar 模式) ──────────────────────────
 hermes:
   image:
     repository: sccsos-hermes
-    tag: 0.16.5
+    tag: 0.16.6
     pullPolicy: IfNotPresent
   resources:
     requests:

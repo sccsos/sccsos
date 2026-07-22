@@ -20,7 +20,7 @@ version: "3.8"
 services:
   sccsos:
     build: .
-    image: sccsos:0.16.5
+    image: sccsos:0.16.6
     container_name: sccsos
     ports:
       - "8765:8765"
@@ -51,7 +51,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.slim
-    image: sccsos:0.16.5-slim
+    image: sccsos:0.16.6-slim
     container_name: sccsos-slim
     ports:
       - "8765:8765"
@@ -88,7 +88,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.hermes
-    image: sccsos-hermes:0.16.5
+    image: sccsos-hermes:0.16.6
     container_name: hermes-agent
     # 保持容器运行，等待 docker exec 调用
     environment:

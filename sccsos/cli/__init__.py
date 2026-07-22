@@ -270,10 +270,10 @@ main.add_command(role_cmd)
 # ── template constants ────────────────────────────────────────────
 
 
-_DEFAULT_YAML = """# sccsos v0.16.5 project configuration
+_DEFAULT_YAML = """# sccsos v0.16.6 project configuration
 project:
   name: sccsos
-  version: 0.16.5
+  version: 0.16.6
 hermes:
   profile: sccsos
   binary: hermes
