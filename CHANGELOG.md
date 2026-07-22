@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.16.8] — 2026-07-22
+
+### Changed
+
+- **`code_path` → `install_prefix`**: 移除未使用的 `HERMES_CODE_PATH`/`code_path` 配置，新增 `HERMES_INSTALL_PREFIX`/`install_prefix` 配置（env var > sccsos.yaml > None），读取逻辑与 `HERMES_HOME` 一致。涉及 9 个源文件。
+- **版本同步**: 全项目文件版本号 `0.16.7` → `0.16.8`
+
 ## [0.16.7] — 2026-07-22
 
 ### Changed

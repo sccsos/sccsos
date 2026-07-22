@@ -1,6 +1,6 @@
 # SCCS OS Architecture Framework — 7-Domain Design
 
-> 版本: v0.16.7 | 最后更新: 2026-07-22
+> 版本: v0.16.8 | 最后更新: 2026-07-22
 > 对应: ADR-003~ADR-022 | 代码: ~24,000 LoC | 测试: 1208 用例 / 77 文件 | 健康评分: 8.8/10
 
 ## 核心原则
@@ -22,9 +22,9 @@
 | 5 | **安全沙箱** | Budget 预算引擎、工具 ACL 白名单、命令白名单 2 层守卫、per-agent 策略覆盖、危险模式可配置 | `PolicyEngine`, `CommandWhitelist`, `BudgetTracker` |
 | 6 | **记忆系统** | 冷记忆桥接(wiki)、TF-IDF 向量检索、KB → 模板注入、跨会话 KV 持久记忆、TTL 过期清理 | `KnowledgeBase`, `VectorStore`, `MemoryStore` |
 | 7 | **提示工程** | Agent YAML 定义(personality/profile/model/tenant)、Jinja2 沙箱模板渲染、Personality 系统提示注入、模板引擎可 mock | `AgentSpec`, `Jinja2 SandboxedEnvironment`, `PersonalityRegistry`, `templates.py` |
-> 版本: v0.16.7 | 最后更新: 2026-07-22
+> 版本: v0.16.8 | 最后更新: 2026-07-22
 
-## 当前评分（v0.16.7 — 架构审计修正后）
+## 当前评分（v0.16.8 — 架构审计修正后）
 
 | 域 | 权重 | 评分 | 说明 |
 |----|------|:----:|------|
