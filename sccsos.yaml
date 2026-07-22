@@ -7,7 +7,7 @@ hermes:
   profile: sccsos
   binary: hermes
   home: ""                 # HERMES_HOME 覆盖（空值 = 使用环境变量或默认 ~/.hermes）
-  code_path: ""            # HERMES_CODE_PATH 覆盖（空值 = 使用环境变量）
+  install_prefix: ""       # HERMES_INSTALL_PREFIX 覆盖（空值 = 使用环境变量）
   adapter: subprocess
   setup:
     provider: deepseek

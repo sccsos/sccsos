@@ -45,7 +45,7 @@ class HermesInstallation:
     binary_path: str = ""               # Full path to hermes CLI binary
     version: str = ""                   # Version string from --version
     home: str = ""                      # Effective HERMES_HOME
-    code_path: Optional[str] = None     # Effective HERMES_CODE_PATH (source/git-installer only)
+    install_prefix: Optional[str] = None  # Effective HERMES_INSTALL_PREFIX
     config_path: str = ""               # Path to Hermes config.yaml
     profiles: list[str] = field(default_factory=list)  # Available profiles
     errors: list[str] = field(default_factory=list)    # Discovery warnings / errors
@@ -102,10 +102,10 @@ class HermesManager:
 
         # Priority 3: Environment variables
         inst.home = self._resolve_home()
-        inst.code_path = self._resolve_code_path()
+        inst.install_prefix = self._resolve_install_prefix()
 
         # Classify and fill metadata
-        inst.mode = self._classify_mode(inst.binary_path, inst.home, inst.code_path)
+        inst.mode = self._classify_mode(inst.binary_path, inst.home, inst.install_prefix)
         if inst.binary_path:
             inst.version = self._get_version(inst.binary_path)
         inst.config_path = str(Path(inst.home) / "config.yaml")
@@ -132,40 +132,35 @@ class HermesManager:
         return str(Path.home() / ".hermes")
 
     @staticmethod
-    def _resolve_code_path() -> Optional[str]:
-        """Resolve HERMES_CODE_PATH: env var > config > git-installer default."""
-        from_env = os.environ.get("HERMES_CODE_PATH", "")
+    def _resolve_install_prefix() -> Optional[str]:
+        """Resolve HERMES_INSTALL_PREFIX: env var > config."""
+        from_env = os.environ.get("HERMES_INSTALL_PREFIX", "")
         if from_env:
             return from_env
         try:
             from sccsos.core.config import get_config
-            if get_config().hermes.code_path:
-                return get_config().hermes.code_path
+            if get_config().hermes.install_prefix:
+                return get_config().hermes.install_prefix
         except Exception:
             pass
-        # Default: check {hermes_home}/hermes-agent (respects custom home)
-        resolved_home = HermesManager._resolve_home()
-        default_path = Path(resolved_home) / "hermes-agent"
-        if default_path.exists():
-            return str(default_path)
         return None
 
     @staticmethod
     def _classify_mode(
-        binary_path: str, home: str, code_path: Optional[str],
+        binary_path: str, home: str, install_prefix: Optional[str],
     ) -> HermesInstallMode:
         """Classify Hermes installation mode from detected attributes.
 
         Probe chain:
-        1. Code path has .git → SOURCE or GIT_INSTALLER
+        1. Install prefix points to a .git checkout → SOURCE or GIT_INSTALLER
         2. ``/Applications/`` in binary path → DESKTOP
         3. ``/brew/`` in binary path → HOMEBREW
         4. Docker daemon + running container → DOCKER
         5. ``pip show hermes-agent`` succeeds → PIP
         6. Fallback → UNKNOWN
         """
-        # Source / git-installer — code path has .git
-        if code_path and (Path(code_path) / ".git").exists():
+        # Source / git-installer — install prefix has .git
+        if install_prefix and (Path(install_prefix) / ".git").exists():
             return HermesInstallMode.GIT_INSTALLER
 
         # Desktop — Application bundle path
@@ -196,8 +191,8 @@ class HermesManager:
         if "/nix/store/" in binary_path or shutil.which("nix-env"):
             return HermesInstallMode.NIX
 
-        # Code path exists but no .git (stable git-installer without repo)
-        if code_path:
+        # Install prefix exists but no .git (stable git-installer without repo)
+        if install_prefix:
             return HermesInstallMode.GIT_INSTALLER
 
         # Could not determine

@@ -261,8 +261,8 @@ class HermesConfig:
     Hermes Agent CLI.  The ``setup`` subsection is used by
     ``sccsos hermes setup`` for one-click profile creation.
 
-    ``home`` and ``code_path`` override the ``HERMES_HOME`` and
-    ``HERMES_CODE_PATH`` environment variables respectively.
+    ``home`` and ``install_prefix`` override the ``HERMES_HOME`` and
+    ``HERMES_INSTALL_PREFIX`` environment variables respectively.
     When empty, the environment variable or system default is used.
 
     Example YAML::
@@ -271,7 +271,7 @@ class HermesConfig:
           profile: sccsos            # Hermes profile name
           binary: hermes             # Hermes CLI path
           home: ""                   # HERMES_HOME override
-          code_path: ""              # HERMES_CODE_PATH override
+          install_prefix: ""         # HERMES_INSTALL_PREFIX override
           adapter: auto              # subprocess / docker-exec / mock / remote / auto
           setup:
             provider: deepseek
@@ -287,7 +287,7 @@ class HermesConfig:
     profile: str = "sccsos"
     binary: str = "hermes"
     home: str = ""                     # HERMES_HOME override
-    code_path: str = ""                # HERMES_CODE_PATH override
+    install_prefix: str = ""           # HERMES_INSTALL_PREFIX override
     adapter: str = "auto"              # subprocess / docker-exec / mock / remote / auto
     setup: HermesSetupConfig = field(default_factory=HermesSetupConfig)
     docker: HermesDockerConfig = field(default_factory=HermesDockerConfig)

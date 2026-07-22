@@ -15,9 +15,9 @@ import click
 from sccsos.cli.hermes_cmd import (
     _auto_apply_config,
     _check_hermes_installed,
-    _get_hermes_code_path,
     _get_hermes_config,
     _get_hermes_home,
+    _get_hermes_install_prefix,
     _get_profile_config_path,
     _list_profiles,
     _resolve_hermes_binary,
@@ -156,9 +156,9 @@ def doctor(fix: bool) -> None:
 
     # 2b. Environment paths
     hermes_home = _get_hermes_home()
-    hermes_code_path = _get_hermes_code_path()
+    hermes_install_prefix = _get_hermes_install_prefix()
     click.echo(f"  HERMES_HOME:    {hermes_home}")
-    click.echo(f"  HERMES_CODE_PATH: {hermes_code_path or 'not detected'}")
+    click.echo(f"  HERMES_INSTALL_PREFIX: {hermes_install_prefix or 'not detected'}")
     home_ok = Path(hermes_home).exists()
     if not home_ok:
         issues.append(("home", f"HERMES_HOME 目录不存在: {hermes_home}", "sccsos hermes setup"))

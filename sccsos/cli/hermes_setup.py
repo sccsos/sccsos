@@ -24,9 +24,9 @@ from sccsos.cli.hermes_cmd import (
     _create_profile,
     _get_config_path,
     _get_env_api_key,
-    _get_hermes_code_path,
     _get_hermes_config,
     _get_hermes_home,
+    _get_hermes_install_prefix,
     _list_profiles,
     _profile_exists,
     _resolve_hermes_binary,
@@ -75,7 +75,7 @@ def show() -> None:
     click.echo(f"  Binary:     {cfg.binary} ({_resolve_hermes_binary()})")
     click.echo(f"  Adapter:    {cfg.adapter}")
     click.echo(f"  HERMES_HOME: {cfg.home or _get_hermes_home()}")
-    click.echo(f"  HERMES_CODE_PATH: {cfg.code_path or _get_hermes_code_path() or '(not set)'}")
+    click.echo(f"  HERMES_INSTALL_PREFIX: {cfg.install_prefix or _get_hermes_install_prefix() or '(not set)'}")
     if cfg.setup.provider:
         click.echo(f"  Provider:   {cfg.setup.provider}")
         click.echo(f"  Model:      {cfg.setup.model}")
