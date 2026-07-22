@@ -24,6 +24,42 @@ SaaS 多租户大规模部署 | K8s 集群 | PostgreSQL + Kafka
 | CI/CD | 手动 | **GitHub Actions** | `.github/workflows/ci.yml` |
 | 可观测 | 本地日志 | OTEL + Webhook | `sccsos config webhook add` |
 
+**安装方式**：SCCS OS 支持多种安装模式，企业环境推荐通过 WHL 文件离线部署。
+
+```bash
+# WHL 文件安装
+pip install dist/sccsos-0.16.5-py3-none-any.whl
+
+# WHL 安装后，补装扩展组件
+pip install "sccsos[all]"
+```
+
+> **说明**：WHL 安装后无需重新构建核心包，通过 `pip install "sccsos[...]"` 按需补装扩展即可。`sccsos doctor` 可用于验证全部依赖状态。
+
+### Hermes Agent 管理
+
+SCCS OS 提供 `sccsos hermes` 命令组，用于企业环境的 Hermes Agent 生命周期管理：
+
+```bash
+# ── 安装 ──
+sccsos hermes install                        # 一键脚本安装（推荐）
+sccsos hermes install --method git -v v0.18.0  # 指定版本安装
+sccsos hermes install --method docker        # Docker 部署
+
+# ── 配置 ──
+sccsos hermes setup                          # 配置 LLM Provider / API Key
+sccsos hermes use <profile>                  # 切换 Profile
+
+# ── 诊断 ──
+sccsos hermes doctor                         # 全面诊断
+sccsos hermes doctor --fix                   # 诊断并自动修复
+
+# ── 系统依赖 ──
+sccsos hermes postinstall                    # 安装 Browser 引擎等依赖
+```
+
+> 企业集群部署时，每个 Worker 节点需确保 Hermes Agent 正确安装配置。`sccsos hermes doctor` 可在 CI/CD 流水线中作为前置检查步骤。
+
 ## 1.2 部署架构
 
 ```

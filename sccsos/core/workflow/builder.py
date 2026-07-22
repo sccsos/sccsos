@@ -48,6 +48,8 @@ class WorkflowEngineBuilder:
         self._memory_store: Optional[MemoryStore] = None
         self._personality_registry: Optional[PersonalityRegistry] = None
         self._model_router = None
+        self._policy_engine = None
+        self._injection_guard = None
 
     def with_tracer(self, tracer: Optional[Tracer]) -> WorkflowEngineBuilder:
         self._tracer = tracer
@@ -81,6 +83,14 @@ class WorkflowEngineBuilder:
         self._model_router = mr
         return self
 
+    def with_policy_engine(self, pe) -> WorkflowEngineBuilder:
+        self._policy_engine = pe
+        return self
+
+    def with_injection_guard(self, guard) -> WorkflowEngineBuilder:
+        self._injection_guard = guard
+        return self
+
     def build(self) -> WorkflowEngine:
         """Construct and return a WorkflowEngine instance."""
         return WorkflowEngine(
@@ -94,4 +104,6 @@ class WorkflowEngineBuilder:
             memory_store=self._memory_store,
             personality_registry=self._personality_registry,
             model_router=self._model_router,
+            policy_engine=self._policy_engine,
+            injection_guard=self._injection_guard,
         )

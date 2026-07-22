@@ -143,7 +143,7 @@ def generate_report(results: dict) -> str:
     lines = []
     lines.append("# SCCS OS 性能基线报告 v2")
     lines.append("")
-    lines.append(f"> **版本**: v0.14.2 | **日期**: {time.strftime('%Y-%m-%d')}")
+    lines.append(f"> **版本**: v0.16.5 | **日期**: {time.strftime('%Y-%m-%d')}")
     lines.append(f"> **工具**: Locust 2.46.0")
     lines.append(f"> **服务器**: uvicorn --workers {WORKERS}")
     lines.append(f"> **后端**: SQLite WAL")

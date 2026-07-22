@@ -71,7 +71,7 @@ class TestConfigLoading:
     def test_default_config(self):
         cfg = AgentOSConfig()
         assert cfg.project.name == "sccsos"
-        assert cfg.project.version == "0.15.0"
+        assert cfg.project.version == "0.16.5"
         assert cfg.defaults.max_turns == 90
         assert cfg.tracing.pricing_path is None  # Deprecated field, defaults to None
         assert "read_file" in cfg.policies.default.allowed_tools or \
@@ -619,7 +619,7 @@ class TestVersion:
     def test_project_version(self):
         from sccsos.core.config import get_config
         cfg = get_config()
-        assert cfg.project.version == "0.15.0"
+        assert cfg.project.version == "0.16.5"
 
     def test_sccsos_help(self):
         """CLI --help should show all commands without error."""
@@ -641,4 +641,4 @@ class TestVersion:
             capture_output=True, text=True, timeout=10,
         )
         assert result.returncode == 0
-        assert "0.15.0" in result.stdout
+        assert "0.16.5" in result.stdout

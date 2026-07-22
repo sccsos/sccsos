@@ -39,6 +39,12 @@ output/
 benchmark-smoke.html
 _debug_session.py
 
+# Python venv
+python3/
+
+# Temp output files
+输出/_*_tmp.md
+
 # Build output
 sccsos/api/static/
 frontend/node_modules/

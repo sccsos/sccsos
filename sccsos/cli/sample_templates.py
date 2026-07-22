@@ -63,6 +63,24 @@ lifecycle:
 """
 
 
+SAMPLE_AGENT_HERMES_INSTALL = """name: hermes-installer
+version: 1.0
+description: Hermes Agent 安装配置专家 — One-click Hermes installation and configuration
+personality: hermes-installer
+profile: sccsos
+toolsets:
+  - terminal
+  - web-search
+  - filesystem
+tags:
+  - core
+  - installation
+lifecycle:
+  max_turns: 50
+  timeout: 1800
+"""
+
+
 # ═══════════════════════════════════════════════════════════════════════
 # Personality definitions
 # ═══════════════════════════════════════════════════════════════════════
@@ -146,6 +164,45 @@ system_prompt: |
 
 model: deepseek-v4-flash
 temperature: 0.3
+"""
+
+
+SAMPLE_PERSONALITY_HERMES_INSTALL = """name: hermes-installer
+description: Hermes Agent 安装配置专家 — One-click Hermes installation and configuration
+system_prompt: |
+  你是 SCCS OS 的 Hermes Agent 安装配置专家，负责指导用户完成 Hermes Agent 的完整安装、配置和验证流程。
+
+  核心职责：
+  - 使用 sccsos hermes install 安装 Hermes Agent（script/git/docker 三种模式）
+  - 使用 sccsos hermes setup 配置 LLM Provider、模型和 API Key
+  - 使用 sccsos hermes postinstall 安装系统依赖（Browser 引擎等）
+  - 使用 sccsos hermes doctor 验证安装完整性
+  - 使用 sccsos hermes show 查看当前配置
+
+  工作流程：
+  1. 检测当前环境（OS、Python、网络连通性）
+  2. 推荐合适的安装方式（国内用户推荐 --china-mirror）
+  3. 执行安装并监控进度
+  4. 安装后自动同步配置
+  5. 验证安装结果并给出后续步骤
+
+  常用命令（按顺序执行）：
+  ```bash
+  sccsos hermes install                    # 安装 Hermes Agent
+  sccsos hermes setup --yes                # 配置 LLM Provider 和 API Key
+  sccsos hermes postinstall --yes          # 安装系统依赖
+  sccsos hermes doctor                     # 验证安装完整性
+  sccsos health                            # 检查 SCCS OS 健康状态
+  ```
+
+  注意事项：
+  - API Key 优先从环境变量读取（如 DEEPSEEK_API_KEY）
+  - 安装后自动同步 model/provider/base_url 到 Hermes 配置
+  - 国内用户建议使用 --china-mirror 加速下载
+  - git 模式适合二次开发，script 模式适合快速部署
+
+model: deepseek-v4-flash
+temperature: 0.4
 """
 
 
@@ -314,6 +371,135 @@ steps:
       安全合规：{{ steps.search_security.response }}
 """
 
+SAMPLE_WORKFLOW_HERMES_SETUP = """name: Hermes 环境配置
+description: 一键配置 Hermes Agent 运行环境
+schema_version: '1.1'
+parallel_groups:
+  - id: config
+    max_concurrent: 3
+    steps:
+      - check-env
+      - check-deps
+      - check-network
+
+steps:
+  - id: check-env
+    name: 环境检测
+    agent: hermes-installer
+    prompt: |
+      检测当前 Hermes Agent 运行环境，输出检测结果：
+      1. Python 版本：`python3 --version`
+      2. Hermes CLI 版本：`hermes --version`
+      3. HERMES_HOME 路径
+      4. 操作系统信息
+
+      以 Markdown 表格输出检测结果，标注每项是否满足运行要求。
+
+  - id: check-deps
+    name: 依赖检查
+    agent: hermes-installer
+    prompt: |
+      检查 Hermes Agent 运行所需依赖的安装状态：
+      1. git — `git --version`
+      2. curl — `curl --version | head -1`
+      3. Docker — `docker --version`
+      4. 浏览器引擎 — `agent-browser --version`
+
+      对缺失的依赖，给出安装命令。
+
+  - id: check-network
+    name: 网络连通性
+    agent: hermes-installer
+    prompt: |
+      测试 Hermes Agent 所需的网络连通性：
+      1. DeepSeek API：`curl -s -o /dev/null -w "%{http_code}" https://api.deepseek.com/v1`
+      2. Hermes 安装源：`curl -s -o /dev/null -w "%{http_code}" https://hermes-agent.nousresearch.com`
+      3.（国内用户）镜像源：`curl -s -o /dev/null -w "%{http_code}" https://res1.hermesagent.org.cn`
+
+      以表格输出每个端点的 HTTP 状态码。对不可达的端点给出解决方案。
+
+  - id: setup-provider
+    name: LLM Provider 配置
+    agent: hermes-installer
+    prompt: |
+      配置 Hermes Agent 的 LLM Provider：
+      1. 检查环境变量 `DEEPSEEK_API_KEY` 是否已设置
+      2. 如未设置，提示用户导出 `export DEEPSEEK_API_KEY=sk-xxx`
+      3. 运行 `sccsos hermes setup --yes` 同步配置到 Hermes profile
+      4. 验证配置：`hermes -p sccsos config show | grep -A3 "Model"`
+      输出配置验证结果。
+
+  - id: install-personalities
+    name: 安装 Agent 人格
+    agent: hermes-installer
+    prompt: |
+      从 GitHub 安装 Agent 人格（Personality）配置：
+
+      1. 克隆人格仓库：
+         ```bash
+         git clone https://github.com/jnMetaCode/agency-agents-zh.git /tmp/agency-agents-zh
+         ```
+
+      2. 复制人格文件到项目目录：
+         ```bash
+         cp -r /tmp/agency-agents-zh/personalities/* ./personalities/
+         ```
+
+      3. 列出已安装的人格：
+         ```bash
+         ls ./personalities/*.yaml | head -20
+         ```
+
+      4.（可选）使用指定人格创建 Agent：
+         ```bash
+         sccsos agent create <personality-name> --personality <name>
+         ```
+
+      输出安装结果：成功安装的人格数量、名称列表。
+
+  - id: install-skills
+    name: 安装 Hermes 技能
+    agent: hermes-installer
+    prompt: |
+      安装 Hermes Agent 技能（Skills），扩展 Agent 能力：
+
+      1. 从 GitHub 安装 open-webSearch 技能（Web 搜索增强）：
+         ```bash
+         cd {{ env.HERMES_HOME or "~/.hermes" }}/skills
+         git clone https://github.com/Aas-ee/open-webSearch.git
+         ```
+
+      2. 安装 effective-html 技能（HTML 生成能力）：
+         ```bash
+         cd {{ env.HERMES_HOME or "~/.hermes" }}/skills
+         git clone https://github.com/plannotator/effective-html.git
+         ```
+
+      3. 验证技能安装：
+         ```bash
+         hermes skills list | grep -E "open-webSearch|effective-html"
+         ```
+
+      4. 如果 hermes 命令不可用，技能文件已下载到 skills/ 目录，
+         可在 sccsos.yaml 或 Hermes 配置中注册使用。
+
+      输出安装结果：已安装的技能列表。
+
+  - id: verify
+    name: 验证与后续步骤
+    agent: hermes-installer
+    depends_on:
+      - setup-provider
+      - install-personalities
+      - install-skills
+    prompt: |
+      基于之前的检查结果，输出最终验证报告：
+      1. 运行 `sccsos hermes doctor` 检查完整状态
+      2. 运行 `sccsos health` 检查 SCCS OS 系统健康度
+      3. 后续步骤建议（按优先级排序）
+"""
+
+
 SAMPLE_WORKFLOW_DAILY = """name: 每日巡检
 description: 定时巡检任务 — 环境健康检查与报告
 schema_version: '1.1'
@@ -360,10 +546,22 @@ SAMPLE_PRICING = """{
 # Enriched sccsos.yaml (with --samples)
 # ═══════════════════════════════════════════════════════════════════════
 
-SAMPLE_YAML_FULL = """# sccsos v0.11.4 project configuration (full)
+SAMPLE_YAML_FULL = """# sccsos v0.16.5 project configuration (full)
 project:
   name: sccsos
-  version: 0.15.0
+  version: 0.16.5
+
+hermes:
+  profile: sccsos
+  binary: hermes
+  home: ""                 # HERMES_HOME 覆盖（空值 = 使用环境变量或默认 ~/.hermes）
+  code_path: ""            # HERMES_CODE_PATH 覆盖（空值 = 使用环境变量）
+  adapter: subprocess
+  setup:
+    provider: deepseek
+    model: deepseek-v4-flash
+    api_key: ""
+    base_url: "https://api.deepseek.com/v1"
 
 database:
   path: ./data/sccsos.db
@@ -446,15 +644,18 @@ SAMPLE_FILES = {
     "personalities/agent-architect.yaml": SAMPLE_PERSONALITY_ARCHITECT,
     "personalities/doc-writer.yaml": SAMPLE_PERSONALITY_DOC,
     "personalities/code-reviewer.yaml": SAMPLE_PERSONALITY_REVIEW,
+    "personalities/hermes-installer.yaml": SAMPLE_PERSONALITY_HERMES_INSTALL,
     # Agents
     "agents/architect.yaml": SAMPLE_AGENT,
     "agents/doc-writer.yaml": SAMPLE_AGENT_DOC,
     "agents/code-reviewer.yaml": SAMPLE_AGENT_REVIEW,
+    "agents/hermes-installer.yaml": SAMPLE_AGENT_HERMES_INSTALL,
     # Workflows
     "workflows/冒烟测试.yaml": SAMPLE_WORKFLOW_SMOKE,
     "workflows/架构评审.yaml": SAMPLE_WORKFLOW_REVIEW,
     "workflows/条件分支示例.yaml": SAMPLE_WORKFLOW_CONDITION,
     "workflows/并行检索.yaml": SAMPLE_WORKFLOW_PARALLEL,
     "workflows/每日巡检.yaml": SAMPLE_WORKFLOW_DAILY,
+    "workflows/hermes-setup.yaml": SAMPLE_WORKFLOW_HERMES_SETUP,
 }
 """Map of relative file paths → content for ``sccsos init --samples``."""

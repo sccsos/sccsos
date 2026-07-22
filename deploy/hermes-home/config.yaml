@@ -1,0 +1,3 @@
+# SCCS OS — Hermes Home 顶层配置
+active_profile: sccsos
+home_mode: profile

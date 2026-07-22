@@ -1,5 +1,85 @@
 # Changelog
 
+## [0.16.5] — 2026-07-26
+
+### Added
+
+- **hermes-installer 默认智能体**: `sccsos init` 默认生成 `agents/hermes-installer.yaml`，封装 Hermes 安装配置完整流程
+- **Personality/Agent 模板**: `SAMPLE_PERSONALITY_HERMES_INSTALL` + `SAMPLE_AGENT_HERMES_INSTALL`
+
+### Changed
+
+- **`sccsos init` Agent 策略**: `architect.yaml` 仅在 `--samples` 时生成，默认改为 `hermes-installer`
+- **版本同步**: 全项目 46 文件版本号 `0.16.4` → `0.16.5`
+
+## [0.16.4] — 2026-07-26
+
+### Changed
+
+- **Profile 克隆增加 `.env` 同步**: 创建新 profile 时自动复制 `~/.hermes/.env` → profile 目录
+- **版本同步**: 全项目 46 文件版本号 `0.16.3` → `0.16.4`
+
+## [0.16.3] — 2026-07-26
+
+### Added
+
+- **`.env` 密钥文件同步**: `_auto_apply_config()` 安装后自动将 `DEEPSEEK_API_KEY` 和 `DEEPSEEK_BASE_URL` 写入 `~/.hermes/.env` 和 `~/.hermes/profiles/<name>/.env`（`_ensure_env_file()` 新函数）
+
+### Changed
+
+- **Profile 克隆修复**: 新 profile 创建时完整复制默认配置（~22 个顶层键），而非仅有 `model.*`
+- **版本同步**: 全项目 46 文件版本号 `0.16.2` → `0.16.3`
+
+## [0.16.2] — 2026-07-26
+
+### Changed
+
+- **`_auto_apply_config()` API Key 同步**: 安装后自动从环境变量读取 API Key 并同步到 Hermes profile（方案 A：`DEEPSEEK_API_KEY` → `model.api_key`）
+- **`_write_model_config()` 扩展**: 新增 `api_key` 参数，同步到默认配置和 profile 配置
+- **交叉校验容错**: `api_key` 仅 profile 有的情况不算不一致（Hermes 默认用 `.env` 存储）
+- **版本同步**: 全项目 46 文件版本号 `0.16.1` → `0.16.2`
+
+## [0.16.1] — 2026-07-26
+
+### Changed
+
+- **架构审计报告产出**: 深度分析 24,649 行 / 108 源文件，修正健康评分 9.2 → 8.7
+- **AgentMessageBus 死代码确认**: 228 行实现、零生产引用，标记为 Deprecated
+- **版本同步**: 全项目 46 文件版本号 `0.16.0` → `0.16.1`
+
+## [0.16.0] — 2026-07-26
+
+### Changed
+
+- **`_auto_apply_config()` 策略重构**: 先写默认配置（`~/.hermes/config.yaml`），再从默认克隆到目标 profile
+- **`doctor` 新增配置一致性检查**: 验证 `sccsos.yaml` ↔ Hermes profile 配置是否一致，`doctor --fix` 自动同步
+- **`_get_profile_config_path()` 健壮性提升**: 处理 `HERMES_HOME` 指向 `profiles/<name>` 子目录的异常情况
+- **版本同步**: 全项目 44 文件版本号 `0.15.9` → `0.16.0`
+
+## [0.15.9] — 2026-07-26
+
+### Added
+
+- **`--china-mirror` 支持 git 和 docker 模式**: 国内镜像覆盖三种安装方式
+  - git: `https://cnb.cool/hermesagent-cn/hermes-agent-cn-mirror.git`
+  - docker: `docker.xuanyuan.run/nousresearch/hermes-agent:{tag}`
+  - script: `https://res1.hermesagent.org.cn/install.sh`
+- **安装后自动配置**: `install()` 完成后调用 `_auto_apply_config()`，将 `sccsos.yaml` 的 model/provider/base_url 同步到 Hermes profile，无需再手动运行 `setup`
+
+### Changed
+
+- **版本同步**: 全项目 44 文件版本号 `0.15.8` → `0.15.9`
+
+## [0.15.6] — 2026-07-26
+
+### Changed
+
+- **`sccsos hermes install` 超时优化**: 三个安装模式全部改为实时流输出，用户可见下载/安装进度而非静默等待
+  - `_install_script`: curl `-fsSL` → `-fL --progress-bar`，超时 300s→600s，`capture_output=True`→实时终端输出
+  - `_install_git`: pip install -e 超时 120s→300s，clone 超时 120s→180s，fetch/pull 60s→120s；clone + pip install 改为实时输出
+  - `_install_docker`: docker pull 超时 300s→600s，实时输出 layer 下载进度
+- **版本同步**: 全项目 35+ 文件版本号 `0.15.5` → `0.15.6`（Python 源码 / YAML / Docker / K8s / Helm / 文档 / 测试断言）
+
 ## [0.14.2] — 2026-07-26
 
 ### Added

@@ -18,6 +18,7 @@ from sccsos.core.hermes_adapter import HermesAdapter, create_adapter
 from sccsos.core.agent_runner import AgentRunner
 from sccsos.core.session import AgentSessionManager
 from sccsos.core.supervisor import Supervisor
+from sccsos.core.supervisor_base import SupervisorABC
 from sccsos.memory.memory_store import MemoryStore
 from sccsos.memory.knowledge_base import KnowledgeBase
 from sccsos.core.model_router import ModelRouter

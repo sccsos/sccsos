@@ -26,6 +26,11 @@ from typing import Optional
 
 from sccsos.core.db import Database
 from sccsos.core.registry import AgentSpec, AgentRegistry
+from sccsos.core.event_bus import get_bus
+from sccsos.core.events import (
+    AGENT_CREATED, AGENT_STARTED, AGENT_STOPPED,
+    AGENT_PAUSED, AGENT_RESUMED, AGENT_FAILED, AGENT_RESTARTED,
+)
 
 
 class AgentStatus(str, Enum):
@@ -95,6 +100,21 @@ class LifecycleManager:
         self._db = db
         self._registry = registry
         self._instances: dict[str, AgentInstance] = {}
+        self._bus = get_bus()
+
+    def _emit_agent_event(self, event: str, instance: AgentInstance,
+                          detail: str = "") -> None:
+        """Emit an agent lifecycle event to the EventBus."""
+        try:
+            self._bus.emit(
+                event,
+                agent_id=instance.id,
+                agent_name=instance.spec.name,
+                status=instance.status.value,
+                detail=detail,
+            )
+        except Exception:
+            pass  # EventBus is best-effort
 
     def _transition(self, instance: AgentInstance, event: str) -> AgentStatus:
         """Validate and apply a state transition."""
@@ -132,6 +152,7 @@ class LifecycleManager:
         self._db.add_event(agent_id, "created", f"Agent '{spec.name}' created")
 
         self._instances[agent_id] = instance
+        self._emit_agent_event(AGENT_CREATED, instance, f"Agent '{spec.name}' created")
         return instance
 
     def start(self, agent_id: str, session_id: Optional[str] = None) -> AgentInstance:
@@ -141,6 +162,8 @@ class LifecycleManager:
 
         sid = session_id or f"ses_{uuid.uuid4().hex[:12]}"
         self._db.update_agent_status(agent_id, new_status.value, session_id=sid)
+        self._emit_agent_event(AGENT_STARTED, instance,
+                               f"Session: {sid}")
         return instance
 
     def pause(self, agent_id: str) -> AgentInstance:
@@ -148,6 +171,7 @@ class LifecycleManager:
         instance = self._get_instance(agent_id)
         new_status = self._transition(instance, "pause")
         self._db.update_agent_status(agent_id, new_status.value)
+        self._emit_agent_event(AGENT_PAUSED, instance)
         return instance
 
     def resume(self, agent_id: str, session_id: Optional[str] = None) -> AgentInstance:
@@ -156,6 +180,8 @@ class LifecycleManager:
         new_status = self._transition(instance, "resume")
         sid = session_id or f"ses_{uuid.uuid4().hex[:12]}"
         self._db.update_agent_status(agent_id, new_status.value, session_id=sid)
+        self._emit_agent_event(AGENT_RESUMED, instance,
+                               f"Session: {sid}")
         return instance
 
     def stop(self, agent_id: str) -> AgentInstance:
@@ -163,6 +189,7 @@ class LifecycleManager:
         instance = self._get_instance(agent_id)
         new_status = self._transition(instance, "stop")
         self._db.update_agent_status(agent_id, new_status.value)
+        self._emit_agent_event(AGENT_STOPPED, instance)
         return instance
 
     def fail(self, agent_id: str, error: str = "") -> AgentInstance:
@@ -170,6 +197,8 @@ class LifecycleManager:
         instance = self._get_instance(agent_id)
         new_status = self._transition(instance, "fail")
         self._db.update_agent_status(agent_id, new_status.value, error=error)
+        self._emit_agent_event(AGENT_FAILED, instance,
+                               detail=error[:200] if error else "")
         return instance
 
     def restart(self, agent_id: str, session_id: Optional[str] = None) -> AgentInstance:
@@ -178,6 +207,8 @@ class LifecycleManager:
         new_status = self._transition(instance, "restart")
         sid = session_id or f"ses_{uuid.uuid4().hex[:12]}"
         self._db.update_agent_status(agent_id, new_status.value, session_id=sid)
+        self._emit_agent_event(AGENT_RESTARTED, instance,
+                               f"Session: {sid}")
         return instance
 
     # ── Queries ─────────────────────────────────────────────────

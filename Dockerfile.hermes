@@ -1,0 +1,50 @@
+# SCCS OS — Hermes Agent 独立容器镜像
+#
+# 专用于双容器部署模式中的 Hermes Agent 容器。
+# 比全量 sccsos 镜像更小（~120MB vs ~600MB），仅包含 Hermes CLI。
+#
+# 用途：
+#   - docker compose --profile slim 中的 hermes-agent 服务
+#   - K8s slim+sidecar 模式中的 sidecar 容器
+#   - 独立运行的 Hermes 节点供 RemoteHermesAdapter 使用
+#
+# 构建：
+#   docker build -t sccsos-hermes:0.16.0 -f Dockerfile.hermes .
+#
+# 运行（保持存活供 docker exec）：
+#   docker run -d --name hermes-agent sccsos-hermes:0.16.0
+
+FROM python:3.11-slim
+
+LABEL org.sccsos.name="sccsos-hermes" \
+      org.sccsos.version="0.16.0" \
+      org.sccsos.description="SCCS OS — Hermes Agent standalone container"
+
+# 最小系统依赖：hermes 自身需要 git/curl 用于 git-installer 模式
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /hermes
+
+# 只安装 Hermes Agent，不安装 SCCS OS
+RUN curl -fsSL https://hermes-agent.nousresearch.com/install.sh | \
+    bash -s -- --no-venv --skip-setup --skip-browser && \
+    hermes --version && \
+    echo "Hermes Agent installed via official install script"
+
+# 初始化默认 profile（API key 通过环境变量注入）
+ENV HERMES_HOME=/hermes/home
+RUN mkdir -p ${HERMES_HOME}/skills ${HERMES_HOME}/sessions \
+             ${HERMES_HOME}/memories ${HERMES_HOME}/cron && \
+    hermes config set --profile sccsos provider deepseek && \
+    hermes config set --profile sccsos model deepseek-v4-flash && \
+    echo "Default profile initialized"
+
+# 暴露端口（可选的 Hermes HTTP 服务，当前未使用）
+EXPOSE 8080
+
+# 默认保持运行，等待 sccsos 通过 docker exec 调用
+# 也可通过环境变量 HERMES_SERVER_MODE=true 启用 HTTP 服务模式
+ENTRYPOINT ["sleep", "infinity"]

@@ -1,82 +1,58 @@
-name: architecture-review
+name: 架构评审
+description: 多角度架构设计方案评审 — 支持需求输入
 schema_version: '1.1'
-version: "1.0"
-description: 多 Agent 协同架构评审工作流 — 需求分析、方案设计、风险评估三步走
+parallel_groups:
+  - id: review
+    max_concurrent: 3
+    steps:
+      - doc-review
+      - code-review
+      - final-review
 
 steps:
-  - id: requirements_analysis
+  - id: analysis
     name: 需求分析
     agent: architect
     prompt: |
-      你是一名资深架构师。请分析以下项目需求，提炼出关键的功能需求、非功能需求和技术约束。
+      分析以下需求，提炼出功能需求和非功能需求：
 
-      项目需求：
       {{ steps.input.context }}
 
-      请输出：
-      1. 核心功能需求列表
-      2. 非功能需求（性能、可用性、安全性等）
-      3. 技术约束条件
-      4. 潜在的技术风险点
+      请输出结构化的需求分析报告。
 
-  - id: architecture_design
-    name: 架构方案设计
+  - id: design
+    name: 架构设计
     agent: architect
+    input: analysis.response
     prompt: |
-      基于以下需求分析结果，设计系统架构方案。
+      基于需求分析结果设计系统架构方案。
+      需求分析：{{ steps.analysis.response }}
+      请包含：模块划分、组件设计、数据流、技术选型。
 
-      需求分析：
-      {{ steps.requirements_analysis.response }}
-
-      请输出：
-      1. 总体架构图描述（分层架构/模块划分）
-      2. 核心组件及其职责
-      3. 关键技术选型及理由
-      4. 数据流设计
-      5. 部署方案建议
-    depends_on:
-      - requirements_analysis
-
-  - id: risk_assessment
-    name: 风险评估
-    agent: architect
+  - id: doc-review
+    name: 文档评审
+    agent: doc-writer
+    condition: "{{ steps.design.response | length > 0 }}"
     prompt: |
-      请对以下架构方案进行全面的风险评估。
+      评审以下架构设计文档的完整性和清晰度：
+      {{ steps.design.response }}
+      请给出文档改进建议。
 
-      架构方案：
-      {{ steps.architecture_design.response }}
+  - id: code-review
+    name: 代码审查
+    agent: code-reviewer
+    condition: "{{ steps.design.response | length > 0 }}"
+    prompt: |
+      从代码实现角度评审以下架构设计：
+      {{ steps.design.response }}
+      请关注可测试性、API 设计质量和实现复杂度。
 
-      请评估以下方面：
-      1. 技术可行性风险
-      2. 性能与扩展性风险
-      3. 安全合规风险
-      4. 实施与交付风险
-      5. 风险缓解措施建议
-    depends_on:
-      - architecture_design
-
-  - id: review_summary
+  - id: final-review
     name: 评审总结
     agent: architect
+    condition: "{{ steps.design.response | length > 0 }}"
     prompt: |
-      请根据以上所有分析，生成一份完整的架构评审总结报告。
-
-      需求分析：
-      {{ steps.requirements_analysis.response }}
-
-      架构方案：
-      {{ steps.architecture_design.response }}
-
-      风险评估：
-      {{ steps.risk_assessment.response }}
-
-      报告格式：
-      ## 架构评审报告
-      ### 1. 需求概述
-      ### 2. 架构方案
-      ### 3. 风险评估
-      ### 4. 评审结论
-      ### 5. 后续行动项
-    depends_on:
-      - architecture_design
-      - risk_assessment
+      综合所有评审意见，输出最终架构评审报告。
+      原始设计：{{ steps.design.response }}
+      文档意见：{{ steps.doc_review.response }}
+      代码意见：{{ steps.code_review.response }}

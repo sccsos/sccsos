@@ -5,7 +5,7 @@ metadata:
   namespace: sccsos
   labels:
     app.kubernetes.io/name: sccsos
-    app.kubernetes.io/version: "0.11.4"
+    app.kubernetes.io/version: "0.16.5"
 spec:
   replicas: 1
   selector:
@@ -24,7 +24,7 @@ spec:
         runAsUser: 1000
       containers:
         - name: sccsos
-          image: sccsos:0.14.2
+          image: sccsos:0.16.5
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8765

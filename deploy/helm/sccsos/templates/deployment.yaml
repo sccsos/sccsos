@@ -16,15 +16,30 @@ spec:
       labels:
         app.kubernetes.io/name: sccsos
     spec:
+      {{- if eq .Values.mode "slim+sidecar" }}
+      shareProcessNamespace: true
+      {{- end }}
       securityContext:
         runAsUser: 1000
       containers:
+        # ── 主容器：SCCS OS ──────────────────────────────────────
         - name: sccsos
+          {{- if eq .Values.mode "slim+sidecar" }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.slimTag }}"
+          {{- else }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          {{- end }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - containerPort: {{ .Values.service.port }}
+              name: http-api
           env:
+            {{- if eq .Values.mode "slim+sidecar" }}
+            - name: HERMES_ADAPTER
+              value: "docker-exec"
+            - name: HERMES_DOCKER_CONTAINER
+              value: "hermes-agent"
+            {{- end }}
             {{- range .Values.env }}
             - name: {{ .name }}
               value: {{ .value | quote }}
@@ -35,13 +50,62 @@ spec:
               subPath: sccsos.yaml
             - name: data
               mountPath: /sccsos/data
-          resources:
-            requests:
-              cpu: {{ .Values.resources.requests.cpu }}
-              memory: {{ .Values.resources.requests.memory }}
-            limits:
-              cpu: {{ .Values.resources.limits.cpu }}
-              memory: {{ .Values.resources.limits.memory }}
+            - name: logs
+              mountPath: /sccsos/logs
+            - name: traces
+              mountPath: /sccsos/traces
+            - name: agents
+              mountPath: /sccsos/agents
+              readOnly: true
+            - name: workflows
+              mountPath: /sccsos/workflows
+              readOnly: true
+            - name: personalities
+              mountPath: /sccsos/personalities
+              readOnly: true
+            - name: wiki
+              mountPath: /sccsos/wiki
+              readOnly: true
+          resources: {{ toYaml .Values.resources | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http-api
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http-api
+            initialDelaySeconds: 5
+            periodSeconds: 10
+
+        # ── Sidecar: Hermes Agent (仅 slim+sidecar 模式) ──────────
+        {{- if eq .Values.mode "slim+sidecar" }}
+        - name: hermes-agent
+          image: "{{ .Values.hermes.image.repository }}:{{ .Values.hermes.image.tag }}"
+          imagePullPolicy: {{ .Values.hermes.image.pullPolicy }}
+          command: ["sleep", "infinity"]
+          env:
+            - name: HERMES_HOME
+              value: /hermes/home
+            - name: HERMES_PROFILE
+              value: sccsos
+            - name: DEEPSEEK_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: sccsos-secrets
+                  key: deepseek-api-key
+                  optional: true
+          volumeMounts:
+            - name: hermes-home
+              mountPath: /hermes/home
+            - name: dockersock
+              mountPath: /var/run/docker.sock
+              readOnly: true
+          resources: {{ toYaml .Values.hermes.resources | nindent 12 }}
+        {{- end }}
+
       volumes:
         - name: config
           configMap:
@@ -53,3 +117,36 @@ spec:
           {{- else }}
           emptyDir: {}
           {{- end }}
+        - name: logs
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: sccsos-logs
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        - name: traces
+          emptyDir: {}
+        - name: agents
+          configMap:
+            name: sccsos-agents
+            optional: true
+        - name: workflows
+          configMap:
+            name: sccsos-workflows
+            optional: true
+        - name: personalities
+          configMap:
+            name: sccsos-personalities
+            optional: true
+        - name: wiki
+          configMap:
+            name: sccsos-wiki
+            optional: true
+        {{- if eq .Values.mode "slim+sidecar" }}
+        - name: hermes-home
+          emptyDir: {}
+        - name: dockersock
+          hostPath:
+            path: /var/run/docker.sock
+            type: Socket
+        {{- end }}

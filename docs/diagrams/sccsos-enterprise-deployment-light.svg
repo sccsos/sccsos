@@ -13,7 +13,7 @@
 
 <!-- Title -->
 <text x="530" y="28" fill="#0f172a" font-size="14" font-weight="700" text-anchor="middle">SCCS OS 集群全量企业级部署架构全景</text>
-<text x="530" y="44" fill="#64748b" font-size="9" text-anchor="middle">Kubernetes · PostgreSQL · Kafka · OTel · Prometheus · Grafana</text>
+<text x="530" y="44" fill="#64748b" font-size="9" text-anchor="middle">Kubernetes · PostgreSQL · Kafka · OTel · Prometheus · Grafana · 支持 slim+sidecar</text>
 
 <!-- ===== Layer 1: User + Ingress ===== -->
 <rect x="30" y="60" width="1000" height="90" rx="6" fill="#f8fafc" stroke="#94a3b8" stroke-width="1" stroke-dasharray="4,3"/>
@@ -155,5 +155,5 @@
 <text x="882" y="650" fill="#475569" font-size="8">外部用户</text>
 
 <!-- Footer -->
-<text x="530" y="695" fill="#94a3b8" font-size="7" text-anchor="middle">创新研究院 李锋 · SCCS OS v0.14.2 · 2026-07</text>
+<text x="530" y="695" fill="#94a3b8" font-size="7" text-anchor="middle">创新研究院 李锋 · SCCS OS v0.15.5 · 2026-07 · 支持 slim+sidecar 部署模式</text>
 </svg>

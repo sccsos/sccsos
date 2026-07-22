@@ -9,7 +9,7 @@ data:
   sccsos.yaml: |
     project:
       name: sccsos
-      version: "0.14.2"
+      version: "0.16.5"
     database:
       path: /sccsos/data/sccsos.db
     defaults:

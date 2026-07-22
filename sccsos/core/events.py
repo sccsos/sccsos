@@ -3,7 +3,7 @@
 All producers and consumers should reference these constants instead of
 raw strings to avoid typos.  Import from this module:
 
-    from sccsos.core.events import WORKFLOW_STARTED, WORKFLOW_COMPLETED
+    from sccsos.core.events import WORKFLOW_STARTED, AGENT_CREATED
 """
 
 # ── Workflow events ────────────────────────────────────────────────
@@ -19,3 +19,13 @@ STEP_STARTED = "step.started"
 STEP_COMPLETED = "step.completed"
 STEP_FAILED = "step.failed"
 STEP_SKIPPED = "step.skipped"
+
+# ── Agent lifecycle events ─────────────────────────────────────────
+
+AGENT_CREATED = "agent.created"
+AGENT_STARTED = "agent.started"
+AGENT_STOPPED = "agent.stopped"
+AGENT_PAUSED = "agent.paused"
+AGENT_RESUMED = "agent.resumed"
+AGENT_FAILED = "agent.failed"
+AGENT_RESTARTED = "agent.restarted"

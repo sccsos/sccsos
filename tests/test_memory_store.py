@@ -136,6 +136,55 @@ class TestMemoryStoreTTL:
         store.save("agent-a", "permanent", "forever", ttl_seconds=0)
         assert store.get("agent-a", "permanent") == "forever"
 
+    # ──────────────────────────────────────────────
+    # Edge-case: TTL expiry via direct DB insert
+    # ──────────────────────────────────────────────
+
+    def test_expired_entry_deleted_on_get(self, db):
+        """Entry past TTL should be deleted and return None on get()."""
+        store = MemoryStore(db, default_ttl_seconds=0)
+        # Direct DB insert with an old updated_at and a short TTL
+        past = "2020-01-01T00:00:00+00:00"
+        db.execute(
+            "INSERT INTO memory_store "
+            "(tenant_id, agent_name, key, value, updated_at, ttl_seconds) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            ("default", "agent-a", "expired-key", "secret-value", past, 10),
+        )
+        db.commit()
+
+        # get() should detect TTL expiry, delete the row, and return None
+        assert store.get("agent-a", "expired-key") is None
+
+        # Verify the row was actually deleted from DB
+        row = db.fetchone(
+            "SELECT value FROM memory_store "
+            "WHERE tenant_id=? AND agent_name=? AND key=?",
+            ("default", "agent-a", "expired-key"),
+        )
+        assert row is None
+
+    # ──────────────────────────────────────────────
+    # Edge-case: invalid updated_at (exception swallowed)
+    # ──────────────────────────────────────────────
+
+    def test_invalid_updated_at_returns_value(self, db):
+        """When updated_at is unparseable, get() returns the value
+        (ValueError/TypeError swallowed by except pass)."""
+        store = MemoryStore(db, default_ttl_seconds=0)
+        # Insert record with invalid updated_at string + TTL > 0
+        db.execute(
+            "INSERT INTO memory_store "
+            "(tenant_id, agent_name, key, value, updated_at, ttl_seconds) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            ("default", "agent-a", "bad-date-key", "should-return", "not-a-date", 10),
+        )
+        db.commit()
+
+        # The ValueError from fromisoformat should be caught and swallowed
+        result = store.get("agent-a", "bad-date-key")
+        assert result == "should-return"
+
 
 class TestMemoryStoreBulkOperations:
     """list_keys, get_all, clear_agent, clear_tenant, purge_expired."""

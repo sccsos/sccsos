@@ -24,3 +24,10 @@ data:
           events: [{{ join "," .events }}]
       {{- end }}
       {{- end }}
+    {{- if eq .Values.mode "slim+sidecar" }}
+    hermes:
+      adapter: docker-exec
+      docker:
+        container: hermes-agent
+        network: host
+    {{- end }}

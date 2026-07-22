@@ -1,73 +1,88 @@
-agents:
-  path: ./agents
-  personalities_path: ./personalities
-  wiki_path: ./wiki
+# sccsos v0.16.5 project configuration (full)
+project:
+  name: sccsos
+  version: 0.16.5
+
+hermes:
+  profile: sccsos
+  binary: hermes
+  home: ""                 # HERMES_HOME 覆盖（空值 = 使用环境变量或默认 ~/.hermes）
+  code_path: ""            # HERMES_CODE_PATH 覆盖（空值 = 使用环境变量）
+  adapter: subprocess
+  setup:
+    provider: deepseek
+    model: deepseek-v4-flash
+    api_key: ""
+    base_url: "https://api.deepseek.com/v1"
+
 database:
   path: ./data/sccsos.db
+
 defaults:
   hermes_profile: sccsos
   max_turns: 90
   timeout: 1800
-hermes:
-  adapter: auto
-  binary: hermes
-  profile: sccsos
-  home: ""
-  code_path: ""
-  docker:
-    container: hermes-agent
-    network: host
-  remote:
-    url: ""
-    token: ""
-    timeout: 60
-  setup:
-    api_key: ''
-    base_url: ''
-    model: deepseek-v4-flash
-    provider: deepseek
+
 logging:
-  directory: ./logs
-  format: json
   level: INFO
+  format: json
+  directory: ./logs
   retention_days: 30
-policies:
-  default:
-    allowed_commands:
-    - hermes
-    - git
-    - ls
-    - cat
-    - head
-    - tail
-    - echo
-    - python3
-    - pip3
-    - node
-    - npm
-    - which
-    allowed_tools:
-    - read_file
-    - search_files
-    - web_search
-    - web_extract
-    - terminal
-    - delegate_task
-    blocked_tools: []
-    max_cost_usd: 5.0
-    max_tokens_per_session: 100000
-pricing:
-  path: ./config/pricing.json
-project:
-  name: sccsos
-  version: 0.15.0
-redis:
-  url: redis://localhost:6379/0
-  channel: sccsos:events
-  enabled: false
+
 tracing:
   enabled: true
   export_path: ./traces/
-  otlp_endpoint: http://localhost:4318/v1/traces
+
+pricing:
+  path: ./config/pricing.json
+
+agents:
+  path: ./agents
+  wiki_path: ./wiki
+  personalities_path: ./personalities
+
+model_pool:
+  enabled: false
+  models:
+    - name: reasoning
+      provider: deepseek
+      model: deepseek-v4-flash
+      capabilities: [reasoning, code]
+    - name: fast
+      provider: deepseek
+      model: deepseek-v4-flash
+      capabilities: [chat, quick]
+    - name: preview
+      provider: deepseek
+      model: deepseek-v4-pro
+      capabilities: [analysis, planning]
+
+policies:
+  default:
+    max_tokens_per_session: 100000
+    max_cost_usd: 5.0
+    allowed_tools:
+      - read_file
+      - search_files
+      - web_search
+      - web_extract
+      - terminal
+      - delegate_task
+    blocked_tools: []
+    allowed_commands:
+      - hermes
+      - git
+      - ls
+      - cat
+      - head
+      - tail
+      - echo
+      - python3
+      - pip3
+      - node
+      - npm
+      - which
+
 webhooks:
   enabled: false
+  endpoints: []

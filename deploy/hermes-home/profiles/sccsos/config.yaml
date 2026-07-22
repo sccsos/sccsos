@@ -1,0 +1,42 @@
+# SCCS OS — 默认 Hermes Profile 配置
+# 构建时预置，API Key 通过环境变量注入
+provider: deepseek
+model: deepseek-v4-flash
+agent:
+  max_turns: 90
+  gateway_timeout: 1800
+  api_max_retries: 3
+  task_completion_guidance: true
+  environment_probe: true
+  gateway_timeout_warning: 600
+  clarify_timeout: 900
+  image_input_mode: auto
+  system_prompt_language: 中文
+  enable_chain_of_thought: true
+  reasoning_effort: high
+terminal:
+  backend: local
+  cwd: /sccsos
+  timeout: 180
+  home_mode: profile
+  lifetime_seconds: 1800
+web:
+  backend: ddgs
+  search_backend: ddgs
+  extract_backend: ddgs
+browser:
+  inactivity_timeout: 120
+  engine: auto
+tool_loop_guardrails:
+  warnings_enabled: true
+  hard_stop_enabled: false
+  warn_after:
+    exact_failure: 2
+    same_tool_failure: 3
+    idempotent_no_progress: 2
+  hard_stop_after:
+    exact_failure: 5
+    same_tool_failure: 8
+    idempotent_no_progress: 5
+compression:
+  enabled: true

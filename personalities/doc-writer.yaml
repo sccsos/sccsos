@@ -20,5 +20,6 @@ system_prompt: |
   - 表格要有表头，使用一致的对齐方式
   - 代码块标注语言类型
   - 复杂流程推荐使用 ASCII 图或 Mermaid 图表
+
 model: deepseek-v4-flash
 temperature: 0.4

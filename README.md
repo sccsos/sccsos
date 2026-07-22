@@ -1,10 +1,10 @@
-# SCCS OS v0.14.2
+# SCCS OS v0.16.5
 
 **Smart Agent Runtime Platform for SCCS-T Product Ecosystem**
 
-[![Tests](https://img.shields.io/badge/tests-994%20passed-brightgreen)](https://github.com/your-org/sccsos)
-[![Coverage](https://img.shields.io/badge/coverage-71%25-yellow)](https://github.com/your-org/sccsos)
-[![Health](https://img.shields.io/badge/health-9.0/10-blue)](wiki/concepts/sccsos-architecture-framework.md)
+[![Tests](https://img.shields.io/badge/tests-1158%20passed-brightgreen)](https://github.com/your-org/sccsos)
+[![Coverage](https://img.shields.io/badge/coverage-67%25-yellow)](https://github.com/your-org/sccsos)
+[![Health](https://img.shields.io/badge/health-8.8/10-blue)](wiki/concepts/sccsos-architecture-framework.md)
 
 SCCS OS 是一个面向多智能体集群的统一管控平台，底层复用 Hermes Agent 运行时内核，上层自研操作系统级能力。
 采用**三层子运行时架构**解耦核心、可观测性与工作流编排。
@@ -155,19 +155,18 @@ python -m sccsos.api.fastapi_app --port 8765
 | `sccsos version` | 版本信息 |
 
 ---
-
 ## 部署
 
-### Docker（推荐）
+### Docker 部署（双模式）
 
 ```bash
-docker build -t sccsos:0.14.2 .
-docker run -d -p 8765:8765 \
-  -v $(pwd)/sccsos.yaml:/app/sccsos.yaml \
-  sccsos:0.14.2
+# 全合一镜像（Hermes 内嵌）
+docker build -t sccsos:0.16.5 -f Dockerfile .
+docker run -d -p 8765:8765 sccsos:0.16.5
 
-# docker-compose
-docker compose up -d
+# 或使用 Docker Compose：
+#   全合一模式（默认）：docker compose up -d
+#   双容器模式（slim）：docker compose --profile slim up -d
 ```
 
 ### Kubernetes
@@ -266,7 +265,15 @@ sccsos/
 
 | 版本 | 日期 | 关键特性 |
 |------|------|---------|
-| v0.14.2 | 2026-07-26 | 架构审计 + P0+P1 优化，健康评分 9.0 |
+| v0.16.5 | 2026-07-26 | hermes-installer 默认智能体 + init Agent 策略调整 |
+| v0.16.4 | 2026-07-26 | Profile 克隆增加 .env 同步 |
+| v0.16.3 | 2026-07-26 | .env 密钥同步 + Profile 完整克隆修复（22 键） |
+| v0.16.2 | 2026-07-26 | API Key 自动同步（env var → Hermes profile）+ 安装流程完善 |
+| v0.16.1 | 2026-07-26 | 架构深度审计：24,649行分析 + 健康评分修正 8.7 + 死代码确认 |
+| v0.16.0 | 2026-07-26 | 默认配置优先 + doctor 一致性检查 + profile 克隆策略 |
+| v0.15.9 | 2026-07-26 | 国内镜像全覆盖 script/git/docker + 安装后自动配置 Hermes profile |
+| v0.15.8 | 2026-07-26 | 安装路径读取 + setup 配置结构修复 + base_url 默认值 |
+| v0.15.5 | 2026-07-26 | Hermes 7模式安装 + 角色包 + 架构审计 P0+P1 优化 |
 | v0.14.1 | 2026-07-22 | 技能市场 + RBAC + K8s + 审批评论 |
 | v0.14.0 | 2026-07-22 | 安全加固 + E2E API + Locust 压测 |
 | v0.13 | 2026-07-22 | Vue 3 SPA + WebSocket + Billing/Quota |

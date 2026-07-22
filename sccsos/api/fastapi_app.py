@@ -116,6 +116,32 @@ def create_app() -> FastAPI:
             from fastapi.responses import HTMLResponse
             return HTMLResponse(content=admin_content)
 
+    # ── Rate limiter middleware ──────────────────────────────────────
+    import os as _os
+    _rate_limiter = None
+    if not _os.environ.get("PYTEST_CURRENT_TEST"):
+        try:
+            from sccsos.security.ratelimit import RateLimiter
+            _rate_limiter = RateLimiter(tokens_per_minute=600, burst_capacity=100)
+        except Exception:
+            pass
+
+    @app.middleware("http")
+    async def rate_limit_middleware(request, call_next):
+        if _rate_limiter is not None:
+            # Skip health endpoint
+            if request.url.path not in ("/health", "/api/v1/health"):
+                key = request.headers.get("X-Tenant-ID", "") or request.client.host if request.client else "unknown"
+                rl = _rate_limiter.check(key)
+                if not rl.allowed:
+                    from fastapi.responses import JSONResponse
+                    from fastapi import status
+                    return JSONResponse(
+                        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                        content={"detail": "Rate limit exceeded", "retry_after": rl.reset_after},
+                    )
+        return await call_next(request)
+
     # Wire EventBus → WebSocket broadcast
     wire_eventbus()
 

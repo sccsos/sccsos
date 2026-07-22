@@ -1,54 +1,14 @@
-name: daily-inspection
+name: 每日巡检
+description: 定时巡检任务 — 环境健康检查与报告
 schema_version: '1.1'
-version: "1.0"
-description: 每日巡检工作流 — 检查系统健康状态并生成巡检报告
+parallel_groups: []
 
 steps:
   - id: health-check
-    name: 系统健康检查
-    agent: architect
+    name: 环境健康检查
+    agent: code-reviewer
     prompt: |
-      执行系统健康检查。请使用 sccsos health 命令的输出，评估以下方面：
-
-      1. 数据库连接状态
-      2. Hermes Agent 连通性
-      3. Agent 注册数量
-      4. 追踪数据可用性
-
-      请输出 Markdown 格式的健康检查报告。
-
-  - id: audit-summary
-    name: 审计汇总
-    agent: architect
-    prompt: |
-      请根据审计记录的汇总信息，输出今日审计简报：
-
-      - 总 Token 消耗
-      - 各 Agent 调用次数
-      - 失败率统计
-
-      使用简洁的表格格式输出。
-
-  - id: inspection-report
-    name: 巡检报告生成
-    agent: architect
-    prompt: |
-      综合以下两份信息，生成完整的每日巡检报告。
-
-      健康检查：
-      {{ steps.health-check.response }}
-
-      审计汇总：
-      {{ steps.audit-summary.response }}
-
-      报告格式：
-      ## 每日巡检报告
-      **日期**: $(date +%Y-%m-%d)
-      ### 1. 系统健康状态
-      ### 2. 运行概况
-      ### 3. 异常记录
-      ### 4. 建议措施
-
-    depends_on:
-      - health-check
-      - audit-summary
+      执行环境健康检查，返回 JSON 报告包含：
+      - system: 系统运行状态
+      - hermes: Hermes Agent 连接状态
+      - agents: 已注册 Agent 状态

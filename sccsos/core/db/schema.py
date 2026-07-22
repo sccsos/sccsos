@@ -155,6 +155,7 @@ CREATE TABLE IF NOT EXISTS event_queue (
     event TEXT NOT NULL,
     data TEXT NOT NULL DEFAULT '{}',
     correlation_id TEXT DEFAULT '',
+    consumed INTEGER DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -181,15 +182,12 @@ CREATE TABLE IF NOT EXISTS agent_messages (
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
--- Migration v7: agent_messages table (Phase 7)
+-- Schema version tracking for incremental migrations
 CREATE TABLE IF NOT EXISTS _schema_version (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    personality_name TEXT NOT NULL,
-    version TEXT NOT NULL,
-    content TEXT NOT NULL,
-    change_log TEXT DEFAULT '',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(personality_name, version)
+    version INTEGER NOT NULL,
+    description TEXT DEFAULT '',
+    applied_at TEXT NOT NULL DEFAULT (datetime('now')),
+    checksum TEXT DEFAULT ''
 );
 
 -- Skill marketplace

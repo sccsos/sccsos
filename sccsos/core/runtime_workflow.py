@@ -59,6 +59,25 @@ class WorkflowRuntime:
 
         # Workflow engine (via builder)
         from sccsos.core.workflow.builder import WorkflowEngineBuilder
+        # Create PolicyEngine here and inject into WorkflowEngine
+        policy_engine = None
+        try:
+            from sccsos.security.policy import PolicyEngine
+            policy_engine = PolicyEngine(core.db, cfg)
+        except Exception as e:
+            from sccsos.observability.logger import get_logger
+            get_logger().critical(
+                "PolicyEngine init failed — policy enforcement DISABLED: %s", e,
+            )
+
+        # Create PromptInjectionGuard for pre-step injection detection
+        injection_guard = None
+        try:
+            from sccsos.security.injection import PromptInjectionGuard
+            injection_guard = PromptInjectionGuard()
+        except Exception:
+            pass
+
         self._engine = (
             WorkflowEngineBuilder(core.db, core.adapter)
             .with_tracer(self._obs.tracer)
@@ -69,6 +88,8 @@ class WorkflowRuntime:
             .with_memory_store(core.memory_store)
             .with_personality_registry(self._personality_registry)
             .with_model_router(core.model_router)
+            .with_policy_engine(policy_engine)
+            .with_injection_guard(injection_guard)
             .build()
         )
 

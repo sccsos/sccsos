@@ -153,3 +153,202 @@ class TestRemoteHermesAdapter:
             finally:
                 if orig:
                     sys.modules["httpx"] = orig
+
+
+# ═══════════════════════════════════════════════════════════════════
+# _send_request real HTTP path tests (mock httpx, not _send_request)
+# ═══════════════════════════════════════════════════════════════════
+
+
+class TestRemoteHermesAdapterSendRequest:
+    """Test the actual _send_request HTTP code path."""
+
+    @pytest.fixture
+    def adapter(self):
+        """Adapter without token for simpler tests."""
+        return RemoteHermesAdapter(
+            url="http://test-proxy:8080",
+            token="",
+            retry_count=0,
+        )
+
+    @patch("httpx.Client")
+    def test_http_200_with_tokens(self, mock_client_class, adapter):
+        """HTTP 200 with tokens returns success."""
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "response": "Hello from remote",
+            "tokens_input": 50,
+            "tokens_output": 30,
+            "model": "gpt-4",
+            "duration_ms": 200,
+            "success": True,
+            "cost_usd": 0.002,
+        }
+        mock_resp.elapsed.total_seconds.return_value = 0.2
+        mock_client = MagicMock()
+        mock_client.__enter__.return_value = mock_client
+        mock_client.post.return_value = mock_resp
+        mock_client_class.return_value = mock_client
+
+        result = adapter._send_request(
+            {"agent_name": "architect", "prompt": "hello"},
+            timeout=30, attempt=0,
+        )
+        assert result.success
+        assert result.response == "Hello from remote"
+        assert result.tokens_input == 50
+        assert result.model == "gpt-4"
+
+    @patch("httpx.Client")
+    def test_http_200_without_tokens(self, mock_client_class, adapter):
+        """HTTP 200 without tokens falls back to estimation."""
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.elapsed.total_seconds.return_value = 0.1
+        mock_resp.json.return_value = {
+            "response": "short reply",
+            "success": True,
+        }
+        mock_client = MagicMock()
+        mock_client.__enter__.return_value = mock_client
+        mock_client.post.return_value = mock_resp
+        mock_client_class.return_value = mock_client
+
+        result = adapter._send_request(
+            {"agent_name": "architect", "prompt": "hello world"},
+            timeout=30, attempt=0,
+        )
+        assert result.success
+        # Tokens should be estimated since not in response
+        assert result.tokens_input > 0
+
+    @patch("httpx.Client")
+    def test_http_400_error(self, mock_client_class, adapter):
+        """HTTP 400 returns failure with status."""
+        mock_resp = MagicMock()
+        mock_resp.status_code = 400
+        mock_resp.elapsed.total_seconds.return_value = 0.05
+        mock_resp.text = "Bad request: missing agent_name"
+        mock_client = MagicMock()
+        mock_client.__enter__.return_value = mock_client
+        mock_client.post.return_value = mock_resp
+        mock_client_class.return_value = mock_client
+
+        result = adapter._send_request(
+            {"agent_name": "architect", "prompt": "test"},
+            timeout=30, attempt=0,
+        )
+        assert not result.success
+        assert "HTTP 400" in result.error
+        assert "Bad request" in result.error
+
+    @patch("httpx.Client")
+    def test_http_500_error(self, mock_client_class, adapter):
+        """HTTP 500 returns failure with error body."""
+        mock_resp = MagicMock()
+        mock_resp.status_code = 500
+        mock_resp.elapsed.total_seconds.return_value = 0.1
+        mock_resp.text = "Internal Server Error"
+        mock_client = MagicMock()
+        mock_client.__enter__.return_value = mock_client
+        mock_client.post.return_value = mock_resp
+        mock_client_class.return_value = mock_client
+
+        result = adapter._send_request(
+            {"agent_name": "architect", "prompt": "test"},
+            timeout=30, attempt=0,
+        )
+        assert not result.success
+        assert "HTTP 500" in result.error
+
+    @patch("httpx.Client")
+    def test_http_with_auth_token(self, mock_client_class):
+        """Adapter with auth token sends Authorization header."""
+        adapter = RemoteHermesAdapter(
+            url="http://test-proxy:8080", token="my-secret",
+            retry_count=0,
+        )
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.elapsed.total_seconds.return_value = 0.1
+        mock_resp.json.return_value = {"response": "ok", "success": True}
+        mock_client = MagicMock()
+        mock_client.__enter__.return_value = mock_client
+        mock_client.post.return_value = mock_resp
+        mock_client_class.return_value = mock_client
+
+        adapter._send_request(
+            {"agent_name": "architect", "prompt": "hello"},
+            timeout=30, attempt=0,
+        )
+        # Verify Authorization header was sent
+        call_kwargs = mock_client.post.call_args.kwargs
+        assert "Authorization" in call_kwargs.get("headers", {})
+        assert call_kwargs["headers"]["Authorization"] == "Bearer my-secret"
+
+    @patch("httpx.Client")
+    def test_timeout_exception(self, mock_client_class, adapter):
+        """httpx.TimeoutException is caught."""
+        from httpx import TimeoutException
+        mock_client = MagicMock()
+        mock_client.__enter__.return_value = mock_client
+        mock_client.post.side_effect = TimeoutException("timed out")
+        mock_client_class.return_value = mock_client
+
+        result = adapter._send_request(
+            {"agent_name": "architect", "prompt": "test"},
+            timeout=30, attempt=0,
+        )
+        assert not result.success
+        assert "timeout" in result.error.lower()
+
+    @patch("httpx.Client")
+    def test_connect_error(self, mock_client_class, adapter):
+        """httpx.ConnectError is caught."""
+        from httpx import ConnectError
+        mock_client = MagicMock()
+        mock_client.__enter__.return_value = mock_client
+        mock_client.post.side_effect = ConnectError("connection refused")
+        mock_client_class.return_value = mock_client
+
+        result = adapter._send_request(
+            {"agent_name": "architect", "prompt": "test"},
+            timeout=30, attempt=0,
+        )
+        assert not result.success
+        assert "connect" in result.error.lower()
+
+    @patch("httpx.Client")
+    def test_generic_http_exception(self, mock_client_class, adapter):
+        """Generic exception is caught."""
+        mock_client = MagicMock()
+        mock_client.__enter__.return_value = mock_client
+        mock_client.post.side_effect = RuntimeError("unexpected error")
+        mock_client_class.return_value = mock_client
+
+        result = adapter._send_request(
+            {"agent_name": "architect", "prompt": "test"},
+            timeout=30, attempt=0,
+        )
+        assert not result.success
+        assert "unexpected error" in result.error
+
+    @patch("httpx.Client")
+    def test_delegate_with_model_override(self, mock_client_class, adapter):
+        """Model override is sent in payload."""
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.elapsed.total_seconds.return_value = 0.1
+        mock_resp.json.return_value = {"response": "ok", "success": True}
+        mock_client = MagicMock()
+        mock_client.__enter__.return_value = mock_client
+        mock_client.post.return_value = mock_resp
+        mock_client_class.return_value = mock_client
+
+        adapter.delegate_task(
+            agent_name="architect", prompt="test", model="gpt-4",
+        )
+        call_kwargs = mock_client.post.call_args.kwargs
+        assert call_kwargs["json"]["model"] == "gpt-4"

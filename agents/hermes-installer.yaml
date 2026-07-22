@@ -1,0 +1,15 @@
+name: hermes-installer
+version: 1.0
+description: Hermes Agent 安装配置专家 — One-click Hermes installation and configuration
+personality: hermes-installer
+profile: sccsos
+toolsets:
+  - terminal
+  - web-search
+  - filesystem
+tags:
+  - core
+  - installation
+lifecycle:
+  max_turns: 50
+  timeout: 1800

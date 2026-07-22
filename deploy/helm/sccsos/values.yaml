@@ -1,18 +1,40 @@
 # SCCS OS Helm Chart Values
 # Override these with: helm install sccsos ./deploy/helm/sccsos -f my-values.yaml
 
-# ── Image ──────────────────────────────────────────────────────────
+# ── 部署模式 ─────────────────────────────────────────────────────────
+# mode: 部署模式
+#   "all-in-one"  (默认) — 单容器部署，SCCS OS + Hermes Agent 在同一镜像内
+#   "slim+sidecar"       — 双容器部署，sccsos-slim + hermes-agent sidecar
+mode: all-in-one
+
+# ── Image ────────────────────────────────────────────────────────────
+# 注: slim+sidecar 模式下，主容器使用 sccsos-slim:<slimTag>
 image:
   repository: sccsos
-  tag: 0.14.2
+  tag: 0.16.5
+  slimTag: 0.16.5-slim
   pullPolicy: IfNotPresent
 
-# ── Service ────────────────────────────────────────────────────────
+# ── Hermes Sidecar 镜像 (slim+sidecar 模式) ──────────────────────────
+hermes:
+  image:
+    repository: sccsos-hermes
+    tag: 0.16.5
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+
+# ── Service ──────────────────────────────────────────────────────────
 service:
   port: 8765
   type: ClusterIP
 
-# ── Ingress ────────────────────────────────────────────────────────
+# ── Ingress ──────────────────────────────────────────────────────────
 ingress:
   enabled: false
   host: sccsos.example.com
@@ -20,7 +42,7 @@ ingress:
     enabled: false
     secretName: ""
 
-# ── Resources ──────────────────────────────────────────────────────
+# ── SCCS OS Resources ────────────────────────────────────────────────
 resources:
   requests:
     cpu: 500m
@@ -29,20 +51,20 @@ resources:
     cpu: 2000m
     memory: 2Gi
 
-# ── Autoscaling (HPA) ──────────────────────────────────────────────
+# ── Autoscaling (HPA) ────────────────────────────────────────────────
 autoscaling:
   enabled: true
   minReplicas: 1
   maxReplicas: 5
   targetCPUUtilizationPercentage: 70
 
-# ── Storage ────────────────────────────────────────────────────────
+# ── Storage ──────────────────────────────────────────────────────────
 persistence:
   enabled: true
   size: 10Gi
   storageClass: ""
 
-# ── SCCS OS Config ─────────────────────────────────────────────────
+# ── SCCS OS Config ───────────────────────────────────────────────────
 config:
   database:
     driver: sqlite
@@ -52,7 +74,7 @@ config:
   tracing:
     enabled: true
 
-# ── Environment ────────────────────────────────────────────────────
+# ── Environment ──────────────────────────────────────────────────────
 env:
   - name: HERMES_HOME
     value: /sccsos/hermes
@@ -61,7 +83,7 @@ env:
   - name: SCCSOS_HOME
     value: /sccsos
 
-# ── Webhook (optional) ─────────────────────────────────────────────
+# ── Webhook (optional) ───────────────────────────────────────────────
 webhooks:
   enabled: false
   endpoints: []

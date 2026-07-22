@@ -4,4 +4,4 @@ metadata:
   name: sccsos
   labels:
     app.kubernetes.io/name: sccsos
-    app.kubernetes.io/version: "0.14.2"
+    app.kubernetes.io/version: "0.16.5"

@@ -2,7 +2,7 @@
 
 # SCCS OS 部署与操作手册
 
-> 版本: v0.14.2 | 更新: 2026-07-26 | 架构评分 9.0/10
+> 版本: v0.16.5 | 更新: 2026-07-26 | 架构评分 9.0/10
 
 创新研究院 李锋
 
@@ -143,7 +143,72 @@ hermes config list-profiles
 hermes chat "ping" --quiet
 ```
 
-### 1.3.3 安装 SCCS OS
+> SCCS OS 提供 `sccsos hermes` 命令组，用于 Hermes Agent 的全生命周期管理，详见 [1.3.3 Hermes Agent 管理](#133-hermes-agent-管理)。
+
+### 1.3.3 Hermes Agent 管理
+
+SCCS OS 提供 `sccsos hermes` 命令组，覆盖 Hermes Agent 的安装、配置、诊断和系统依赖管理，替代手动操作。
+
+**安装 Hermes Agent：**
+
+```bash
+# 一键脚本安装（推荐）
+sccsos hermes install
+
+# 国内镜像加速（适合大陆网络）
+sccsos hermes install --china-mirror
+
+# 源码编译安装（开发者）
+sccsos hermes install --method git
+sccsos hermes install --method git -v v0.18.0   # 指定版本
+
+# Docker 容器部署（生产环境）
+sccsos hermes install --method docker
+sccsos hermes install --method docker -v 0.18.0
+
+# 仅检测安装状态
+sccsos hermes install --check
+```
+
+**配置 Hermes Agent：**
+
+```bash
+# 一键交互式配置（LLM Provider / API Key / Profile）
+sccsos hermes setup
+
+# 切换 Profile
+sccsos hermes use <profile>
+
+# 查看当前配置
+sccsos hermes show
+```
+
+**安装系统依赖：**
+
+```bash
+# 安装 Browser 引擎等系统依赖（Web 浏览能力所需）
+sccsos hermes postinstall
+
+# 仅检测依赖状态
+sccsos hermes postinstall --check
+
+# 跳过 Browser 引擎（仅需命令行能力时）
+sccsos hermes postinstall --no-browser
+```
+
+**诊断与修复：**
+
+```bash
+# 全面诊断 Hermes 安装和配置
+sccsos hermes doctor
+
+# 诊断并自动修复
+sccsos hermes doctor --fix
+```
+
+### 1.3.4 安装 SCCS OS
+
+**pip 在线安装：**
 
 ```bash
 # 最小安装（CLI + 核心）
@@ -151,18 +216,34 @@ pip install sccsos
 
 # 全功能安装（含 API 服务器 + 可选组件）
 pip install sccsos[all]
-
-# 验证安装
-sccsos version
-# 预期: sccsos v0.14.2
 ```
 
-### 1.3.4 初始化项目
+**WHL 文件安装：** 适用于离线环境、内网部署或固定版本管控。
+
+```bash
+# WHL 文件安装
+pip install dist/sccsos-0.16.5-py3-none-any.whl
+
+# WHL 安装后，补装扩展组件
+pip install "sccsos[all]"
+```
+
+**验证安装：**
+
+```bash
+sccsos version
+# 预期输出: sccsos v0.16.5
+```
+
+### 1.3.5 初始化项目
 
 ```bash
 # 创建一个新项目
 sccsos init my-sccsos-project
 cd my-sccsos-project
+
+# 生成完整示例（含 Agent / 工作流 / Personality 样本）
+sccsos init --samples
 
 # 查看项目结构
 ls -la
@@ -172,7 +253,15 @@ ls -la
 # personalities/       # 角色设定
 ```
 
-### 1.3.5 配置 Hermes Profile 关联
+`--samples` 会生成开箱即用的示例文件：
+
+| 目录 | 生成内容 |
+|------|----------|
+| `agents/` | 3 个示例 Agent（architect / code-reviewer / doc-writer） |
+| `workflows/` | 5 个工作流 YAML（含冒烟测试、架构评审等） |
+| `personalities/` | 3 种角色设定 |
+
+### 1.3.6 配置 Hermes Profile 关联
 
 编辑 `sccsos.yaml` 确保 Hermes profile 配置正确：
 
@@ -191,14 +280,16 @@ database:
   path: ./data/sccsos.db
 ```
 
-### 1.3.6 启动与验证
+> **提示**：完成上述配置后，可通过 `sccsos hermes install` 基于 `sccsos.yaml` 中的 hermes 配置安装 Hermes Agent，并用 `sccsos hermes doctor` 验证安装结果。
+
+### 1.3.7 启动与验证
 
 ```bash
 # 1. 健康检查
 sccsos health
 # 预期:
 #   -- SCCS OS Health --
-#   Version:   0.14.2
+#   Version:   0.16.5
 #   Database:  ok
 #   Hermes:    OK
 #   Agents:    0 registered
@@ -221,7 +312,7 @@ python -m sccsos.api.fastapi_app --port 8765
 # 访问 http://localhost:8765/health
 ```
 
-### 1.3.7 目录结构
+### 1.3.8 目录结构
 
 ```
 my-sccsos-project/
@@ -259,26 +350,73 @@ docker compose version
 
 ### 1.4.3 容器镜像
 
-```bash
-# 从源码构建
-cd /path/to/sccsos
-docker build -t sccsos:0.14.2 .
+项目提供 3 份 Dockerfile，适配不同部署场景：
 
-# 从 registry 拉取（如已推送）
-docker pull your-registry/sccsos:0.14.2
+| Dockerfile | 镜像标签 | 说明 | 大小 |
+|------------|----------|------|------|
+| `Dockerfile` | `sccsos:<version>` | 全合一镜像，内嵌 Hermes Agent（默认） | ~600MB |
+| `Dockerfile.slim` | `sccsos:<version>-slim` | 精简镜像，不含 Hermes（需外部适配器） | 小 40~50% |
+| `Dockerfile.hermes` | `sccsos-hermes:<version>` | Hermes-only 独立容器（双容器/边车模式） | ~120MB |
+
+构建镜像（在 `dist/docker-build/` 目录下执行）：
+
+前置要求：`deploy/hermes-agent/` 需包含 Hermes 源码（通过 git submodule 管理）：
+
+```bash
+# 首次构建前初始化子模块（仅需一次）
+git submodule update --init deploy/hermes-agent
+
+# 然后导出构建上下文并构建
+./scripts/export-docker-context.sh
+cd dist/docker-build/
+# 全量镜像（内嵌 Hermes Agent）
+docker build -t sccsos:0.16.5 .
+
+# 精简镜像（无 Hermes，适配 docker-exec / remote 模式）
+docker build -t sccsos:0.16.5-slim -f Dockerfile.slim .
+
+# Hermes 独立容器（双容器/边车模式）
+docker build -t sccsos-hermes:0.16.5 -f Dockerfile.hermes .
 ```
+
+该目录包含以下文件：
+
+```
+dist/docker-build/
+├── Dockerfile
+├── Dockerfile.slim
+├── Dockerfile.hermes
+├── sccsos-0.16.5-py3-none-any.whl
+├── sccsos.yaml
+├── personalities/
+├── workflows/
+├── deploy/hermes-agent/          # Hermes 源码（本地安装，零网络）
+└── deploy/hermes-home/           # 预配置 Profile / Skills
+```
+
+> Hermes Agent 从 `deploy/hermes-agent/` 本地源码安装，无需联网下载；  
+> `deploy/hermes-home/` 包含预配置的 profile 配置和技能目录结构，开箱即用。  
+> 不再复制 SCCS OS 源码目录，构建上下文约 300KB。
+
+**构建注意事项：**
+
+- `Dockerfile.slim` 不安装 Hermes Agent，需配合 `sccsos.yaml` 中的 `hermes.adapter: docker-exec` 或 `hermes.adapter: remote` 使用
+- `Dockerfile.hermes` 容器默认保持运行（`sleep infinity`），等待主容器通过 `docker exec` 调用，无依赖注入
+- `deploy/hermes-home/` 预置了 Hermes profile 配置，API Key 通过运行时环境变量注入（如 `DEEPSEEK_API_KEY`）
+- `deploy/hermes-agent/` 为 Hermes 源码，通过 git submodule 管理。如目录为空，`Dockerfile` 会回退到 PyPI 在线安装
+- **ARM 架构**（Apple Silicon）构建时推荐添加 `--platform linux/amd64` 参数确保与 x86 服务器兼容
 
 ### 1.4.4 Docker CLI 直接运行
 
 ```bash
-# ── 创建持久化数据目录 ─────────────────────────────────
-mkdir -p ~/sccsos-data/{data,logs,traces,agents,workflows,personalities}
+# ── 创建并初始化项目目录 ─────────────────────────────
+mkdir -p ~/sccsos-data
 
-# ── 复制默认配置文件 ────────────────────────────────────
-cp sccsos.yaml ~/sccsos-data/
-cp -r agents/* ~/sccsos-data/agents/
-cp -r workflows/* ~/sccsos-data/workflows/
-cp -r personalities/* ~/sccsos-data/personalities/
+# 利用镜像内置 sccsos CLI 初始化项目文件
+docker run --rm \
+  -v ~/sccsos-data:/host \
+  sccsos:0.16.5 \
+  sh -c "sccsos init --samples /tmp/proj && cp -r /tmp/proj/* /host/"
 
 # ── 运行容器 ───────────────────────────────────────────
 docker run -d \
@@ -287,12 +425,13 @@ docker run -d \
   -v ~/sccsos-data/data:/sccsos/data \
   -v ~/sccsos-data/logs:/sccsos/logs \
   -v ~/sccsos-data/traces:/sccsos/traces \
+  -v ~/sccsos-data/hermes:/sccsos/hermes \    # Hermes 配置/会话/记忆
   -v ~/sccsos-data/agents:/sccsos/agents:ro \
   -v ~/sccsos-data/workflows:/sccsos/workflows:ro \
   -v ~/sccsos-data/personalities:/sccsos/personalities:ro \
   -v ~/sccsos-data/sccsos.yaml:/sccsos/sccsos.yaml:ro \
   -e HERMES_PROFILE=sccsos \
-  sccsos:0.14.2
+  sccsos:0.16.5
 ```
 
 ### 1.4.5 Docker Compose（推荐）
@@ -304,7 +443,7 @@ version: "3.8"
 services:
   sccsos:
     build: .
-    image: sccsos:0.14.2
+    image: sccsos:0.16.5
     container_name: sccsos
     ports:
       - "8765:8765"
@@ -312,6 +451,7 @@ services:
       - sccsos_data:/sccsos/data        # SQLite 数据库
       - sccsos_logs:/sccsos/logs        # 应用日志
       - sccsos_traces:/sccsos/traces    # 追踪导出
+      - sccsos_hermes:/sccsos/hermes    # Hermes 配置/会话/记忆
       - ./agents:/sccsos/agents:ro      # Agent 定义（只读）
       - ./workflows:/sccsos/workflows:ro
       - ./personalities:/sccsos/personalities:ro
@@ -330,6 +470,7 @@ volumes:
   sccsos_data:
   sccsos_logs:
   sccsos_traces:
+  sccsos_hermes:
 ```
 
 启动：
@@ -342,7 +483,7 @@ docker compose logs -f
 
 # 验证健康
 curl http://localhost:8765/health
-# 预期: {"status": "ok", "version": "0.14.2", ...}
+# 预期: {"status": "ok", "version": "0.16.5", ...}
 
 # 停止
 docker compose down
@@ -392,17 +533,24 @@ helm version --short        # ≥ 3.12（可选）
 ### 1.5.3 构建并推送镜像
 
 ```bash
-cd /path/to/sccsos
+# 1. 构建 WHL 文件
+python -m build --wheel
 
-# 1. 构建
-docker build -t sccsos:0.14.2 .
+# 2. 导出构建上下文
+./scripts/export-docker-context.sh
 
-# 2. 推送到 registry
-docker tag sccsos:0.14.2 your-registry/sccsos:0.14.2
-docker push your-registry/sccsos:0.14.2
+# 3. 构建镜像
+cd dist/docker-build/
+docker build -t sccsos:0.16.5 .
+docker build -t sccsos:0.16.5-slim -f Dockerfile.slim .
+docker build -t sccsos-hermes:0.16.5 -f Dockerfile.hermes .
+
+# 4. 推送到 registry
+docker tag sccsos:0.16.5 your-registry/sccsos:0.16.5
+docker push your-registry/sccsos:0.16.5
 
 # 3. 本地 kind 集群（无需推送）
-kind load docker-image sccsos:0.14.2 --name sccsos
+kind load docker-image sccsos:0.16.5 --name sccsos
 ```
 
 ### 1.5.4 部署
@@ -524,7 +672,7 @@ helm install sccsos ./deploy/helm/sccsos \
 ```yaml
 image:
   repository: your-registry/sccsos
-  tag: 0.14.2
+  tag: 0.16.5
   pullPolicy: Always
   pullSecrets:
     - name: regcred

@@ -9,8 +9,11 @@ context live in sibling modules.
 from __future__ import annotations
 
 import concurrent.futures
+import json
+import logging
 import threading
 import uuid
+from concurrent.futures import as_completed
 from dataclasses import asdict
 from datetime import datetime, timezone
 from typing import Optional
@@ -38,6 +41,8 @@ from sccsos.observability.auditor import Auditor
 from sccsos.observability.pricing import PricingTable
 from sccsos.memory.memory_store import MemoryStore
 
+logger = logging.getLogger("sccsos.workflow.engine")
+
 
 class WorkflowEngine:
     """Executes workflows by resolving DAG and delegating steps to agents."""
@@ -50,7 +55,9 @@ class WorkflowEngine:
                  knowledge_base: Optional["KnowledgeBase"] = None,
                  memory_store: Optional[MemoryStore] = None,
                  personality_registry: Optional[PersonalityRegistry] = None,
-                 model_router=None):
+                 model_router=None,
+                 policy_engine=None,
+                 injection_guard=None):
         self._db = db
         self._adapter = adapter
         self._tracer = tracer or Tracer(db)
@@ -61,21 +68,18 @@ class WorkflowEngine:
         self._memory_store = memory_store
         self._personality_registry = personality_registry
         self._model_router = model_router
-        self._policy_engine = None
-        self._db_lock = threading.Lock()
-        self._run_contexts: dict[str, WorkflowRunContext] = {}
-        self._bus = get_bus()
-        if config is not None:
+        # PolicyEngine is injected from WorkflowRuntime, not created here.
+        # Fallback: if not injected but config is given, create one for backward compat.
+        self._policy_engine = policy_engine
+        if self._policy_engine is None and config is not None:
             from sccsos.security.policy import PolicyEngine
             try:
                 self._policy_engine = PolicyEngine(db, config)
-            except Exception as e:
-                import logging
-                _pe_logger = logging.getLogger("sccsos.security")
-                _pe_logger.critical(
-                    "PolicyEngine init failed — policy enforcement DISABLED: %s", e,
-                )
-                self._policy_engine = None
+            except Exception:
+                logger.warning("PolicyEngine auto-create failed (non-fatal)")
+        self._db_lock = threading.Lock()
+        self._run_contexts: dict[str, WorkflowRunContext] = {}
+        self._bus = get_bus()
 
         self._step_executor = (StepExecutorBuilder(db, adapter)
             .with_tracer(self._tracer)
@@ -88,6 +92,7 @@ class WorkflowEngine:
             .with_policy_engine(self._policy_engine)
             .with_db_lock(self._db_lock)
             .with_model_router(model_router)
+            .with_injection_guard(injection_guard)
             .build()
         )
 

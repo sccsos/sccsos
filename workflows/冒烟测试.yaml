@@ -1,10 +1,10 @@
-name: smoke-test
+name: 冒烟测试
+description: 快速验证 Agent 环境和工作流引擎是否正常运行
 schema_version: '1.1'
-version: "1.0"
-description: 冒烟测试工作流 — 验证 Hermes 连接和 Agent 基本响应
+parallel_groups: []
 
 steps:
-  - id: hello-agent
+  - id: ping
     name: 连通性测试
     agent: architect
     prompt: |
@@ -16,4 +16,4 @@ steps:
     name: 环境信息
     agent: architect
     prompt: |
-      请列出当前可用的 Hermes 工具和技能列表。以 Markdown 列表格式输出。
+      请用 JSON 格式回复当前环境信息，包含：python版本、操作系统、当前工作目录。

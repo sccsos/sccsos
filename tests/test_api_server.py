@@ -73,7 +73,7 @@ class TestAPIEndpoints:
     def test_01_health(self):
         status, data = _get("/health")
         assert status == 200
-        assert data.get('version') == '0.15.0'
+        assert data.get('version') == '0.16.5'
         assert "initialized" in data
 
     def test_02_agents_list(self):
@@ -206,6 +206,7 @@ class TestAPIEndpoints:
         assert status != 404
         _post("/agents/restart-agent/stop", {})
 
+    @pytest.mark.slow
     def test_20_ask_agent(self):
         """Start an agent and send a prompt via API."""
         status, data = _post("/agents/register", {

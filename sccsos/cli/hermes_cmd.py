@@ -8,6 +8,7 @@ skill directory management, and auto-fix diagnostics.
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -41,7 +42,7 @@ PROVIDER_DEFAULT_MODELS: dict[str, str] = {
 }
 
 PROVIDER_DEFAULT_URLS: dict[str, str] = {
-    "deepseek": "https://api.deepseek.com",
+    "deepseek": "https://api.deepseek.com/v1",
     "openai": "https://api.openai.com",
     "anthropic": "https://api.anthropic.com",
 }
@@ -138,11 +139,22 @@ def _check_hermes_installed() -> bool:
 
 
 def _list_profiles() -> list[str]:
-    """List available Hermes profiles."""
-    out, _, rc = _run_hermes(["config", "list-profiles"])
+    """List available Hermes profiles via ``hermes profile list``."""
+    out, _, rc = _run_hermes(["profile", "list"])
     if rc != 0 or not out:
         return []
-    return [p.strip() for p in out.splitlines() if p.strip()]
+    # Parse table: skip header line and separator line (contain "Profile" or dashes)
+    lines = out.splitlines()
+    profiles = []
+    for line in lines:
+        line = line.strip()
+        if not line or "Profile" in line or "─" in line:
+            continue
+        # Strip ◆ active marker and take first word
+        name = line.lstrip("◆ ").split()[0] if line.split() else ""
+        if name:
+            profiles.append(name)
+    return profiles
 
 
 def _profile_exists(name: str) -> bool:
@@ -151,14 +163,14 @@ def _profile_exists(name: str) -> bool:
 
 
 def _create_profile(name: str) -> bool:
-    """Create a Hermes profile."""
-    out, _, rc = _run_hermes(["config", "create-profile", name])
+    """Create a Hermes profile via ``hermes profile create``."""
+    out, _, rc = _run_hermes(["profile", "create", name], timeout=60)
     return rc == 0
 
 
 def _set_profile_config(name: str, key: str, value: str) -> bool:
-    """Set a config value in a Hermes profile."""
-    out, _, rc = _run_hermes(["config", "set", "--profile", name, key, value])
+    """Set a config value in a Hermes profile via ``hermes -p <name> config set``."""
+    out, _, rc = _run_hermes(["-p", name, "config", "set", key, value])
     return rc == 0
 
 
@@ -177,31 +189,490 @@ def _get_config_path() -> Path:
     return Path(env_path) if env_path else Path(DEFAULT_CONFIG_PATH)
 
 
-def _update_yaml(key_path: list[str], value: str) -> None:
-    """Update a nested key in sccsos.yaml."""
-    import yaml
-    config_path = _get_config_path()
-    if config_path.exists():
-        data = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
-    else:
-        data = {}
-    # Navigate to the nested key
-    target = data
-    for k in key_path[:-1]:
-        if k not in target or not isinstance(target[k], dict):
-            target[k] = {}
-        target = target[k]
-    target[key_path[-1]] = value
-    config_path.write_text(
-        yaml.dump(data, allow_unicode=True, default_flow_style=False),
-        encoding="utf-8",
-    )
-
-
 def _get_hermes_config():
     """Get the hermes config section from sccsos.yaml."""
     from sccsos.core.config import get_config
     return get_config().hermes
+
+
+# ── Install helpers ──────────────────────────────────────────────────
+
+
+def _report_install_status() -> None:
+    """Check and report Hermes installation status."""
+    binary = shutil.which("hermes")
+    if binary:
+        out, _, _ = _run_hermes(["--version"])
+        click.echo(f"  ✅ Hermes CLI 已安装")
+        click.echo(f"  Binary:   {binary}")
+        click.echo(f"  Version:  {out or 'unknown'}")
+        try:
+            from sccsos.core.hermes_manager import get_manager
+            inst = get_manager().discover()
+            click.echo(f"  Mode:     {inst.mode.value}")
+            if inst.home:
+                click.echo(f"  Home:     {inst.home}")
+        except Exception:
+            pass
+    else:
+        click.echo("  ❌ Hermes CLI 未安装")
+        click.echo("")
+        click.echo("  安装: sccsos hermes install")
+
+
+def _update_hermes_paths_in_yaml(home: str, code_path: str) -> None:
+    """Update hermes.home and hermes.code_path in sccsos.yaml."""
+    config_path = _get_config_path()
+    if not config_path.exists():
+        return
+    import yaml
+    data = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+    hermes = data.setdefault("hermes", {})
+    changed = False
+    if home and hermes.get("home") != home:
+        hermes["home"] = home
+        changed = True
+    if code_path and hermes.get("code_path") != code_path:
+        hermes["code_path"] = code_path
+        changed = True
+    if changed:
+        config_path.write_text(
+            yaml.dump(data, allow_unicode=True, default_flow_style=False),
+            encoding="utf-8",
+        )
+        click.echo(f"  ✅ sccsos.yaml 已更新: hermes.home + hermes.code_path")
+
+
+def _install_git(
+    version: Optional[str],
+    git_url: str,
+    target: Optional[str],
+    yes: bool,
+    force: bool,
+    home_override: Optional[str],
+    code_path_override: Optional[str],
+) -> None:
+    """Install Hermes Agent via git clone + pip install -e."""
+    hermes_home = home_override or _get_hermes_home()
+    install_dir = target or str(Path(hermes_home) / "hermes-agent")
+    install_path = Path(install_dir)
+    final_code_path = code_path_override or install_dir
+
+    click.echo(f"  Mode:     git")
+    click.echo(f"  Repo:     {git_url}")
+    click.echo(f"  Target:   {install_dir}")
+    if version:
+        click.echo(f"  Version:  {version}")
+
+    if not shutil.which("git"):
+        click.echo("  ❌ git 未安装，请先安装 git")
+        return
+
+    if install_path.exists() and (install_path / ".git").exists():
+        click.echo("  → 更新已有仓库...")
+        subprocess.run(
+            ["git", "fetch", "--tags", "--force"],
+            cwd=install_dir, capture_output=True, text=True, timeout=120,
+        )
+        if version:
+            r = subprocess.run(
+                ["git", "checkout", version],
+                cwd=install_dir, capture_output=True, text=True, timeout=30,
+            )
+            if r.returncode != 0:
+                click.echo(f"  ⚠️  checkout {version} 失败: {r.stderr.strip()[:100]}")
+        else:
+            r = subprocess.run(
+                ["git", "pull"],
+                cwd=install_dir, capture_output=True, text=True, timeout=120,
+            )
+            if r.returncode != 0:
+                click.echo(f"  ⚠️  git pull 失败: {r.stderr.strip()[:100]}")
+    elif install_path.exists() and not (install_path / ".git").exists():
+        click.echo(f"  ❌ {install_dir} 已存在但不是 git 仓库")
+        click.echo("     请删除后重试，或使用 --force")
+        return
+    else:
+        click.echo("  → 克隆仓库（实时输出）...")
+        install_path.parent.mkdir(parents=True, exist_ok=True)
+        cmd = ["git", "clone", git_url, install_dir]
+        if version:
+            cmd += ["--branch", version]
+        r = subprocess.run(cmd, timeout=180)
+        if r.returncode != 0:
+            click.echo(f"  ❌ git clone 失败（退出码 {r.returncode}）")
+            return
+        click.echo("  ✅ git clone 完成")
+
+    click.echo("  → pip install -e .（实时输出，请耐心等待）...")
+    click.echo("")
+    r = subprocess.run(
+        [sys.executable, "-m", "pip", "install", "-e", install_dir],
+        timeout=300,
+    )
+    if r.returncode != 0:
+        click.echo(f"  ❌ pip install -e 失败（退出码 {r.returncode}）")
+        return
+    click.echo("  ✅ pip install -e 完成")
+
+    # ── 确保默认配置文件存在（install.sh 会自动生成，git 模式不会）──
+    click.echo("  → 初始化默认配置...")
+    _run_hermes(["profile", "list"], timeout=30)
+    click.echo("  ✅ 默认配置已初始化")
+
+    _update_hermes_paths_in_yaml(hermes_home, final_code_path)
+
+
+def _install_script(china_mirror: bool, yes: bool, timeout: int = 600,
+                    home: str = "", code_path: str = "") -> bool:
+    """Install Hermes Agent via official one-click install script.
+
+    Uses the upstream install.sh which auto-configures venv, deps, and CLI.
+    After success, writes detected home/code_path back to sccsos.yaml.
+    """
+    url = (
+        "https://res1.hermesagent.org.cn/install.sh"
+        if china_mirror else
+        "https://hermes-agent.nousresearch.com/install.sh"
+    )
+    click.echo(f"  Mode:     script")
+    click.echo(f"  URL:      {url}")
+    if not yes:
+        click.echo("")
+        if not click.confirm("  确认安装?"):
+            click.echo("  已取消。")
+            return False
+    click.echo("  → 下载并执行安装脚本（实时输出，请耐心等待）...")
+    click.echo("")
+    try:
+        r = subprocess.run(
+            ["bash", "-c", f"curl -fL --progress-bar {url} | bash"],
+            timeout=timeout,
+        )
+        if r.returncode != 0:
+            click.echo(f"  ❌ 安装失败（退出码 {r.returncode}），请检查网络后重试")
+            return False
+        click.echo("")
+        click.echo("  ✅ 一键脚本安装完成")
+    except subprocess.TimeoutExpired:
+        click.echo(f"  ❌ 安装超时（{timeout}s），请检查网络后重试")
+        return False
+    except Exception as e:
+        click.echo(f"  ❌ 安装异常: {str(e)[:100]}")
+        return False
+
+    # ── 安装成功后写回 sccsos.yaml ──
+    detected_home = home or _get_hermes_home()
+    detected_code = code_path or _get_hermes_code_path()
+    if not detected_home:
+        detected_home = str(Path.home() / ".hermes")
+    if not detected_code:
+        detected_code = str(Path(detected_home) / "hermes-agent")
+    _update_hermes_paths_in_yaml(detected_home, detected_code)
+    return True
+
+
+def _install_docker(version: Optional[str], yes: bool, force: bool,
+                    home: str = "", code_path: str = "",
+                    china_mirror: bool = False) -> bool:
+    """Install Hermes Agent via Docker image pull.
+
+    After success, writes detected home/code_path back to sccsos.yaml.
+    """
+    tag = version or "latest"
+    image = (
+        f"docker.xuanyuan.run/nousresearch/hermes-agent:{tag}"
+        if china_mirror else
+        f"nousresearch/hermes-agent:{tag}"
+    )
+    click.echo(f"  Mode:     docker")
+    click.echo(f"  Image:    {image}")
+    if not shutil.which("docker"):
+        click.echo("  ❌ docker 未安装，请先安装 Docker")
+        return False
+    if not yes:
+        click.echo("")
+        if not click.confirm("  确认拉取?"):
+            click.echo("  已取消。")
+            return False
+    click.echo("  → 拉取 Docker 镜像（实时输出，请耐心等待）...")
+    click.echo("")
+    r = subprocess.run(
+        ["docker", "pull", image],
+        timeout=600,
+    )
+    if r.returncode != 0:
+        click.echo(f"  ❌ 拉取失败（退出码 {r.returncode}）")
+        return False
+    click.echo(f"  ✅ Docker 镜像拉取完成: {image}")
+    # Show image size
+    r2 = subprocess.run(
+        ["docker", "images", image, "--format", "{{.Size}}"],
+        capture_output=True, text=True, timeout=10,
+    )
+    if r2.returncode == 0 and r2.stdout.strip():
+        click.echo(f"     大小: {r2.stdout.strip()}")
+
+    # ── 写回 sccsos.yaml ──
+    detected_home = home or _get_hermes_home() or str(Path.home() / ".hermes")
+    detected_code = code_path or _get_hermes_code_path() or str(Path(detected_home) / "hermes-agent")
+    _update_hermes_paths_in_yaml(detected_home, detected_code)
+    return True
+
+
+def _set_default_config(key: str, value: str) -> bool:
+    """Set a config value in the default Hermes config (~/.hermes/config.yaml)."""
+    out, _, rc = _run_hermes(["config", "set", key, value])
+    return rc == 0
+
+
+def _ensure_env_file(profile_name: str, provider: str, api_key: str, base_url: str = "") -> None:
+    """Write API key and base URL to the Hermes ``.env`` file for a profile.
+
+    Hermes v0.18 stores secrets in ``.env`` (default: ``~/.hermes/.env``,
+    profile: ``~/.hermes/profiles/<name>/.env``).  This function
+    adds or replaces the ``PROVIDER_API_KEY`` and ``PROVIDER_BASE_URL``
+    lines so the key is available to Hermes at runtime.
+    """
+    if not api_key:
+        return
+
+    # Resolve .env path: default or profile
+    cfg_path = _get_profile_config_path(profile_name)
+    env_path = cfg_path.parent / ".env"
+
+    key_var = f"{provider.upper()}_API_KEY"
+    url_var = f"{provider.upper()}_BASE_URL"
+    new_lines: list[str] = []
+    key_found = url_found = False
+
+    # Read existing .env if present
+    if env_path.exists():
+        existing = env_path.read_text(encoding="utf-8").splitlines(keepends=True)
+        for line in existing:
+            stripped = line.strip()
+            if stripped.startswith(f"{key_var}="):
+                new_lines.append(f"{key_var}={api_key}\n")
+                key_found = True
+            elif base_url and stripped.startswith(f"{url_var}="):
+                new_lines.append(f"{url_var}={base_url}\n")
+                url_found = True
+            else:
+                new_lines.append(line)
+    else:
+        env_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Append if not found
+    if not key_found:
+        new_lines.append(f"\n# sccsos: {provider} API Key\n" if not env_path.exists() else "")
+        new_lines.append(f"{key_var}={api_key}\n")
+    if base_url and not url_found:
+        new_lines.append(f"{url_var}={base_url}\n")
+
+    env_path.write_text("".join(new_lines), encoding="utf-8")
+    # Restrict permissions (same as Hermes defaults)
+    env_path.chmod(0o600)
+
+
+def _write_model_config(target_fn, model: str, provider: str, base_url: str,
+                        api_key: str = "") -> bool:
+    """Write model.default/provider/base_url to a config target.
+
+    ``target_fn`` is either ``_set_default_config`` or ``_set_profile_config``
+    with the profile name already curried/bound.
+    """
+    ok = target_fn("model.default", model)
+    ok = target_fn("model.provider", provider) and ok
+    if base_url:
+        ok = target_fn("model.base_url", base_url) and ok
+    if api_key:
+        ok = target_fn("model.api_key", api_key) and ok
+    return ok
+
+
+def _verify_model_config(config_path: Path) -> dict:
+    """Inspect a Hermes config file and return a dict with model status.
+
+    Returns::
+        {"exists": bool, "is_dict": bool, "model": dict, "errors": [str]}
+    """
+    result: dict = {"exists": False, "is_dict": False, "model": {}, "errors": []}
+    if not config_path.exists():
+        result["errors"].append(f"文件不存在: {config_path}")
+        return result
+    result["exists"] = True
+    try:
+        import yaml
+        data = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+        m = data.get("model", {})
+        if isinstance(m, dict):
+            result["is_dict"] = True
+            result["model"] = m
+            for k in ["default", "provider"]:
+                if not m.get(k):
+                    result["errors"].append(f"model.{k} 未设置")
+        else:
+            result["errors"].append(f"model 是 {type(m).__name__}（应为 dict），值: {m!r}")
+    except Exception as e:
+        result["errors"].append(f"解析失败: {e}")
+    return result
+
+
+def _get_profile_config_path(profile_name: str) -> Path:
+    """Get the filesystem path to a Hermes profile's config.yaml.
+
+    Resolves the Hermes home root by checking the effective HERMES_HOME,
+    then walking up if it points inside a ``profiles/`` subdirectory
+    (e.g. when ``HERMES_HOME`` resolves to a profile directory).
+    """
+    hermes_home = Path(_get_hermes_home())
+    # If hermes_home looks like it's inside a profiles/<name> dir, walk up
+    if hermes_home.name != ".hermes" and hermes_home.parent.name == "profiles":
+        hermes_home = hermes_home.parent.parent
+    elif not (hermes_home / "config.yaml").exists() and not (hermes_home / "profiles").exists():
+        # Fall back to the parent if the resolved home doesn't look like the root
+        hermes_home = hermes_home.parent
+    if profile_name == "default":
+        return hermes_home / "config.yaml"
+    return hermes_home / "profiles" / profile_name / "config.yaml"
+
+
+# ── Post-install config sync ────────────────────────────────────────
+
+
+def _auto_apply_config() -> None:
+    """Auto-sync sccsos.yaml model config to Hermes after install.
+
+    Strategy:
+    1. Write model.default/provider/base_url/api_key to the **default** config
+       (~/.hermes/config.yaml) — always, as fallback.
+    2. If sccsos.yaml hermes.profile differs from "default",
+       clone the config to that profile (create if missing).
+    3. Verify both configs are valid dict structures and consistent.
+
+    API key resolution: sccsos.yaml > provider env var (DEEPSEEK_API_KEY etc.)
+    """
+    try:
+        cfg = _get_hermes_config()
+        provider = cfg.setup.provider
+        model = cfg.setup.model
+        if not provider or not model:
+            return
+
+        profile_name = cfg.profile or "sccsos"
+        base_url = cfg.setup.base_url or PROVIDER_DEFAULT_URLS.get(provider, "")
+        api_key = cfg.setup.api_key or _get_env_api_key(provider) or ""
+        click.echo("  → 自动同步配置文件...")
+
+        # Step 1: Write to default config
+        default_path = _get_profile_config_path("default")
+        ok = _write_model_config(_set_default_config, model, provider, base_url, api_key)
+        if not ok:
+            click.echo("  ⚠️  默认配置写入异常，请检查 Hermes CLI 状态")
+            return
+        click.echo(f"  ✅ 默认配置已更新: {provider} / {model}")
+
+        # Step 2: Clone to target profile
+        if profile_name != "default":
+            if not _profile_exists(profile_name):
+                if not _create_profile(profile_name):
+                    click.echo(f"  ⚠️  Profile '{profile_name}' 创建失败，跳过")
+                    return
+
+                # Clone all default config keys to the new profile
+                import yaml as _yaml
+                _default_path = _get_profile_config_path("default")
+                if _default_path.exists():
+                    try:
+                        _default_data = _yaml.safe_load(
+                            _default_path.read_text(encoding="utf-8")
+                        ) or {}
+                        # Remove model section — will be overwritten below
+                        _default_data.pop("model", None)
+                        _prof_path = _get_profile_config_path(profile_name)
+                        _prof_path.parent.mkdir(parents=True, exist_ok=True)
+                        _prof_path.write_text(
+                            _yaml.dump(_default_data, allow_unicode=True, default_flow_style=False),
+                            encoding="utf-8",
+                        )
+                        click.echo(f"  ✅ Profile '{profile_name}' 已创建（完整克隆自默认配置）")
+                    except Exception as _e:
+                        click.echo(f"  ⚠️  默认配置克隆失败: {_e}")
+
+                # Clone .env from default profile
+                _default_env = _get_profile_config_path("default").parent / ".env"
+                if _default_env.exists():
+                    try:
+                        _prof_env_parent = _get_profile_config_path(profile_name).parent
+                        _prof_env_parent.mkdir(parents=True, exist_ok=True)
+                        _prof_env = _prof_env_parent / ".env"
+                        _prof_env.write_text(_default_env.read_text(encoding="utf-8"), encoding="utf-8")
+                        _prof_env.chmod(0o600)
+                        click.echo(f"  ✅ Profile '.env' 已克隆")
+                    except Exception as _e:
+                        click.echo(f"  ⚠️  .env 克隆失败: {_e}")
+
+            prof_path = _get_profile_config_path(profile_name)
+            ok = _write_model_config(
+                lambda k, v: _set_profile_config(profile_name, k, v),
+                model, provider, base_url, api_key,
+            )
+            if not ok:
+                click.echo(f"  ⚠️  Profile '{profile_name}' 写入异常")
+                return
+            click.echo(f"  ✅ Profile '{profile_name}' 已同步")
+
+        # Step 2b: Sync .env files with API key and base URL
+        if api_key:
+            _ensure_env_file("default", provider, api_key,
+                             cfg.setup.base_url or PROVIDER_DEFAULT_URLS.get(provider, ""))
+            if profile_name != "default":
+                _ensure_env_file(profile_name, provider, api_key,
+                                 cfg.setup.base_url or PROVIDER_DEFAULT_URLS.get(provider, ""))
+            click.echo("  ✅ .env 密钥文件已同步")
+
+        # Step 3: Verify both configs
+        errors = []
+        for label, path in [("默认配置", default_path),
+                            (f"Profile '{profile_name}'", _get_profile_config_path(profile_name))]:
+            v = _verify_model_config(path)
+            if v["errors"]:
+                errors.extend([f"{label}: {e}" for e in v["errors"]])
+            elif v["is_dict"]:
+                url = v["model"].get("base_url", "")
+                has_key = bool(v["model"].get("api_key"))
+                detail = f"{v['model'].get('provider')} / {v['model'].get('default')}"
+                if url:
+                    detail += f" / {url}"
+                if has_key:
+                    detail += " 🔑"
+                click.echo(f"  ✅ {label} 结构正确: {detail}")
+
+        # Cross-check consistency
+        if profile_name != "default":
+            dv = _verify_model_config(default_path)
+            pv = _verify_model_config(_get_profile_config_path(profile_name))
+            if dv["is_dict"] and pv["is_dict"]:
+                for k in ["default", "provider", "base_url", "api_key"]:
+                    # api_key is allowed to differ: default config uses Hermes secrets
+                    # store (.env), while profile stores it in config.yaml
+                    if k == "api_key" and not dv["model"].get(k) and pv["model"].get(k):
+                        continue
+                    if dv["model"].get(k) != pv["model"].get(k):
+                        errors.append(
+                            f"model.{k} 不一致: 默认={dv['model'].get(k)!r} ≠ "
+                            f"profile={pv['model'].get(k)!r}")
+
+        if errors:
+            click.echo(f"  ⚠️  配置不一致 ({len(errors)} 项):")
+            for e in errors:
+                click.echo(f"    {e}")
+        else:
+            click.echo("  ✅ 默认配置 ↔ Profile 一致")
+        click.echo("")
+
+    except Exception as e:
+        click.echo(f"  ⚠️  自动配置跳过: {e}")
 
 
 # ── CLI Group ────────────────────────────────────────────────────────
@@ -216,370 +687,106 @@ def hermes_cmd() -> None:
     """
 
 
-@hermes_cmd.command(name="doctor")
-@click.option("--fix", "-f", is_flag=True, help="Auto-fix detected issues")
-def doctor(fix: bool) -> None:
-    """Check Hermes Agent installation and connectivity.
+# (doctor command moved to cli/hermes_doctor.py)
+# (show/setup/use commands moved to cli/hermes_setup.py)
 
-    Use ``--fix`` to automatically resolve common issues.
+from sccsos.cli.hermes_setup import show, setup, use
+
+hermes_cmd.add_command(show)
+hermes_cmd.add_command(setup)
+hermes_cmd.add_command(use)
+
+
+
+
+@hermes_cmd.command(name="install")
+@click.option("--method", "-m", default="script", type=click.Choice(["script", "git", "docker"]),
+              help="安装方式（默认 script：一键安装脚本）")
+@click.option("--version", "-v", default=None,
+              help="版本标签（git: checkout, docker: image tag）")
+@click.option("--china-mirror", is_flag=True,
+              help="使用国内镜像加速（script 模式 + git 模式 + docker 模式）")
+@click.option("--git-url", default="https://github.com/NousResearch/hermes-agent.git",
+              help="Git 仓库地址（git 模式，--china-mirror 时自动切换）", show_default=True)
+@click.option("--target", "-t", default=None,
+              help="安装目标目录（git 模式，默认 {HERMES_HOME}/hermes-agent）")
+@click.option("--check", "-c", is_flag=True, help="仅检查安装状态，不安装")
+@click.option("--yes", "-y", is_flag=True, help="跳过确认提示")
+@click.option("--force", "-f", is_flag=True, help="强制重新安装")
+@click.option("--home", default=None,
+              help="写入 sccsos.yaml 的 HERMES_HOME 路径")
+@click.option("--code-path", default=None,
+              help="写入 sccsos.yaml 的 HERMES_CODE_PATH 路径")
+def install(method, version, git_url, target, check, yes, force, home, code_path, china_mirror):
+    """Install Hermes Agent on this machine.
+
+    三种安装方式：
+
+    \\b
+    - script（默认）：一键在线脚本，自动配置环境，新手首选
+    - git：源码编译安装，适合二次开发
+    - docker：Docker 容器部署，适合生产环境
+
+    安装完成后运行 ``sccsos hermes setup`` 配置 LLM Provider 和 API Key。
     """
-    click.echo("── Hermes Agent 诊断 ──")
-
-    issues: list[tuple[str, str, str]] = []  # (section, description, fix_hint)
-
-    # 1. CLI availability
-    binary_path = _resolve_hermes_binary()
-    installed = _check_hermes_installed()
-    click.echo(f"  Hermes CLI:     {'✅' if installed else '❌'} {'可用' if installed else '未安装'}")
-    click.echo(f"  Binary path:    {binary_path}")
-
-    # 1b. Installation mode (via HermesManager)
-    try:
-        from sccsos.core.hermes_manager import get_manager
-        inst = get_manager().discover()
-        click.echo(f"  安装模式:       {inst.mode.value}")
-    except Exception:
-        pass
-    if not installed:
-        issues.append(("CLI", "Hermes CLI 未安装", "pip install hermes-agent"))
-
-    if not installed:
-        if fix:
-            click.echo("  → 正在安装 hermes-agent...")
-            r = subprocess.run(
-                [sys.executable, "-m", "pip", "install", "hermes-agent"],
-                capture_output=True, text=True, timeout=120,
-            )
-            if r.returncode == 0:
-                click.echo("  ✅ Hermes Agent 安装完成")
-                installed = True
-            else:
-                click.echo(f"  ❌ 安装失败: {r.stderr.strip()[:200]}")
-                return
-        else:
-            click.echo("  建议: pip install hermes-agent")
-            return
-
-    # 2. Version
-    out, _, _ = _run_hermes(["--version"])
-    click.echo(f"  Version:        {out or 'unknown'}")
-
-    # 2b. Environment paths
-    hermes_home = _get_hermes_home()
-    hermes_code_path = _get_hermes_code_path()
-    click.echo(f"  HERMES_HOME:    {hermes_home}")
-    click.echo(f"  HERMES_CODE_PATH: {hermes_code_path or 'not detected'}")
-    home_ok = Path(hermes_home).exists()
-    if not home_ok:
-        issues.append(("home", f"HERMES_HOME 目录不存在: {hermes_home}", "sccsos hermes setup"))
-
-    # 3. Hermes config directory
-    hermes_dir = Path.home() / ".hermes"
-    config_ok = hermes_dir.exists()
-    click.echo(f"  Config dir:     {'✅' if config_ok else '❌'} {hermes_dir}")
-    if not config_ok:
-        issues.append(("config", "Hermes 配置目录不存在", "hermes setup"))
-
-    # 4. Profiles
-    profiles = _list_profiles()
-    if profiles:
-        click.echo(f"  Profiles:       ✅ {len(profiles)} 个: {', '.join(profiles)}")
-    else:
-        click.echo(f"  Profiles:       ❌ 无可用 profile")
-        issues.append(("profile", "无可用 Hermes profile", "sccsos hermes setup"))
-
-    # 5. Environment variables
-    click.echo(f"  ── 环境变量 ──")
-    env_found = 0
-    for provider, env_key in sorted(PROVIDER_ENV_KEYS.items()):
-        val = os.environ.get(env_key, "")
-        if val:
-            env_found += 1
-            click.echo(f"    ✅ {env_key}=***{val[-4:]}")
-        else:
-            click.echo(f"    ❌ {env_key} 未设置")
-    click.echo(f"    --- {env_found}/{len(PROVIDER_ENV_KEYS)} 个有效")
-
-    # If env vars are missing but a profile is configured, check for API key in profile
-    if env_found == 0 and profiles:
-        # Try the active profile
-        cfg = _get_hermes_config()
-        active = cfg.profile if cfg.profile in profiles else profiles[0]
-        click.echo(f"  → 可通过 'sccsos hermes setup' 为 profile '{active}' 注入 API Key")
-
-    # 6. Profile connectivity test
-    test_profile = profiles[0] if profiles else ""
-    if test_profile:
-        ok, msg = _test_profile(test_profile)
-        click.echo(f"  Chat test ({test_profile}): {'✅' if ok else '❌'} {'通过' if ok else msg[:80]}")
-        if not ok:
-            issues.append(("connectivity", f"Profile '{test_profile}' 连通性测试失败", "sccsos hermes setup --yes"))
-    else:
-        test_profile = "default"
-        ok, msg = _test_profile("default")
-        click.echo(f"  Chat test ({test_profile}): {'✅' if ok else '❌'} {'通过' if ok else msg[:80]}")
-
-    # 7. Skills directory
-    from sccsos.core.config import DEFAULT_CONFIG_PATH
-    skills_ok = True
-    skills_dir = Path("skills")
-    if skills_dir.exists():
-        skill_count = len(list(skills_dir.glob("*.yaml"))) + len(list(skills_dir.glob("*.py")))
-        click.echo(f"  Skills dir:     ✅ {skills_dir}/ ({skill_count} 个技能)")
-    else:
-        click.echo(f"  Skills dir:     ⚠️  skills/ 目录不存在（可选）")
-
-    # 8. Summary
+    click.echo("── SCCS OS — Hermes Agent 安装 ──")
     click.echo("")
-    if not issues:
-        click.echo("🎉 所有检查通过！SCCS OS 已就绪。")
-    else:
-        click.echo(f"⚠️  发现 {len(issues)} 个问题:")
-        for section, desc, hint in issues:
-            click.echo(f"  [{section}] {desc}")
-            click.echo(f"    → {hint}")
-        if fix:
-            click.echo("\n--fix 模式：已自动修复可修复项，剩余问题请按提示处理。")
-        else:
-            click.echo("\n使用 '--fix' 参数自动修复，或按提示手动处理。")
 
-
-@hermes_cmd.command(name="show")
-def show() -> None:
-    """Show current Hermes configuration and environment."""
-    cfg = _get_hermes_config()
-
-    click.echo("── Hermes 配置 (sccsos.yaml) ──")
-    click.echo(f"  Profile:    {cfg.profile}")
-    click.echo(f"  Binary:     {cfg.binary} ({_resolve_hermes_binary()})")
-    click.echo(f"  Adapter:    {cfg.adapter}")
-    click.echo(f"  HERMES_HOME: {cfg.home or _get_hermes_home()}")
-    click.echo(f"  HERMES_CODE_PATH: {cfg.code_path or _get_hermes_code_path() or '(not set)'}")
-    if cfg.setup.provider:
-        click.echo(f"  Provider:   {cfg.setup.provider}")
-        click.echo(f"  Model:      {cfg.setup.model}")
-
-    click.echo("")
-    click.echo("── 环境变量 ──")
-    for provider, env_key in sorted(PROVIDER_ENV_KEYS.items()):
-        val = os.environ.get(env_key, "")
-        if val:
-            click.echo(f"  ✅ {env_key}=***{val[-4:]}")
-        else:
-            click.echo(f"  ❌ {env_key} 未设置")
-
-    click.echo("")
-    if not _check_hermes_installed():
-        click.echo("⚠️  Hermes CLI 未安装。")
+    if check:
+        _report_install_status()
         return
 
-    profiles = _list_profiles()
-    click.echo(f"Hermes 系统 profiles: {len(profiles)}")
-    for p in profiles:
-        marker = " ← 当前使用" if p == cfg.profile else ""
-        ok, _ = _test_profile(p)
-        click.echo(f"  {'✅' if ok else '❌'} {p}{marker}")
-
-    # Check skills directory
-    skills_dir = Path("skills")
-    if skills_dir.exists():
-        skill_count = len(list(skills_dir.glob("*.yaml"))) + len(list(skills_dir.glob("*.py")))
-        click.echo(f"\nSkills: {skills_dir}/ ({skill_count} 个技能)")
-    else:
-        click.echo(f"\nSkills: skills/ 目录不存在（可选）")
-
-
-@hermes_cmd.command(name="setup")
-@click.option("--provider", default=None, help="LLM provider (deepseek/openai/anthropic/...)")
-@click.option("--model", default=None, help="Model name")
-@click.option("--api-key", default=None, help="API key (omit to use env var or interactive)")
-@click.option("--base-url", default=None, help="Custom API base URL")
-@click.option("--profile", default=None, help="Hermes profile name (default from sccsos.yaml)")
-@click.option("--env-only", is_flag=True, help="Only set environment variables, skip profile config")
-@click.option("--skip-env", is_flag=True, help="Skip environment variable injection")
-@click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompts")
-def setup(provider, model, api_key, base_url, profile, env_only, skip_env, yes):
-    """One-click Hermes Agent configuration.
-
-    Automatically:
-    \b
-    - Installs Hermes CLI (if missing)
-    - Creates/updates the Hermes profile
-    - Injects API key into the environment
-    - Sets up skills directory
-    - Validates end-to-end connectivity
-    """
-    cfg = _get_hermes_config()
-    profile_name = profile or cfg.profile or "sccsos"
-
-    click.echo("SCCS OS — Hermes Agent 一键配置\n")
-
-    if env_only:
-        click.echo("  模式: 仅环境变量（跳过 Profile 配置）")
-    else:
-        click.echo(f"  目标 Profile: {profile_name}")
-
-    # ── Step 1: Check / Install Hermes ──────────────────────────
-    click.echo("\n[1/5] 检查 Hermes Agent 安装...")
-    if not _check_hermes_installed():
-        click.echo("  ❌ Hermes CLI 未安装")
-        if yes or click.confirm("  是否安装 hermes-agent?"):
-            r = subprocess.run(
-                [sys.executable, "-m", "pip", "install", "hermes-agent"],
-                capture_output=True, text=True, timeout=120,
-            )
-            if r.returncode != 0:
-                click.echo(f"  ❌ 安装失败: {r.stderr.strip()[:200]}")
-                return
-            click.echo("  ✅ Hermes Agent 安装完成")
-        else:
-            return
-    else:
+    # ── 检测已有安装 ──
+    existing = shutil.which("hermes")
+    if existing and not force:
+        click.echo(f"  ✅ Hermes CLI 已存在: {existing}")
         out, _, _ = _run_hermes(["--version"])
-        click.echo(f"  ✅ Hermes CLI 可用 ({out})")
+        click.echo(f"  Version: {out or 'unknown'}")
+        if not yes:
+            click.echo("")
+            if not click.confirm("  重新安装?"):
+                click.echo("  已取消。")
+                return
+    elif existing and force:
+        click.echo("  检测到已有安装，--force 模式将重新安装...")
 
-    # ── Step 2: Resolve provider + model ────────────────────────
-    click.echo("\n[2/5] 解析 LLM 配置...")
-    resolved_provider = provider or cfg.setup.provider or ""
-    if not resolved_provider:
-        resolved_provider = click.prompt(
-            "  LLM 服务商",
-            type=click.Choice(list(PROVIDER_ENV_KEYS.keys())),
-            default="deepseek",
-        )
+    # ── 解析 home / code_path：CLI 参数 > sccsos.yaml > 默认 ──
+    resolved_home = home or _get_hermes_home()
+    resolved_code_path = code_path or _get_hermes_code_path()
+    if resolved_home:
+        click.echo(f"  HERMES_HOME:  {resolved_home}")
+    if resolved_code_path:
+        click.echo(f"  Code Path:    {resolved_code_path}")
+    click.echo("")
 
-    resolved_model = model or cfg.setup.model or ""
-    if not resolved_model:
-        resolved_model = click.prompt(
-            "  模型名称", default=PROVIDER_DEFAULT_MODELS.get(resolved_provider, ""),
-        )
+    # ── 执行安装 ──
+    if method == "script":
+        _install_script(china_mirror, yes, home=resolved_home, code_path=resolved_code_path)
+    elif method == "git":
+        # china-mirror 时自动切换 git 源
+        resolved_git_url = git_url
+        if china_mirror and git_url == "https://github.com/NousResearch/hermes-agent.git":
+            resolved_git_url = "https://cnb.cool/hermesagent-cn/hermes-agent-cn-mirror.git"
+            click.echo(f"  ↪ 使用国内镜像: {resolved_git_url}")
+        _install_git(version, resolved_git_url, target, yes, force, resolved_home, resolved_code_path)
+    elif method == "docker":
+        _install_docker(version, yes, force, home=resolved_home, code_path=resolved_code_path, china_mirror=china_mirror)
 
-    # ── Step 3: Resolve API key ─────────────────────────────────
-    click.echo("\n[3/5] 配置 API Key...")
+    # ── 安装后验证 ──
+    click.echo("")
+    click.echo("  验证安装...")
+    out, _, rc = _run_hermes(["--version"])
+    if rc == 0:
+        click.echo(f"  ✅ Hermes Agent {out} 安装完成")
+        click.echo("")
 
-    # Priority: CLI arg > env var > sccsos.yaml > interactive
-    env_key_name = PROVIDER_ENV_KEYS.get(resolved_provider, "")
-    env_api_key = _get_env_api_key(resolved_provider)
+        # auto-sync sccsos.yaml model config → Hermes profile
+        _auto_apply_config()
 
-    if api_key:
-        resolved_api_key = api_key
-        click.echo(f"  ✅ 使用 CLI 参数提供的 API Key")
-    elif env_api_key:
-        resolved_api_key = env_api_key
-        click.echo(f"  ✅ 使用环境变量 {env_key_name}")
-    elif cfg.setup.api_key:
-        resolved_api_key = cfg.setup.api_key
-        click.echo(f"  ✅ 使用配置文件中的 API Key")
+        click.echo("后续步骤:")
+        click.echo("  sccsos hermes setup              # 配置 API Key（如未设置环境变量）")
+        click.echo("  sccsos hermes postinstall          # 安装 Browser 引擎等系统依赖")
+        click.echo("  sccsos hermes doctor              # 验证安装完整性")
+        click.echo("  sccsos health                     # 检查 SCCS OS 健康状态")
     else:
-        resolved_api_key = click.prompt(
-            f"  请输入 {resolved_provider} API Key"
-            f" (设置 {env_key_name} 环境变量可跳过此步)",
-            hide_input=True,
-        )
-
-    # ── Step 4: Set environment variables ───────────────────────
-    if not skip_env and env_key_name:
-        click.echo(f"\n[4/5] 设置环境变量...")
-
-        # Write to shell profile for persistence
-        shell_rc = None
-        for rc_file in [".zshrc", ".bashrc", ".bash_profile", ".zprofile"]:
-            rc_path = Path.home() / rc_file
-            if rc_path.exists():
-                shell_rc = rc_path
-                break
-
-        if shell_rc and not yes:
-            if click.confirm(f"  将 {env_key_name} 写入 {shell_rc.name}?"):
-                escaped_key = resolved_api_key.replace("'", "'\\''")
-                line = f"export {env_key_name}='{escaped_key}'"
-                if line not in shell_rc.read_text(encoding="utf-8"):
-                    with open(shell_rc, "a", encoding="utf-8") as f:
-                        f.write(f"\n# sccsos: {resolved_provider} API Key\n{line}\n")
-                    click.echo(f"  ✅ {env_key_name} 已追加到 {shell_rc.name}")
-                else:
-                    click.echo(f"  ⚠️  {env_key_name} 已在 {shell_rc.name} 中存在，跳过")
-
-        # Export to current session
-        os.environ[env_key_name] = resolved_api_key
-        click.echo(f"  ✅ 当前会话已设置 {env_key_name}")
-
-    # ── If env-only mode, skip profile config ───────────────────
-    if env_only:
-        click.echo(f"\n🎉 环境变量配置完成！")
-        click.echo(f"  运行 'sccsos hermes setup' 可继续配置 Hermes Profile。")
-        return
-
-    # ── Step 5 (or 4 for non-skip): Create/Update profile ───────
-    step_label = "[4/5]" if skip_env else "[5/5]"
-    click.echo(f"\n{step_label} 配置 Hermes Profile '{profile_name}'...")
-
-    if _profile_exists(profile_name):
-        if not yes and not click.confirm(f"  覆盖 '{profile_name}' 的现有配置?"):
-            click.echo("  跳过 Profile 配置")
-        else:
-            _set_profile_config(profile_name, "provider", resolved_provider)
-            _set_profile_config(profile_name, "model", resolved_model)
-            _set_profile_config(profile_name, "api_key", resolved_api_key)
-            resolved_base_url = base_url or cfg.setup.base_url or PROVIDER_DEFAULT_URLS.get(resolved_provider, "")
-            if resolved_base_url:
-                _set_profile_config(profile_name, "base_url", resolved_base_url)
-            click.echo(f"  ✅ Provider: {resolved_provider}")
-            click.echo(f"  ✅ Model:    {resolved_model}")
-            click.echo(f"  ✅ API Key:  {'***' + resolved_api_key[-4:] if len(resolved_api_key) > 4 else '***'}")
-            if resolved_base_url:
-                click.echo(f"  ✅ Base URL: {resolved_base_url}")
-    else:
-        click.echo(f"  → 创建 Profile '{profile_name}'...")
-        if not _create_profile(profile_name):
-            click.echo(f"  ❌ 创建 Profile 失败")
-            return
-        _set_profile_config(profile_name, "provider", resolved_provider)
-        _set_profile_config(profile_name, "model", resolved_model)
-        _set_profile_config(profile_name, "api_key", resolved_api_key)
-        resolved_base_url = base_url or cfg.setup.base_url or PROVIDER_DEFAULT_URLS.get(resolved_provider, "")
-        if resolved_base_url:
-            _set_profile_config(profile_name, "base_url", resolved_base_url)
-        click.echo(f"  ✅ Profile '{profile_name}' 已创建并配置")
-
-    # Update sccsos.yaml with the profile name
-    _update_yaml(["hermes", "profile"], profile_name)
-    click.echo(f"  ✅ sccsos.yaml 已更新")
-
-    # ── Validate end-to-end ─────────────────────────────────────
-    click.echo(f"\n  验证 Profile '{profile_name}'...")
-    ok, msg = _test_profile(profile_name, timeout=90)
-    if ok:
-        click.echo("  ✅ Profile 验证通过 — LLM 响应正常")
-        click.echo(f"\n🎉 Hermes Agent 配置完成！Profile '{profile_name}' 已就绪。")
-        click.echo(f"\n后续步骤:")
-        click.echo(f"  sccsos health                    # 检查 SCCS OS 健康状态")
-        click.echo(f"  sccsos agent create architect     # 创建一个 Agent")
-        click.echo(f"  sccsos agent start architect      # 启动 Agent")
-        click.echo(f"  sccsos workflow run demo.yaml     # 运行工作流")
-    else:
-        click.echo(f"  ❌ 验证失败: {msg[:200]}")
-        click.echo("  请检查 API Key 和网络连接后重试。")
-        click.echo(f"  → 环境变量 {env_key_name} 已设置，可直接重试命令。")
-
-
-@hermes_cmd.command(name="use")
-@click.argument("profile_name", required=True)
-def use(profile_name: str) -> None:
-    """Switch the active Hermes profile used by SCCS OS.
-
-    Updates sccsos.yaml to use PROFILE_NAME as the default profile.
-    """
-    if not _profile_exists(profile_name):
-        click.echo(f"❌ Profile '{profile_name}' 不存在.")
-        click.echo(f"可用 profiles: {', '.join(_list_profiles())}")
-        return
-
-    _update_yaml(["hermes", "profile"], profile_name)
-    click.echo(f"✅ 默认 profile 已切换为 '{profile_name}'")
-
-    ok, msg = _test_profile(profile_name)
-    if ok:
-        click.echo(f"✅ Profile '{profile_name}' 验证通过")
-    else:
-        click.echo(f"⚠️  Profile '{profile_name}' 验证失败: {msg[:100]}")
+        click.echo("  ❌ 安装后验证失败，请检查日志")

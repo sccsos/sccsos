@@ -108,19 +108,23 @@ class KnowledgeBase:
         if not self._entries:
             return []
 
-        # ── Vector search path ──────────────────────────────────
+        # ── Vector search path with fallback ───────────────────────
         if self._use_vector and self._vector_store:
-            doc_map = {e.path: e for e in self._entries}
-            results = self._vector_store.search_with_snippets(
-                query, top_k=top_k
-            )
-            matched = []
-            for doc_id, score, _ in results:
-                entry = doc_map.get(doc_id)
-                if entry:
-                    entry.relevance = score
-                    matched.append(entry)
-            return matched
+            try:
+                doc_map = {e.path: e for e in self._entries}
+                results = self._vector_store.search_with_snippets(
+                    query, top_k=top_k
+                )
+                matched = []
+                for doc_id, score, _ in results:
+                    entry = doc_map.get(doc_id)
+                    if entry:
+                        entry.relevance = score
+                        matched.append(entry)
+                return matched
+            except Exception:
+                # Vector search failed — fall through to keyword search
+                pass
 
         # ── Keyword search path (fallback) ──────────────────────
         terms = [t.strip().lower() for t in re.split(r"[\s,]+", query)

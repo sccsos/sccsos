@@ -21,5 +21,6 @@ system_prompt: |
   3. 性能：是否有不必要的循环、重复计算、大对象复制
   4. 可读性：变量命名、函数长度、注释质量
   5. 测试：是否有单元测试，边界条件是否覆盖
+
 model: deepseek-v4-flash
 temperature: 0.3

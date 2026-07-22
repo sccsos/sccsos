@@ -20,7 +20,7 @@
 
   <!-- Title -->
   <text x="480" y="36" text-anchor="middle" font-family="'Microsoft YaHei','PingFang SC',sans-serif" font-size="16" font-weight="bold" fill="#0f172a">SCCS OS 三层子运行时架构总览</text>
-  <text x="480" y="54" text-anchor="middle" font-family="'Microsoft YaHei','PingFang SC',sans-serif" font-size="10" fill="#64748b">v0.15.0 — 智能体操作系统平台</text>
+  <text x="480" y="54" text-anchor="middle" font-family="'Microsoft YaHei','PingFang SC',sans-serif" font-size="10" fill="#64748b">v0.15.5 — 智能体操作系统平台</text>
 
   <!-- Legend -->
   <rect x="30" y="62" width="900" height="28" rx="4" fill="#fff" stroke="#e2e8f0" stroke-width="1"/>
@@ -193,5 +193,5 @@
   <path d="M 800 170 L 800 688" stroke="#e11d48" stroke-width="1.2" stroke-dasharray="4,3" fill="none"/>
 
   <!-- Labels -->
-  <text x="24" y="795" font-family="'Microsoft YaHei',sans-serif" font-size="8" fill="#94a3b8">SCCS OS v0.15.0 | 健康评分 9.2/10 | 1021 测试用例 | 50+ 功能模块</text>
+  <text x="24" y="795" font-family="'Microsoft YaHei',sans-serif" font-size="8" fill="#94a3b8">SCCS OS v0.15.5 | 健康评分 9.2/10 | 1021 测试用例 | 50+ 功能模块</text>
 </svg>

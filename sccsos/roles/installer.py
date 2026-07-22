@@ -13,7 +13,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
-from sccsos.cli.sample_templates import SAMPLE_FILES
 from sccsos.roles import RolePackage
 
 
@@ -137,7 +136,10 @@ class RolePackageInstaller:
                 template_key = f"workflows/{name}.yaml"
                 target_filename = f"{name}.yaml"
 
-            if not template_key or template_key not in SAMPLE_FILES:
+            # Lazy import to avoid circular dependency (cli/__init__ → role_cmd → installer)
+            from sccsos.cli.sample_templates import SAMPLE_FILES as _SF
+
+            if not template_key or template_key not in _SF:
                 report.errors.append(
                     f"No built-in template for {subdir}/{name}"
                 )
@@ -150,8 +152,11 @@ class RolePackageInstaller:
             if target_path.exists():
                 continue
 
+            # Lazy import here too for consistency
+            from sccsos.cli.sample_templates import SAMPLE_FILES as _SF2
+
             target_path.write_text(
-                SAMPLE_FILES[template_key],
+                _SF2[template_key],
                 encoding="utf-8",
             )
             installed += 1

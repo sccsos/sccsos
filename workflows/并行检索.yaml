@@ -1,66 +1,44 @@
-name: parallel-research
+name: 并行检索
+description: 多 Agent 并行信息检索与综合
 schema_version: '1.1'
-version: "1.0"
-description: 并行检索对比工作流 — 同时使用不同策略检索，综合对比结果
+parallel_groups:
+  - id: search
+    max_concurrent: 3
+    steps:
+      - search-tech
+      - search-market
+      - search-security
 
 steps:
-  - id: deep_research
-    name: 深度检索
+  - id: search-tech
+    name: 技术方案检索
     agent: architect
     prompt: |
-      你是一名资深技术研究员。请对以下研究问题进行深度技术调研。
-
-      研究问题：
+      针对以下需求，调研可用的技术方案：
       {{ steps.input.context }}
+      列出 2-3 个主流方案并对比优劣。
 
-      调研要求：
-      1. 搜索权威技术来源（官方文档、知名博客、技术论文）
-      2. 给出至少 3 种可行的技术方案
-      3. 对每种方案进行优缺点分析
-      4. 引用具体的技术依据和案例
-      5. 给出推荐方案及理由
-
-  - id: web_quick
-    name: 快速检索
-    agent: code-reviewer
-    prompt: |
-      请对该问题进行快速的业界实践调研。
-
-      研究问题：
-      {{ steps.input.context }}
-
-      输出要求：
-      1. 列出 3-5 个实际落地案例
-      2. 每个案例说明：公司/项目名、技术栈、关键成果
-      3. 业界主流趋势总结
-
-  - id: synthesis
-    name: 综合报告
+  - id: search-market
+    name: 市场趋势分析
     agent: doc-writer
     prompt: |
-      请综合以下两份调研结果，生成一份完整的对比分析报告。
+      针对以下需求领域，分析当前市场趋势：
+      {{ steps.input.context }}
+      关注：主流厂商、开源生态、行业标准。
 
-      深度调研结果：
-      {{ steps.deep_research.response }}
+  - id: search-security
+    name: 安全合规分析
+    agent: code-reviewer
+    prompt: |
+      分析以下需求涉及的安全和合规考量：
+      {{ steps.input.context }}
+      列出：安全风险、合规要求、数据隐私。
 
-      快速调研结果：
-      {{ steps.web_quick.response }}
-
-      报告格式：
-      ## 技术选型对比报告
-      ### 1. 问题概述
-      ### 2. 候选方案对比
-      | 方案 | 优势 | 劣势 | 适用场景 |
-      ### 3. 业界实践参考
-      ### 4. 综合推荐
-      ### 5. 下一步行动
-    depends_on:
-      - deep_research
-      - web_quick
-
-parallel_groups:
-  - id: research-group
-    steps:
-      - deep_research
-      - web_quick
-    max_concurrent: 2
+  - id: synthesize
+    name: 综合报告
+    agent: architect
+    prompt: |
+      综合以下多维度调研结果，输出最终建议报告。
+      技术方案：{{ steps.search_tech.response }}
+      市场趋势：{{ steps.search_market.response }}
+      安全合规：{{ steps.search_security.response }}

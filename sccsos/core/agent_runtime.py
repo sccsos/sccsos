@@ -101,7 +101,7 @@ class AgentRuntime:
     @property
     def policy_engine(self):
         self._ensure_initialized()
-        if self._wf and self._wf.engine and hasattr(self._wf.engine, '_policy_engine'):
+        if self._wf and self._wf.engine:
             return self._wf.engine._policy_engine
         return None
 
@@ -212,8 +212,8 @@ class AgentRuntime:
 
     def register_agent(self, spec: AgentSpec) -> str:
         self._ensure_initialized()
-        if self._wf and self._wf.engine and hasattr(self._wf.engine, '_policy_engine'):
-            pe = self._wf.engine._policy_engine
+        pe = self.policy_engine
+        if pe is not None:
             pe.set_agent_policy(spec.name, spec.policy)
             result = pe.check_agent_toolsets(spec.name, spec.toolsets)
             if not result.allowed:

@@ -1,9 +1,26 @@
+# SCCS OS — Docker Compose
+#
+# ── 双模式部署 ─────────────────────────────────────────────────────
+#
+# Mode 1 (默认)  全合一：SCCS OS + Hermes Agent 在同一容器
+#   docker compose up -d
+#   构建 Dockerfile（默认），Hermes 通过 subprocess 通信
+#
+# Mode 2 (slim) 双容器：SCCS OS + Hermes Agent 独立部署
+#   docker compose --profile slim up -d
+#   构建 Dockerfile.slim，Hermes 通过 docker-exec 通信
+#   优势：独立扩缩容、镜像更小、关注点分离
+#   要求：sccsos-slim 容器需要 Docker socket 挂载
+
 version: "3.8"
 
+# ── ────────────────────────────────────────────────────────────────
+# Mode 1: 全合一（默认，向后兼容）
+# ── ────────────────────────────────────────────────────────────────
 services:
   sccsos:
     build: .
-    image: sccsos:0.14.2
+    image: sccsos:0.16.5
     container_name: sccsos
     ports:
       - "8765:8765"
@@ -18,6 +35,7 @@ services:
     environment:
       - SCCSOS_CONFIG=/sccsos/sccsos.yaml
       - HERMES_PROFILE=sccsos
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python3", "-m", "sccsos", "health"]
@@ -25,7 +43,68 @@ services:
       timeout: 10s
       retries: 3
 
+  # ── ───────────────────────────────────────────────────────────────
+  # Mode 2: 双容器（slim SCCS OS + 独立 Hermes Agent）
+  # ── ───────────────────────────────────────────────────────────────
+  sccsos-slim:
+    profiles: ["slim"]
+    build:
+      context: .
+      dockerfile: Dockerfile.slim
+    image: sccsos:0.16.5-slim
+    container_name: sccsos-slim
+    ports:
+      - "8765:8765"
+    volumes:
+      # Docker socket — 让 slim 容器能 docker exec 到 hermes-agent 容器
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - sccsos_data:/sccsos/data
+      - sccsos_logs:/sccsos/logs
+      - sccsos_traces:/sccsos/traces
+      - ./agents:/sccsos/agents:ro
+      - ./workflows:/sccsos/workflows:ro
+      - ./personalities:/sccsos/personalities:ro
+      - ./wiki:/sccsos/wiki:ro
+    environment:
+      - SCCSOS_CONFIG=/sccsos/sccsos.yaml
+      - HERMES_PROFILE=sccsos
+      # 适配器选择：docker-exec（跑 docker exec hermes-agent hermes …）
+      - HERMES_ADAPTER=docker-exec
+      - HERMES_DOCKER_CONTAINER=hermes-agent
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+    restart: unless-stopped
+    depends_on:
+      hermes-agent:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8765/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Hermes Agent 独立容器（供 sccsos-slim 通过 docker exec 调用）
+  hermes-agent:
+    profiles: ["slim"]
+    build:
+      context: .
+      dockerfile: Dockerfile.hermes
+    image: sccsos-hermes:0.16.5
+    container_name: hermes-agent
+    # 保持容器运行，等待 docker exec 调用
+    environment:
+      - HERMES_HOME=/hermes/home
+      - HERMES_PROFILE=sccsos
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+    volumes:
+      - hermes_home:/hermes/home
+    healthcheck:
+      test: ["CMD-SHELL", "sleep 1 && exit 0"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
 volumes:
   sccsos_data:
   sccsos_logs:
   sccsos_traces:
+  hermes_home:

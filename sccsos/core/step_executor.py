@@ -15,6 +15,7 @@ Responsibility chain::
 from __future__ import annotations
 
 import threading
+import logging
 from datetime import datetime, timezone
 from typing import Any, Optional
 
@@ -28,6 +29,8 @@ from sccsos.observability.tracer import Tracer
 from sccsos.observability.auditor import Auditor
 from sccsos.observability.pricing import PricingTable
 from sccsos.memory.memory_store import MemoryStore
+
+logger = logging.getLogger(__name__)
 
 
 # ── Exceptions ─────────────────────────────────────────────────────
@@ -69,7 +72,8 @@ class StepExecutor:
                  template_engine=None,
                  model_router=None,
                  retry_policy: Optional[RetryPolicy] = None,
-                 context_builder: Optional[ContextBuilder] = None):
+                 context_builder: Optional[ContextBuilder] = None,
+                 injection_guard=None):
         self._db = db
         self._adapter = adapter
         self._tracer = tracer or Tracer(db)
@@ -89,6 +93,8 @@ class StepExecutor:
             memory_store=memory_store,
             template_engine=template_engine,
         )
+        # Lazy-init injection guard (only if not explicitly provided)
+        self._injection_guard = injection_guard
 
     # ── Public API ───────────────────────────────────────────────
 
@@ -152,7 +158,18 @@ class StepExecutor:
         # Render prompt with template
         prompt_text = render_fn(step.prompt, template_context)
 
-        # ── Prepare prompt: injection check + personality wrap ──
+        # ── Prompt injection check (P0: security gate) ──────────
+        if self._injection_guard is not None:
+            from sccsos.security.injection import SecurityViolation
+            inj_result = self._injection_guard.check(prompt_text)
+            if not inj_result.allowed:
+                self._tracer.end_span(step_span.span_id, status="blocked")
+                logger.warning("Prompt injection blocked in step '%s': %s", step.id, inj_result.reason)
+                raise WorkflowExecutionError(
+                    f"Prompt injection detected in step '{step.id}': {inj_result.reason}"
+                )
+
+        # ── Prepare prompt: personality wrap ──
         prompt = self._prepare_prompt(step, prompt_text)
 
         # Record step start (DB write)
@@ -430,7 +447,6 @@ class StepExecutorBuilder:
             model_router=self._model_router,
             retry_policy=self._retry_policy,
             context_builder=self._context_builder,
+            injection_guard=self._injection_guard,
         )
-        if self._injection_guard is not None:
-            executor._injection_guard = self._injection_guard
         return executor

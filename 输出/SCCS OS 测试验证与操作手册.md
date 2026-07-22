@@ -1,6 +1,6 @@
-# SCCS OS v0.14.2 — 测试验证指南
+# SCCS OS v0.16.5 — 测试验证指南
 
-> 版本: v0.14.2 | 更新: 2026-07-26
+> 版本: v0.16.5 | 更新: 2026-07-26
 > 健康评分: 9.0/10 | 架构审计已实施
 > 涵盖：功能验证 · 集成测试 · 部署验证 · 操作案例 · 架构优化验证
 > 别名：`sc` 等价于 `sccsos`（全部命令可用）
@@ -39,7 +39,7 @@ pip install -e .
 
 # 验证 CLI 可用
 sccsos version
-# 预期: sccsos v0.14.2
+# 预期: sccsos v0.16.5
 #
 # 查看帮助
 sccsos --help
@@ -47,7 +47,7 @@ sccsos --help
 
 # 简写别名
 sc version
-# 预期: sccsos v0.14.2
+# 预期: sccsos v0.16.5
 sc --help
 # 预期: 与 sccsos --help 输出一致
 ```
@@ -80,7 +80,7 @@ cat sccsos.yaml | head -5
 ```bash
 sccsos health
 # 预期输出示例:
-#   sccsos v0.14.2
+#   sccsos v0.16.5
 #   Database: ok (0 agents)
 #   Hermes:   OK
 #   Agents:   0 registered
@@ -177,7 +177,7 @@ sccsos trace list
 
 # 版本查询
 sccsos version
-# 预期: sccsos v0.14.2
+# 预期: sccsos v0.16.5
 
 # 简写别名
 # sccsos 的全部命令均可通过 sc 简写执行
@@ -1202,11 +1202,11 @@ print('✅ ContextBuilder 记忆注入验证通过')
 
 ---
 
-## 第13章 架构优化验证（v0.14.2）
+## 第13章 架构优化验证（v0.16.5）
 
 ### 13.1 概述
 
-v0.14.2 完成了架构深度审计和 P0+P1 优化实施。本章验证优化项目的正确性和稳定性。
+v0.16.5 完成了架构深度审计和 P0+P1 优化实施。本章验证优化项目的正确性和稳定性。
 
 ### 13.2 PolicyEngine 日志验证
 

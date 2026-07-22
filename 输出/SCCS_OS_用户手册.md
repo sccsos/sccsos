@@ -1,6 +1,6 @@
 # SCCS OS 用户手册
 
-> **版本**: v0.14.2 | **更新日期**: 2026-07-26  
+> **版本**: v0.16.5 | **更新日期**: 2026-07-26  
 > **适用**: 企业内部智能体平台 / SaaS 多租户集群
 
 ---
@@ -111,8 +111,8 @@ sccsos init --interactive
 
 ```bash
 # 构建镜像
-docker build -t sccsos:0.14.2 .
-
+docker build -t sccsos:0.16.5 .
+docker run -d -p 8765:8765 sccsos:0.16.5
 # 启动服务
 docker run -d -p 8765:8765 \
   -v $(pwd)/data:/app/data \

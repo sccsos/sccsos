@@ -1,7 +1,7 @@
-"""Supervisor — AgentProcess monitoring with heartbeat + auto-restart.
+"""LocalSupervisor — in-process AgentProcess monitoring with heartbeat + auto-restart.
 
 Each AgentProcess calls ``heartbeat()`` on every iteration of its
-run loop.  The Supervisor runs a background monitor thread that
+run loop.  The supervisor runs a background monitor thread that
 detects:
 
 - **Dead processes**: thread exited unexpectedly → auto-restart
@@ -10,22 +10,24 @@ detects:
   → logged as warning, flagged in status.
 - **Paused processes**: tracked but not restarted.
 
-Usage:
-    supervisor = Supervisor(max_restarts=3, heartbeat_timeout=30.0)
+Usage::
+
+    from sccsos.core.supervisor import LocalSupervisor
+    supervisor = LocalSupervisor(max_restarts=3, heartbeat_timeout=30.0)
     supervisor.register("architect", agent_process)
     supervisor.start()       # starts monitor thread
     ...
     supervisor.stop()        # stops monitor thread (on shutdown)
     status = supervisor.get_status("architect")
 """
-
 from __future__ import annotations
 
 import logging
 import time
 import threading
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, Optional
+
+from sccsos.core.supervisor_base import SupervisorABC, ProcessStatus
 
 if TYPE_CHECKING:
     from sccsos.core.agent_runner import AgentProcess
@@ -33,19 +35,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger("sccsos.supervisor")
 
 
-@dataclass
-class ProcessStatus:
-    """Snapshot of a supervised process's health."""
-
-    name: str
-    alive: bool               # Thread is running
-    responsive: bool          # Heartbeat received recently
-    restart_count: int        # Number of restarts attempted
-    paused: bool = False
-    uptime_seconds: float = 0.0
-
-
-class Supervisor:
+class LocalSupervisor(SupervisorABC):
     """Monitors AgentProcess instances with heartbeat + auto-restart.
 
     Thread-safe: all mutable state is accessed under ``_lock``.
@@ -234,3 +224,7 @@ class Supervisor:
             self._stop_event.wait(self._check_interval)
 
         logger.info("Supervisor stopped.")
+
+
+# ── Backward-compatible alias ─────────────────────────────────────
+Supervisor = LocalSupervisor
