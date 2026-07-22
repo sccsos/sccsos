@@ -147,6 +147,13 @@ def init(dir, force, samples, interactive, role):
             installer.write_text(SAMPLE_AGENT_HERMES_INSTALL.lstrip("\n"), encoding="utf-8")
             click.echo(f"  Created: agents/hermes-installer.yaml")
 
+        # Create hermes-setup as the default workflow
+        wf_path = target / "workflows" / "hermes-setup.yaml"
+        if not wf_path.exists() or force:
+            from sccsos.cli.sample_templates import SAMPLE_WORKFLOW_HERMES_SETUP
+            wf_path.write_text(SAMPLE_WORKFLOW_HERMES_SETUP.lstrip("\n"), encoding="utf-8")
+            click.echo(f"  Created: workflows/hermes-setup.yaml")
+
     # ── Pricing ──
     pricing_path = target / "config" / "pricing.json"
     if not pricing_path.exists():
@@ -187,6 +194,7 @@ auto_approve: true
         click.echo("  Try: sccsos agent list")
         click.echo("  Try: sccsos workflow run workflows/冒烟测试.yaml")
     else:
-        click.echo("  Run with --samples to generate agent/workflow samples.")
+        click.echo("  Run with --samples to generate additional agent/workflow samples.")
         click.echo("  Run with --interactive for guided setup.")
         click.echo("  Try: sccsos agent list")
+        click.echo("  Try: sccsos workflow run workflows/hermes-setup.yaml")
