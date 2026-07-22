@@ -42,8 +42,8 @@ _debug_session.py
 # Python venv
 python3/
 
-# Temp output files
-输出/_*_tmp.md
+# Temp output files (previews / intermediates starting with _)
+输出/_*
 
 # Build output
 sccsos/api/static/
