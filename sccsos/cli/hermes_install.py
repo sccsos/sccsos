@@ -100,6 +100,8 @@ def _install_git(
     click.echo(f"  Mode:     git")
     click.echo(f"  Repo:     {git_url}")
     click.echo(f"  Target:   {install_dir}")
+    if hermes_home:
+        click.echo(f"  Home:     {hermes_home}")
     if version:
         click.echo(f"  Version:  {version}")
 
@@ -156,6 +158,27 @@ def _install_git(
 
     _update_hermes_paths_in_yaml(hermes_home, final_code_path)
 
+    # 创建 HERMES_HOME 目录结构（如使用自定义路径且不存在）
+    _ensure_hermes_home(hermes_home)
+
+
+def _ensure_hermes_home(home_path: str) -> None:
+    """Create HERMES_HOME directory structure if it doesn't exist."""
+    hp = Path(home_path)
+    if hp.exists():
+        return
+    click.echo(f"  → 创建 HERMES_HOME 目录结构: {home_path}")
+    for sub in ["profiles/sccsos", "skills", "memories", "sessions", "cron"]:
+        (hp / sub).mkdir(parents=True, exist_ok=True)
+    # 写入最小 config.yaml
+    cfg = hp / "config.yaml"
+    if not cfg.exists():
+        cfg.write_text(
+            "active_profile: sccsos\nmodel:\n  default: deepseek-v4-flash\n  provider: deepseek\n",
+            encoding="utf-8",
+        )
+    click.echo(f"  ✅ HERMES_HOME 已创建")
+
 
 def _install_script(china_mirror: bool, yes: bool, timeout: int = 600,
                     home: str = "", code_path: str = "") -> bool:
@@ -179,9 +202,15 @@ def _install_script(china_mirror: bool, yes: bool, timeout: int = 600,
     click.echo("  → 下载并执行安装脚本（实时输出，请耐心等待）...")
     click.echo("")
     try:
+        # 如有自定义 home，传给 install.sh（它尊重 HERMES_HOME 环境变量）
+        env = os.environ.copy()
+        if home:
+            env["HERMES_HOME"] = home
+            click.echo(f"  ↪ 使用自定义路径: HERMES_HOME={home}")
         r = subprocess.run(
             ["bash", "-c", f"curl -fL --progress-bar {url} | bash"],
             timeout=timeout,
+            env=env,
         )
         if r.returncode != 0:
             click.echo(f"  ❌ 安装失败（退出码 {r.returncode}），请检查网络后重试")
@@ -203,6 +232,9 @@ def _install_script(china_mirror: bool, yes: bool, timeout: int = 600,
     if not detected_code:
         detected_code = str(Path(detected_home) / "hermes-agent")
     _update_hermes_paths_in_yaml(detected_home, detected_code)
+    # 如使用了自定义路径且 install.sh 未自动创建，补建目录结构
+    if home:
+        _ensure_hermes_home(home)
     return True
 
 
