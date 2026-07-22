@@ -143,8 +143,9 @@ class HermesManager:
                 return get_config().hermes.code_path
         except Exception:
             pass
-        # Default: check git-installer location
-        default_path = Path.home() / ".hermes" / "hermes-agent"
+        # Default: check {hermes_home}/hermes-agent (respects custom home)
+        resolved_home = HermesManager._resolve_home()
+        default_path = Path(resolved_home) / "hermes-agent"
         if default_path.exists():
             return str(default_path)
         return None

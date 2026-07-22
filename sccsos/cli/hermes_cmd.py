@@ -82,8 +82,7 @@ def _get_hermes_home() -> str:
 def _get_hermes_code_path() -> str:
     """Get HERMES_CODE_PATH: env var > config > default.
 
-    Default checks common git-installer location
-    (~/.hermes/hermes-agent/).
+    Default checks {hermes_home}/hermes-agent/ (or ~/.hermes/hermes-agent).
     """
     from_env = os.environ.get("HERMES_CODE_PATH", "")
     if from_env:
@@ -94,8 +93,9 @@ def _get_hermes_code_path() -> str:
             return cfg.code_path
     except Exception:
         pass
-    # Default: check common git-installer location
-    default_path = Path.home() / ".hermes" / "hermes-agent"
+    # Default: check hermes_home/hermes-agent (respects custom home)
+    resolved_home = _get_hermes_home()
+    default_path = Path(resolved_home) / "hermes-agent"
     if default_path.exists():
         return str(default_path)
     return ""

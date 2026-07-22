@@ -147,9 +147,15 @@ def _install_git(
 
     click.echo("  → pip install -e .（实时输出，请耐心等待）...")
     click.echo("")
+    pip_env = os.environ.copy()
+    if hermes_home:
+        pip_env["HERMES_HOME"] = hermes_home
+    if final_code_path:
+        pip_env["HERMES_CODE_PATH"] = final_code_path
     r = subprocess.run(
         [sys.executable, "-m", "pip", "install", "-e", install_dir],
         timeout=300,
+        env=pip_env,
     )
     if r.returncode != 0:
         click.echo(f"  ❌ pip install -e 失败（退出码 {r.returncode}）")
@@ -202,11 +208,13 @@ def _install_script(china_mirror: bool, yes: bool, timeout: int = 600,
     click.echo("  → 下载并执行安装脚本（实时输出，请耐心等待）...")
     click.echo("")
     try:
-        # 如有自定义 home，传给 install.sh（它尊重 HERMES_HOME 环境变量）
+        # 如有自定义 home/code_path，传给 install.sh
         env = os.environ.copy()
         if home:
             env["HERMES_HOME"] = home
             click.echo(f"  ↪ 使用自定义路径: HERMES_HOME={home}")
+        if code_path:
+            env["HERMES_CODE_PATH"] = code_path
         r = subprocess.run(
             ["bash", "-c", f"curl -fL --progress-bar {url} | bash"],
             timeout=timeout,
