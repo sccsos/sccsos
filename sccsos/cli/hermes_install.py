@@ -24,6 +24,8 @@ from sccsos.cli.hermes_cmd import (
     _get_hermes_config,
     _get_hermes_home,
     _get_hermes_install_prefix,
+    _get_uv_install_dir,
+    _get_uv_cache_dir,
     _profile_exists,
     _run_hermes,
     _set_profile_config,
@@ -174,13 +176,30 @@ def _install_git(
 
 
 def _ensure_hermes_home(home_path: str) -> None:
-    """Create HERMES_HOME directory structure if it doesn't exist."""
+    """Create HERMES_HOME directory structure if it doesn't exist.
+
+    Also creates the companion directories for the ``$HOME/hermes``
+    fully-enclosed pattern (install/, runtime/, uv-cache/).
+    """
     hp = Path(home_path)
     if hp.exists():
         return
     click.echo(f"  → 创建 HERMES_HOME 目录结构: {home_path}")
-    for sub in ["profiles/sccsos", "skills", "memories", "sessions", "cron"]:
+
+    # Core HERMES_HOME subdirs
+    for sub in ["config", "logs", "data", "sessions", "skills", "memory", "plugins", "pid", "bin"]:
         (hp / sub).mkdir(parents=True, exist_ok=True)
+
+    # Companion directories for fully-enclosed pattern
+    hermes_root = hp.parent  # $HOME/hermes when hp = $HOME/hermes/runtime
+    if hermes_root.name == "hermes" and hermes_root.parent == Path.home():
+        (hermes_root / "install" / "bin").mkdir(parents=True, exist_ok=True)
+        (hermes_root / "install" / "venv").mkdir(parents=True, exist_ok=True)
+        (hermes_root / "install" / "lib").mkdir(parents=True, exist_ok=True)
+        (hermes_root / "uv-cache" / "archives").mkdir(parents=True, exist_ok=True)
+        (hermes_root / "uv-cache" / "git").mkdir(parents=True, exist_ok=True)
+        click.echo(f"  ✅ $HOME/hermes 全封闭目录结构已创建")
+
     # 写入最小 config.yaml
     cfg = hp / "config.yaml"
     if not cfg.exists():
@@ -189,6 +208,66 @@ def _ensure_hermes_home(home_path: str) -> None:
             encoding="utf-8",
         )
     click.echo(f"  ✅ HERMES_HOME 已创建")
+
+
+def _detect_shell_rc() -> str:
+    """Detect the user's shell rc file based on OS and $SHELL."""
+    shell = os.environ.get("SHELL", "")
+    if "zsh" in shell:
+        candidates = [".zshrc", ".zprofile"]
+    elif "bash" in shell:
+        # Linux → .bashrc, macOS → .bash_profile
+        if sys.platform == "darwin":
+            candidates = [".bash_profile", ".bashrc", ".zshrc"]
+        else:
+            candidates = [".bashrc", ".bash_profile"]
+    elif "fish" in shell:
+        return str(Path.home() / ".config" / "fish" / "config.fish")
+    else:
+        candidates = [".bashrc", ".zshrc", ".profile"]
+
+    for c in candidates:
+        rc = Path.home() / c
+        if rc.exists():
+            return str(rc)
+    # Fallback: use the first candidate
+    return str(Path.home() / candidates[0])
+
+
+def _setup_shell_rc(rc_file: str = "", yes: bool = False) -> bool:
+    """Write Hermes core environment variables to the user's shell rc file.
+
+    Returns True if changes were made.
+    """
+    rc_path = Path(rc_file) if rc_file else Path(_detect_shell_rc())
+
+    env_block = f"""# ── Hermes Agent 全封闭安装环境变量 ──
+export HOME_HERMES="$HOME/hermes"
+export HERMES_INSTALL_PREFIX="$HOME_HERMES/install"
+export HERMES_HOME="$HOME_HERMES/runtime"
+export UV_INSTALL_DIR="$HOME_HERMES/runtime/bin"
+export UV_CACHE_DIR="$HOME_HERMES/uv-cache"
+export PATH="$HOME_HERMES/install/bin:$HOME_HERMES/runtime/bin:$PATH"
+# ── ──
+"""
+    if rc_path.exists():
+        existing = rc_path.read_text(encoding="utf-8")
+        if "HERMES_INSTALL_PREFIX" in existing:
+            click.echo(f"  ⏭ Hermes 环境变量已在 {rc_path.name} 中存在，跳过")
+            return False
+
+    if not yes:
+        if not click.confirm(f"  将 Hermes 环境变量写入 {rc_path.name}?\\n"
+                             f"    路径: {rc_path}"):
+            click.echo("  已跳过 Shell RC 配置")
+            return False
+
+    rc_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(rc_path, "a", encoding="utf-8") as f:
+        f.write(f"\\n{env_block}")
+    click.echo(f"  ✅ 环境变量已写入 {rc_path.name}")
+    click.echo(f"     执行 source {rc_path.name} 立即生效")
+    return True
 
 
 def _install_script(china_mirror: bool, yes: bool, timeout: int = 600,
@@ -471,7 +550,9 @@ def _auto_apply_config() -> None:
               help="版本标签（git: checkout, docker: image tag）")
 @click.option("--method", "-m", default="script", type=click.Choice(["script", "git", "docker"]),
               help="安装方式（默认 script：一键安装脚本）")
-def install(method, version, git_url, target, check, yes, force, home, install_prefix, china_mirror):
+@click.option("--shell-rc/--no-shell-rc", default=None,
+              help="安装后自动配置 Shell 环境变量（默认从 sccsos.yaml 读取 auto_setup）")
+def install(method, version, git_url, target, check, yes, force, home, install_prefix, shell_rc, china_mirror):
     """Install Hermes Agent on this machine.
 
     三种安装方式：
@@ -507,10 +588,14 @@ def install(method, version, git_url, target, check, yes, force, home, install_p
     # ── 解析 home / install_prefix：CLI 参数 > sccsos.yaml > 默认 ──
     resolved_home = home or _get_hermes_home()
     resolved_install_prefix = install_prefix or _get_hermes_install_prefix()
+    resolved_uv_bin = _get_uv_install_dir()
+    resolved_uv_cache = _get_uv_cache_dir()
     if resolved_home:
-        click.echo(f"  HERMES_HOME:          {resolved_home}")
+        click.echo(f"  HERMES_HOME:            {resolved_home}")
     if resolved_install_prefix:
-        click.echo(f"  INSTALL_PREFIX:       {resolved_install_prefix}")
+        click.echo(f"  HERMES_INSTALL_PREFIX:  {resolved_install_prefix}")
+    click.echo(f"  UV_INSTALL_DIR:         {resolved_uv_bin}")
+    click.echo(f"  UV_CACHE_DIR:           {resolved_uv_cache}")
     click.echo("")
 
     # ── 执行安装 ──
@@ -537,6 +622,20 @@ def install(method, version, git_url, target, check, yes, force, home, install_p
         # auto-sync sccsos.yaml model config → Hermes profile
         _auto_apply_config()
 
+        # ── Shell RC 配置 ──
+        do_shell_rc = shell_rc if shell_rc is not None else None
+        if do_shell_rc is None:
+            try:
+                from sccsos.core.config import get_config
+                do_shell_rc = get_config().hermes.shell_rc.auto_setup
+            except Exception:
+                do_shell_rc = True
+        if do_shell_rc:
+            click.echo("")
+            click.echo("  ── Shell 环境变量配置 ──")
+            _setup_shell_rc(yes=yes)
+
+        click.echo("")
         click.echo("后续步骤:")
         click.echo("  sccsos hermes setup              # 配置 API Key（如未设置环境变量）")
         click.echo("  sccsos hermes postinstall          # 安装 Browser 引擎等系统依赖")

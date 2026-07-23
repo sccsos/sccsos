@@ -1,4 +1,4 @@
-# SCCS OS v0.16.8
+# SCCS OS v0.17.0
 
 **Smart Agent Runtime Platform for SCCS-T Product Ecosystem**
 
@@ -161,8 +161,8 @@ python -m sccsos.api.fastapi_app --port 8765
 
 ```bash
 # 全合一镜像（Hermes 内嵌）
-docker build -t sccsos:0.16.8 -f Dockerfile .
-docker run -d -p 8765:8765 sccsos:0.16.8
+docker build -t sccsos:0.17.0 -f Dockerfile .
+docker run -d -p 8765:8765 sccsos:0.17.0
 
 # 或使用 Docker Compose：
 #   全合一模式（默认）：docker compose up -d
@@ -265,6 +265,7 @@ sccsos/
 
 | 版本 | 日期 | 关键特性 |
 |------|------|---------|
+| v0.17.0 | 2026-07-22 | 全封闭安装支持 + shell rc 自动配置 + 默认 `$HOME/hermes` 路径 |
 | v0.16.8 | 2026-07-22 | `code_path` → `install_prefix` 重构 + 版本同步 `0.16.7` → `0.16.8` |
 | v0.16.7 | 2026-07-22 | 版本同步 `0.16.6` → `0.16.7` |
 | v0.16.5 | 2026-07-26 | hermes-installer 默认智能体 + init Agent 策略调整 |

@@ -254,6 +254,38 @@ class HermesRemoteConfig:
 
 
 @dataclass
+class HermesUvConfig:
+    """UV tool configuration for Hermes agent installation.
+
+    Controls UV_INSTALL_DIR and UV_CACHE_DIR for the fully-enclosed
+    ``$HOME/hermes`` deployment pattern::
+
+        hermes:
+          uv:
+            install_dir: ""     # UV_INSTALL_DIR override
+            cache_dir: ""       # UV_CACHE_DIR override
+    """
+    install_dir: str = ""
+    cache_dir: str = ""
+
+
+@dataclass
+class HermesShellRcConfig:
+    """Shell rc file auto-setup after Hermes installation.
+
+    Controls automatic environment variable injection into the user's
+    shell profile::
+
+        hermes:
+          shell_rc:
+            auto_setup: true
+            rc_file: ""
+    """
+    auto_setup: bool = True
+    rc_file: str = ""
+
+
+@dataclass
 class HermesConfig:
     """Hermes Agent connection and setup configuration.
 
@@ -292,12 +324,14 @@ class HermesConfig:
     setup: HermesSetupConfig = field(default_factory=HermesSetupConfig)
     docker: HermesDockerConfig = field(default_factory=HermesDockerConfig)
     remote: HermesRemoteConfig = field(default_factory=HermesRemoteConfig)
+    uv: HermesUvConfig = field(default_factory=HermesUvConfig)
+    shell_rc: HermesShellRcConfig = field(default_factory=HermesShellRcConfig)
 
 
 @dataclass
 class ProjectConfig:
     name: str = "sccsos"
-    version: str = "0.16.8"
+    version: str = "0.17.0"
 
 
 # ── Auto-merge helper ──────────────────────────────────────────────

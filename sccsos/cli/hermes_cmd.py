@@ -66,7 +66,7 @@ def _resolve_hermes_binary() -> str:
 
 
 def _get_hermes_home() -> str:
-    """Get HERMES_HOME: env var > config > default (~/.hermes)."""
+    """Get HERMES_HOME: env var > config > $HOME/hermes/runtime > ~/.hermes."""
     from_env = os.environ.get("HERMES_HOME", "")
     if from_env:
         return from_env
@@ -76,14 +76,15 @@ def _get_hermes_home() -> str:
             return cfg.home
     except Exception:
         pass
+    # Prefer $HOME/hermes/runtime (fully-enclosed pattern), fallback ~/.hermes
+    hermes_runtime = Path.home() / "hermes" / "runtime"
+    if hermes_runtime.exists():
+        return str(hermes_runtime)
     return str(Path.home() / ".hermes")
 
 
 def _get_hermes_install_prefix() -> str:
-    """Get HERMES_INSTALL_PREFIX: env var > config.
-
-    Returns empty string if not set.
-    """
+    """Get HERMES_INSTALL_PREFIX: env var > config > $HOME/hermes/install."""
     from_env = os.environ.get("HERMES_INSTALL_PREFIX", "")
     if from_env:
         return from_env
@@ -93,7 +94,35 @@ def _get_hermes_install_prefix() -> str:
             return cfg.install_prefix
     except Exception:
         pass
-    return ""
+    return str(Path.home() / "hermes" / "install")
+
+
+def _get_uv_install_dir() -> str:
+    """Get UV_INSTALL_DIR: env var > config > $HOME/hermes/runtime/bin."""
+    from_env = os.environ.get("UV_INSTALL_DIR", "")
+    if from_env:
+        return from_env
+    try:
+        cfg = _get_hermes_config()
+        if cfg.uv.install_dir:
+            return cfg.uv.install_dir
+    except Exception:
+        pass
+    return str(Path.home() / "hermes" / "runtime" / "bin")
+
+
+def _get_uv_cache_dir() -> str:
+    """Get UV_CACHE_DIR: env var > config > $HOME/hermes/uv-cache."""
+    from_env = os.environ.get("UV_CACHE_DIR", "")
+    if from_env:
+        return from_env
+    try:
+        cfg = _get_hermes_config()
+        if cfg.uv.cache_dir:
+            return cfg.uv.cache_dir
+    except Exception:
+        pass
+    return str(Path.home() / "hermes" / "uv-cache")
 
 
 def _run_hermes(args: list[str], timeout: int = 30) -> tuple[str, str, int]:
@@ -690,10 +719,12 @@ def hermes_cmd() -> None:
 # (show/setup/use commands moved to cli/hermes_setup.py)
 
 from sccsos.cli.hermes_setup import show, setup, use
+from sccsos.cli.hermes_doctor import env_setup
 
 hermes_cmd.add_command(show)
 hermes_cmd.add_command(setup)
 hermes_cmd.add_command(use)
+hermes_cmd.add_command(env_setup)
 
 
 

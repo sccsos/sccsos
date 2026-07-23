@@ -546,17 +546,23 @@ SAMPLE_PRICING = """{
 # Enriched sccsos.yaml (with --samples)
 # ═══════════════════════════════════════════════════════════════════════
 
-SAMPLE_YAML_FULL = """# sccsos v0.16.8 project configuration (full)
+SAMPLE_YAML_FULL = """# sccsos v0.17.0 project configuration (full)
 project:
   name: sccsos
-  version: 0.16.8
+  version: 0.17.0
 
 hermes:
   profile: sccsos
   binary: hermes
-  home: ""                 # HERMES_HOME 覆盖（空值 = 使用环境变量或默认 ~/.hermes）
-  install_prefix: ""       # HERMES_INSTALL_PREFIX 覆盖（空值 = 使用环境变量）
+  home: ""                 # HERMES_HOME 覆盖（空值 = 使用环境变量或默认 $HOME/hermes/runtime）
+  install_prefix: ""       # HERMES_INSTALL_PREFIX 覆盖（空值 = 使用环境变量或默认 $HOME/hermes/install）
   adapter: subprocess
+  uv:
+    install_dir: ""        # UV_INSTALL_DIR 覆盖（空值 = 使用环境变量或默认 $HOME/hermes/runtime/bin）
+    cache_dir: ""          # UV_CACHE_DIR 覆盖（空值 = 使用环境变量或默认 $HOME/hermes/uv-cache）
+  shell_rc:
+    auto_setup: true       # 安装后自动写入 shell rc 文件
+    rc_file: ""            # 强制指定 rc 文件（空值 = 自动检测）
   setup:
     provider: deepseek
     model: deepseek-v4-flash

@@ -18,6 +18,8 @@ from sccsos.cli.hermes_cmd import (
     _get_hermes_config,
     _get_hermes_home,
     _get_hermes_install_prefix,
+    _get_uv_install_dir,
+    _get_uv_cache_dir,
     _get_profile_config_path,
     _list_profiles,
     _resolve_hermes_binary,
@@ -157,8 +159,12 @@ def doctor(fix: bool) -> None:
     # 2b. Environment paths
     hermes_home = _get_hermes_home()
     hermes_install_prefix = _get_hermes_install_prefix()
-    click.echo(f"  HERMES_HOME:    {hermes_home}")
-    click.echo(f"  HERMES_INSTALL_PREFIX: {hermes_install_prefix or 'not detected'}")
+    uv_install_dir = _get_uv_install_dir()
+    uv_cache_dir = _get_uv_cache_dir()
+    click.echo(f"  HERMES_HOME:            {hermes_home}")
+    click.echo(f"  HERMES_INSTALL_PREFIX:  {hermes_install_prefix or 'not detected'}")
+    click.echo(f"  UV_INSTALL_DIR:         {uv_install_dir}")
+    click.echo(f"  UV_CACHE_DIR:           {uv_cache_dir}")
     home_ok = Path(hermes_home).exists()
     if not home_ok:
         issues.append(("home", f"HERMES_HOME 目录不存在: {hermes_home}", "sccsos hermes setup"))
@@ -373,3 +379,29 @@ def postinstall(do_browser, do_cua, check, yes):
         click.echo("🎉 所有系统依赖已就绪。")
     else:
         click.echo("部分依赖未安装完成。运行 'sccsos hermes doctor' 查看详情。")
+
+
+# ── Env-setup command ──────────────────────────────────────────────
+
+
+@click.command(name="env-setup")
+@click.option("--rc-file", default=None,
+              help="Shell rc 文件路径（默认自动检测 .bashrc/.zshrc）")
+@click.option("--yes", "-y", is_flag=True, help="跳过确认提示")
+def env_setup(rc_file: Optional[str], yes: bool) -> None:
+    """Write Hermes environment variables to shell config file.
+
+    Detects the user's shell (bash/zsh/fish) and OS (Linux/macOS),
+    then appends the four core environment variables (HERMES_HOME,
+    HERMES_INSTALL_PREFIX, UV_INSTALL_DIR, UV_CACHE_DIR) plus PATH
+    to the appropriate rc file.
+
+    After running, execute ``source ~/.bashrc`` (or equivalent) to
+    activate the variables in the current shell.
+    """
+    from sccsos.cli.hermes_install import _setup_shell_rc
+
+    click.echo("── Hermes Agent 环境变量配置 ──")
+    click.echo("")
+
+    _setup_shell_rc(rc_file=rc_file or "", yes=yes)
