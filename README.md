@@ -1,4 +1,4 @@
-# SCCS OS v0.17.4
+# SCCS OS v0.17.5
 
 **Smart Agent Runtime Platform for SCCS-T Product Ecosystem**
 
@@ -161,8 +161,8 @@ python -m sccsos.api.fastapi_app --port 8765
 
 ```bash
 # 全合一镜像（Hermes 内嵌）
-docker build -t sccsos:0.17.4 -f Dockerfile .
-docker run -d -p 8765:8765 sccsos:0.17.4
+docker build -t sccsos:0.17.5 -f Dockerfile .
+docker run -d -p 8765:8765 sccsos:0.17.5
 
 # 或使用 Docker Compose：
 #   全合一模式（默认）：docker compose up -d
@@ -265,6 +265,7 @@ sccsos/
 
 | 版本 | 日期 | 关键特性 |
 |------|------|---------|
+| v0.17.5 | 2026-07-22 | install 子进程 env 注入修复 + 版本同步 `0.17.4` → `0.17.5` |
 | v0.17.4 | 2026-07-22 | `--install-prefix`→`--install-dir` bugfix + 版本同步 `0.17.3` → `0.17.4` |
 | v0.17.3 | 2026-07-22 | 目录布局优化 `data/`+`agent/` + `INSTALL_PREFIX`→`INSTALL_DIR` 重命名 |
 | v0.17.1 | 2026-07-22 | install UV env 注入修复 + 版本同步 `0.17.0` → `0.17.1` |

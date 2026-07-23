@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.17.5] — 2026-07-22
+
+### Fixed
+
+- **`sccsos hermes install` 子进程 env 注入修复**: `hermes_cmd.py` 中 `_install_script`/`_install_git`/`_install_docker` 缺少 `HERMES_HOME`/`HERMES_INSTALL_DIR`/`UV_INSTALL_DIR`/`UV_CACHE_DIR` 环境变量传递，导致 `sccsos.yaml` 配置无法传递到 `install.sh`
+- **版本同步**: 全项目文件版本号 `0.17.4` → `0.17.5`
+
 ## [0.17.4] — 2026-07-22
 
 ### Fixed
