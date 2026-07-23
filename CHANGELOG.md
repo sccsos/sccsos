@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.17.8] — 2026-07-22
+
+### Fixed
+
+- **install 后 Shell RC 自动配置**: `hermes_cmd.py` install 命令新增 `_setup_shell_rc` 调用，安装完成后自动写入 `.bashrc`/`.zshrc` 环境变量
+- **版本同步**: 全项目文件版本号 `0.17.7` → `0.17.8`
+
 ## [0.17.7] — 2026-07-22
 
 ### Fixed
