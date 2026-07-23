@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.17.4] — 2026-07-22
+
+### Fixed
+
+- **install 命令 `--install-prefix` → `--install-dir` 修复**: Click 选项名与函数参数不一致导致 TypeError
+- **版本同步**: 全项目文件版本号 `0.17.3` → `0.17.4`
+
 ## [0.17.3] — 2026-07-22
 
 ### Changed
