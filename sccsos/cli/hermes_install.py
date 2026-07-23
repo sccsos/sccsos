@@ -249,12 +249,11 @@ def _setup_shell_rc(rc_file: str = "", yes: bool = False) -> bool:
     rc_path = Path(rc_file) if rc_file else Path(_detect_shell_rc())
 
     env_block = f"""# ── Hermes Agent 全封闭安装环境变量 ──
-export HOME_HERMES="$HOME/hermes"
-export HERMES_HOME="$HOME_HERMES/data"
-export HERMES_INSTALL_DIR="$HOME_HERMES/agent"
+export HERMES_HOME="$HOME/hermes/data"
+export HERMES_INSTALL_DIR="$HOME/hermes/agent"
 export UV_INSTALL_DIR="$HERMES_HOME/bin"
 export UV_CACHE_DIR="$HERMES_HOME/uv-cache"
-export PATH="$HERMES_INSTALL_DIR/venv/bin:$HOME_HERMES/data/bin:$PATH"
+export PATH="$HERMES_INSTALL_DIR/venv/bin:$HERMES_HOME/bin:$PATH"
 # ── ──
 """
     if rc_path.exists():

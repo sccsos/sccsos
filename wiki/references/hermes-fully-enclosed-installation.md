@@ -49,12 +49,11 @@ $HOME/hermes/
 ## 三、四大核心环境变量
 
 ```bash
-export HOME_HERMES="$HOME/hermes"
-export HERMES_INSTALL_DIR="$HOME_HERMES/agent"    # 程序静态安装目录
-export HERMES_HOME="$HOME_HERMES/data"               # 业务运行工作目录
-export UV_INSTALL_DIR="$HOME_HERMES/data/bin"        # UV 工具本体安装目录
-export UV_CACHE_DIR="$HOME_HERMES/data/uv-cache"             # UV Python 依赖缓存
-export PATH="$HERMES_INSTALL_DIR/venv/bin:$HOME_HERMES/data/bin:$PATH"
+export HERMES_HOME="$HOME/hermes/data"
+export HERMES_INSTALL_DIR="$HOME/hermes/agent"
+export UV_INSTALL_DIR="$HERMES_HOME/bin"
+export UV_CACHE_DIR="$HERMES_HOME/uv-cache"
+export PATH="$HERMES_INSTALL_DIR/venv/bin:$HERMES_HOME/bin:$PATH"
 ```
 
 ### 永久生效（.bashrc / .zshrc）
@@ -62,12 +61,11 @@ export PATH="$HERMES_INSTALL_DIR/venv/bin:$HOME_HERMES/data/bin:$PATH"
 ```bash
 cat >> ~/.bashrc << 'EOF'
 # Hermes Agent 全封闭安装环境变量
-export HOME_HERMES="$HOME/hermes"
-export HERMES_INSTALL_DIR="$HOME_HERMES/agent"
-export HERMES_HOME="$HOME_HERMES/data"
-export UV_INSTALL_DIR="$HOME_HERMES/data/bin"
-export UV_CACHE_DIR="$HOME_HERMES/data/uv-cache"
-export PATH="$HERMES_INSTALL_DIR/venv/bin:$HOME_HERMES/data/bin:$PATH"
+export HERMES_HOME="$HOME/hermes/data"
+export HERMES_INSTALL_DIR="$HOME/hermes/agent"
+export UV_INSTALL_DIR="$HERMES_HOME/bin"
+export UV_CACHE_DIR="$HERMES_HOME/uv-cache"
+export PATH="$HERMES_INSTALL_DIR/venv/bin:$HERMES_HOME/bin:$PATH"
 EOF
 source ~/.bashrc
 ```
@@ -76,11 +74,12 @@ source ~/.bashrc
 
 ```bash
 #!/bin/bash
-export HOME_HERMES="$HOME/hermes"
+export HERMES_HOME="$HOME/hermes/data"
+export HERMES_INSTALL_DIR="$HOME/hermes/agent"
 mkdir -p \
-  $HOME_HERMES/agent/{bin,lib,share,include,man,versions,venv} \
-  $HOME_HERMES/data/{config,logs,sessions,skills,memory,plugins,pid,bin} \
-  $HOME_HERMES/data/uv-cache/{archives,git,metadata}
+  $HERMES_INSTALL_DIR/{bin,lib,share,include,man,versions,venv} \
+  $HERMES_HOME/{config,logs,sessions,skills,memory,plugins,pid,bin} \
+  $HERMES_HOME/uv-cache/{archives,git,metadata}
 ```
 
 ## 五、UV 二进制找不到问题根治
@@ -91,22 +90,21 @@ Hermes 安装脚本硬编码读取 `HERMES_HOME/bin/uv`，若 `UV_INSTALL_DIR` �
 
 ### 修复方案
 
-**路径原生对齐**：将 `UV_INSTALL_DIR` 直接设为 `$HOME_HERMES/data/bin`，与 Hermes 校验路径一致，无需软链接。
+**路径原生对齐**：将 `UV_INSTALL_DIR` 直接设为 `$HERMES_HOME/bin`，与 Hermes 校验路径一致，无需软链接。
 
 ### 增强修复脚本
 
 ```bash
 #!/bin/bash
-export HOME_HERMES="$HOME/hermes"
-export HERMES_INSTALL_DIR="$HOME_HERMES/agent"
-export HERMES_HOME="$HOME_HERMES/data"
-export UV_INSTALL_DIR="$HOME_HERMES/data/bin"
-export UV_CACHE_DIR="$HOME_HERMES/data/uv-cache"
+export HERMES_HOME="$HOME/hermes/data"
+export HERMES_INSTALL_DIR="$HOME/hermes/agent"
+export UV_INSTALL_DIR="$HERMES_HOME/bin"
+export UV_CACHE_DIR="$HERMES_HOME/uv-cache"
 
 mkdir -p \
-  $HOME_HERMES/agent/{bin,lib,share,include,man,versions,venv} \
-  $HOME_HERMES/data/{config,logs,sessions,skills,memory,plugins,pid,bin} \
-  $HOME_HERMES/data/uv-cache/{archives,git,metadata}
+  $HERMES_INSTALL_DIR/{bin,lib,share,include,man,versions,venv} \
+  $HERMES_HOME/{config,logs,sessions,skills,memory,plugins,pid,bin} \
+  $UV_CACHE_DIR/{archives,git,metadata}
 
 # UV 自检与自愈
 if [ -f "$UV_INSTALL_DIR/uv" ]; then
