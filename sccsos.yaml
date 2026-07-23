@@ -7,7 +7,7 @@ hermes:
   profile: sccsos
   binary: hermes
   home: ""                 # HERMES_HOME 覆盖（空值 = 使用环境变量或默认 $HOME/hermes/data）
-  install_prefix: ""       # HERMES_INSTALL_PREFIX 覆盖（空值 = 使用环境变量或默认 $HOME/hermes/agent）
+  install_dir: ""          # HERMES_INSTALL_DIR 覆盖（空值 = 使用环境变量或默认 $HOME/hermes/agent）
   adapter: subprocess
   uv:
     install_dir: ""        # UV_INSTALL_DIR 覆盖（空值 = 使用环境变量或默认 $HOME/hermes/data/bin）

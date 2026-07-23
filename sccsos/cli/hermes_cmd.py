@@ -83,15 +83,15 @@ def _get_hermes_home() -> str:
     return str(Path.home() / ".hermes")
 
 
-def _get_hermes_install_prefix() -> str:
-    """Get HERMES_INSTALL_PREFIX: env var > config > $HOME/hermes/agent."""
-    from_env = os.environ.get("HERMES_INSTALL_PREFIX", "")
+def _get_hermes_install_dir() -> str:
+    """Get HERMES_INSTALL_DIR: env var > config > $HOME/hermes/agent."""
+    from_env = os.environ.get("HERMES_INSTALL_DIR", "")
     if from_env:
         return from_env
     try:
         cfg = _get_hermes_config()
-        if cfg.install_prefix:
-            return cfg.install_prefix
+        if cfg.install_dir:
+            return cfg.install_dir
     except Exception:
         pass
     return str(Path.home() / "hermes" / "agent")
@@ -244,8 +244,8 @@ def _report_install_status() -> None:
         click.echo("  安装: sccsos hermes install")
 
 
-def _update_hermes_paths_in_yaml(home: str, install_prefix: str) -> None:
-    """Update hermes.home and (optionally) hermes.install_prefix in sccsos.yaml."""
+def _update_hermes_paths_in_yaml(home: str, install_dir: str) -> None:
+    """Update hermes.home and (optionally) hermes.install_dir in sccsos.yaml."""
     config_path = _get_config_path()
     if not config_path.exists():
         return
@@ -256,21 +256,21 @@ def _update_hermes_paths_in_yaml(home: str, install_prefix: str) -> None:
     if home and hermes.get("home") != home:
         hermes["home"] = home
         changed = True
-    if install_prefix:
-        if hermes.get("install_prefix") != install_prefix:
-            hermes["install_prefix"] = install_prefix
+    if install_dir:
+        if hermes.get("install_dir") != install_dir:
+            hermes["install_dir"] = install_dir
             changed = True
     else:
-        # Remove stale install_prefix if explicitly set to empty
-        if "install_prefix" in hermes:
-            del hermes["install_prefix"]
+        # Remove stale install_dir if explicitly set to empty
+        if "install_dir" in hermes:
+            del hermes["install_dir"]
             changed = True
     if changed:
         config_path.write_text(
             yaml.dump(data, allow_unicode=True, default_flow_style=False),
             encoding="utf-8",
         )
-        click.echo("  ✅ sccsos.yaml 已更新: hermes.home + hermes.install_prefix")
+        click.echo("  ✅ sccsos.yaml 已更新: hermes.home + hermes.install_dir")
 
 
 def _install_git(
@@ -280,13 +280,13 @@ def _install_git(
     yes: bool,
     force: bool,
     home_override: Optional[str],
-    install_prefix_override: Optional[str],
+    install_dir_override: Optional[str],
 ) -> None:
     """Install Hermes Agent via git clone + pip install -e."""
     hermes_home = home_override or _get_hermes_home()
     install_dir = target or str(Path(hermes_home) / "hermes-agent")
     install_path = Path(install_dir)
-    final_install_prefix = install_prefix_override or install_dir
+    final_install_dir = install_dir_override or install_dir
 
     click.echo(f"  Mode:     git")
     click.echo(f"  Repo:     {git_url}")
@@ -350,15 +350,15 @@ def _install_git(
     _run_hermes(["profile", "list"], timeout=30)
     click.echo("  ✅ 默认配置已初始化")
 
-    _update_hermes_paths_in_yaml(hermes_home, final_install_prefix)
+    _update_hermes_paths_in_yaml(hermes_home, final_install_dir)
 
 
 def _install_script(china_mirror: bool, yes: bool, timeout: int = 600,
-                    home: str = "", install_prefix: str = "") -> bool:
+                    home: str = "", install_dir: str = "") -> bool:
     """Install Hermes Agent via official one-click install script.
 
     Uses the upstream install.sh which auto-configures venv, deps, and CLI.
-    After success, writes detected home/install_prefix back to sccsos.yaml.
+    After success, writes detected home/install_dir back to sccsos.yaml.
     """
     url = (
         "https://res1.hermesagent.org.cn/install.sh"
@@ -393,7 +393,7 @@ def _install_script(china_mirror: bool, yes: bool, timeout: int = 600,
 
     # ── 安装成功后写回 sccsos.yaml ──
     detected_home = home or _get_hermes_home()
-    detected_install = install_prefix or _get_hermes_install_prefix()
+    detected_install = install_dir or _get_hermes_install_dir()
     if not detected_home:
         detected_home = str(Path.home() / ".hermes")
     _update_hermes_paths_in_yaml(detected_home, detected_install)
@@ -401,11 +401,11 @@ def _install_script(china_mirror: bool, yes: bool, timeout: int = 600,
 
 
 def _install_docker(version: Optional[str], yes: bool, force: bool,
-                    home: str = "", install_prefix: str = "",
+                    home: str = "", install_dir: str = "",
                     china_mirror: bool = False) -> bool:
     """Install Hermes Agent via Docker image pull.
 
-    After success, writes detected home/install_prefix back to sccsos.yaml.
+    After success, writes detected home/install_dir back to sccsos.yaml.
     """
     tag = version or "latest"
     image = (
@@ -443,7 +443,7 @@ def _install_docker(version: Optional[str], yes: bool, force: bool,
 
     # ── 写回 sccsos.yaml ──
     detected_home = home or _get_hermes_home() or str(Path.home() / ".hermes")
-    detected_install = install_prefix or _get_hermes_install_prefix()
+    detected_install = install_dir or _get_hermes_install_dir()
     _update_hermes_paths_in_yaml(detected_home, detected_install)
     return True
 
@@ -746,8 +746,8 @@ hermes_cmd.add_command(env_setup)
 @click.option("--home", default=None,
               help="写入 sccsos.yaml 的 HERMES_HOME 路径")
 @click.option("--install-prefix", default=None,
-              help="写入 sccsos.yaml 的 HERMES_INSTALL_PREFIX 路径")
-def install(method, version, git_url, target, check, yes, force, home, install_prefix, china_mirror):
+              help="写入 sccsos.yaml 的 HERMES_INSTALL_DIR 路径")
+def install(method, version, git_url, target, check, yes, force, home, install_dir, china_mirror):
     """Install Hermes Agent on this machine.
 
     三种安装方式：
@@ -780,27 +780,27 @@ def install(method, version, git_url, target, check, yes, force, home, install_p
     elif existing and force:
         click.echo("  检测到已有安装，--force 模式将重新安装...")
 
-    # ── 解析 home / install_prefix：CLI 参数 > sccsos.yaml > 默认 ──
+    # ── 解析 home / install_dir：CLI 参数 > sccsos.yaml > 默认 ──
     resolved_home = home or _get_hermes_home()
-    resolved_install_prefix = install_prefix or _get_hermes_install_prefix()
+    resolved_install_dir = install_dir or _get_hermes_install_dir()
     if resolved_home:
         click.echo(f"  HERMES_HOME:          {resolved_home}")
-    if resolved_install_prefix:
-        click.echo(f"  INSTALL_PREFIX:       {resolved_install_prefix}")
+    if resolved_install_dir:
+        click.echo(f"  INSTALL_DIR:       {resolved_install_dir}")
     click.echo("")
 
     # ── 执行安装 ──
     if method == "script":
-        _install_script(china_mirror, yes, home=resolved_home, install_prefix=resolved_install_prefix)
+        _install_script(china_mirror, yes, home=resolved_home, install_dir=resolved_install_dir)
     elif method == "git":
         # china-mirror 时自动切换 git 源
         resolved_git_url = git_url
         if china_mirror and git_url == "https://github.com/NousResearch/hermes-agent.git":
             resolved_git_url = "https://cnb.cool/hermesagent-cn/hermes-agent-cn-mirror.git"
             click.echo(f"  ↪ 使用国内镜像: {resolved_git_url}")
-        _install_git(version, resolved_git_url, target, yes, force, resolved_home, resolved_install_prefix)
+        _install_git(version, resolved_git_url, target, yes, force, resolved_home, resolved_install_dir)
     elif method == "docker":
-        _install_docker(version, yes, force, home=resolved_home, install_prefix=resolved_install_prefix, china_mirror=china_mirror)
+        _install_docker(version, yes, force, home=resolved_home, install_dir=resolved_install_dir, china_mirror=china_mirror)
 
     # ── 安装后验证 ──
     click.echo("")

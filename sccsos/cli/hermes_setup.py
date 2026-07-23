@@ -26,7 +26,7 @@ from sccsos.cli.hermes_cmd import (
     _get_env_api_key,
     _get_hermes_config,
     _get_hermes_home,
-    _get_hermes_install_prefix,
+    _get_hermes_install_dir,
     _get_uv_install_dir,
     _get_uv_cache_dir,
     _list_profiles,
@@ -77,7 +77,7 @@ def show() -> None:
     click.echo(f"  Binary:     {cfg.binary} ({_resolve_hermes_binary()})")
     click.echo(f"  Adapter:    {cfg.adapter}")
     click.echo(f"  HERMES_HOME:            {cfg.home or _get_hermes_home()}")
-    click.echo(f"  HERMES_INSTALL_PREFIX:  {cfg.install_prefix or _get_hermes_install_prefix()}")
+    click.echo(f"  HERMES_INSTALL_DIR:  {cfg.install_dir or _get_hermes_install_dir()}")
     click.echo(f"  UV_INSTALL_DIR:         {cfg.uv.install_dir or _get_uv_install_dir()}")
     click.echo(f"  UV_CACHE_DIR:           {cfg.uv.cache_dir or _get_uv_cache_dir()}")
     click.echo(f"  Shell RC auto-setup:    {'✅ 开启' if cfg.shell_rc.auto_setup else '❌ 关闭'}{' (' + cfg.shell_rc.rc_file + ')' if cfg.shell_rc.rc_file else ''}")

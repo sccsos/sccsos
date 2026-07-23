@@ -45,7 +45,7 @@ class HermesInstallation:
     binary_path: str = ""               # Full path to hermes CLI binary
     version: str = ""                   # Version string from --version
     home: str = ""                      # Effective HERMES_HOME
-    install_prefix: Optional[str] = None  # Effective HERMES_INSTALL_PREFIX
+    install_dir: Optional[str] = None  # Effective HERMES_INSTALL_DIR
     config_path: str = ""               # Path to Hermes config.yaml
     profiles: list[str] = field(default_factory=list)  # Available profiles
     errors: list[str] = field(default_factory=list)    # Discovery warnings / errors
@@ -102,10 +102,10 @@ class HermesManager:
 
         # Priority 3: Environment variables
         inst.home = self._resolve_home()
-        inst.install_prefix = self._resolve_install_prefix()
+        inst.install_dir = self._resolve_install_dir()
 
         # Classify and fill metadata
-        inst.mode = self._classify_mode(inst.binary_path, inst.home, inst.install_prefix)
+        inst.mode = self._classify_mode(inst.binary_path, inst.home, inst.install_dir)
         if inst.binary_path:
             inst.version = self._get_version(inst.binary_path)
         inst.config_path = str(Path(inst.home) / "config.yaml")
@@ -132,22 +132,22 @@ class HermesManager:
         return str(Path.home() / ".hermes")
 
     @staticmethod
-    def _resolve_install_prefix() -> Optional[str]:
-        """Resolve HERMES_INSTALL_PREFIX: env var > config."""
-        from_env = os.environ.get("HERMES_INSTALL_PREFIX", "")
+    def _resolve_install_dir() -> Optional[str]:
+        """Resolve HERMES_INSTALL_DIR: env var > config."""
+        from_env = os.environ.get("HERMES_INSTALL_DIR", "")
         if from_env:
             return from_env
         try:
             from sccsos.core.config import get_config
-            if get_config().hermes.install_prefix:
-                return get_config().hermes.install_prefix
+            if get_config().hermes.install_dir:
+                return get_config().hermes.install_dir
         except Exception:
             pass
         return None
 
     @staticmethod
     def _classify_mode(
-        binary_path: str, home: str, install_prefix: Optional[str],
+        binary_path: str, home: str, install_dir: Optional[str],
     ) -> HermesInstallMode:
         """Classify Hermes installation mode from detected attributes.
 
@@ -160,7 +160,7 @@ class HermesManager:
         6. Fallback → UNKNOWN
         """
         # Source / git-installer — install prefix has .git
-        if install_prefix and (Path(install_prefix) / ".git").exists():
+        if install_dir and (Path(install_dir) / ".git").exists():
             return HermesInstallMode.GIT_INSTALLER
 
         # Desktop — Application bundle path
@@ -192,7 +192,7 @@ class HermesManager:
             return HermesInstallMode.NIX
 
         # Install prefix exists but no .git (stable git-installer without repo)
-        if install_prefix:
+        cfg.install_dir
             return HermesInstallMode.GIT_INSTALLER
 
         # Could not determine

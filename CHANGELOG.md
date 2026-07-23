@@ -12,12 +12,12 @@
 ### Added
 
 - **全封闭安装支持**: `sccsos.yaml` 新增 `hermes.uv`（`install_dir`/`cache_dir`）和 `hermes.shell_rc`（`auto_setup`/`rc_file`）配置段
-- **Shell RC 自动配置**: `sccsos hermes install --shell-rc` 自动检测 OS/shell，将四大核心环境变量（`HERMES_HOME`/`HERMES_INSTALL_PREFIX`/`UV_INSTALL_DIR`/`UV_CACHE_DIR`）写入 `.bashrc`/`.zshrc`
+- **Shell RC 自动配置**: `sccsos hermes install --shell-rc` 自动检测 OS/shell，将四大核心环境变量（`HERMES_HOME`/`HERMES_INSTALL_DIR`/`UV_INSTALL_DIR`/`UV_CACHE_DIR`）写入 `.bashrc`/`.zshrc`
 - **`sccsos hermes env-setup` 子命令**: 单独执行环境变量写入 Shell RC 文件
 
 ### Changed
 
-- **默认安装路径**: `_get_hermes_home()` 新增 `$HOME/hermes/runtime` 回退；`_get_hermes_install_prefix()` 新增 `$HOME/hermes/install` 回退
+- **默认安装路径**: `_get_hermes_home()` 新增 `$HOME/hermes/runtime` 回退；`_get_hermes_install_dir()` 新增 `$HOME/hermes/install` 回退
 - **`_ensure_hermes_home()` 扩展**: 新增 `$HOME/hermes` 全量目录树创建（`install/`/`runtime/`/`uv-cache/`）
 - **版本同步**: 全项目文件版本号 `0.16.8` → `0.17.0`
 
@@ -25,7 +25,7 @@
 
 ### Changed
 
-- **`code_path` → `install_prefix`**: 移除未使用的 `HERMES_CODE_PATH`/`code_path` 配置，新增 `HERMES_INSTALL_PREFIX`/`install_prefix` 配置（env var > sccsos.yaml > None），读取逻辑与 `HERMES_HOME` 一致。涉及 9 个源文件。
+- **`code_path` → `install_dir`**: 移除未使用的 `HERMES_CODE_PATH`/`code_path` 配置，新增 `HERMES_INSTALL_DIR`/`install_dir` 配置（env var > sccsos.yaml > None），读取逻辑与 `HERMES_HOME` 一致。涉及 9 个源文件。
 - **版本同步**: 全项目文件版本号 `0.16.7` → `0.16.8`
 
 ## [0.16.7] — 2026-07-22

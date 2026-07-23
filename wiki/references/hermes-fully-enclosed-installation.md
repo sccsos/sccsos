@@ -23,7 +23,7 @@
 
 ```
 $HOME/hermes/
-├── agent/                 # HERMES_INSTALL_PREFIX 程序静态安装目录
+├── agent/                 # HERMES_INSTALL_DIR 程序静态安装目录
 │   ├── bin/               # hermes 主程序、CLI 命令、启动脚本
 │   ├── lib/               # 静态依赖库、Python 扩展包
 │   ├── share/             # 配置模板、官方文档、示例文件
@@ -50,11 +50,11 @@ $HOME/hermes/
 
 ```bash
 export HOME_HERMES="$HOME/hermes"
-export HERMES_INSTALL_PREFIX="$HOME_HERMES/agent"    # 程序静态安装目录
+export HERMES_INSTALL_DIR="$HOME_HERMES/agent"    # 程序静态安装目录
 export HERMES_HOME="$HOME_HERMES/data"               # 业务运行工作目录
 export UV_INSTALL_DIR="$HOME_HERMES/data/bin"        # UV 工具本体安装目录
 export UV_CACHE_DIR="$HOME_HERMES/data/uv-cache"             # UV Python 依赖缓存
-export PATH="$HERMES_INSTALL_PREFIX/venv/bin:$HOME_HERMES/data/bin:$PATH"
+export PATH="$HERMES_INSTALL_DIR/venv/bin:$HOME_HERMES/data/bin:$PATH"
 ```
 
 ### 永久生效（.bashrc / .zshrc）
@@ -63,11 +63,11 @@ export PATH="$HERMES_INSTALL_PREFIX/venv/bin:$HOME_HERMES/data/bin:$PATH"
 cat >> ~/.bashrc << 'EOF'
 # Hermes Agent 全封闭安装环境变量
 export HOME_HERMES="$HOME/hermes"
-export HERMES_INSTALL_PREFIX="$HOME_HERMES/agent"
+export HERMES_INSTALL_DIR="$HOME_HERMES/agent"
 export HERMES_HOME="$HOME_HERMES/data"
 export UV_INSTALL_DIR="$HOME_HERMES/data/bin"
 export UV_CACHE_DIR="$HOME_HERMES/data/uv-cache"
-export PATH="$HERMES_INSTALL_PREFIX/venv/bin:$HOME_HERMES/data/bin:$PATH"
+export PATH="$HERMES_INSTALL_DIR/venv/bin:$HOME_HERMES/data/bin:$PATH"
 EOF
 source ~/.bashrc
 ```
@@ -98,7 +98,7 @@ Hermes 安装脚本硬编码读取 `HERMES_HOME/bin/uv`，若 `UV_INSTALL_DIR` �
 ```bash
 #!/bin/bash
 export HOME_HERMES="$HOME/hermes"
-export HERMES_INSTALL_PREFIX="$HOME_HERMES/agent"
+export HERMES_INSTALL_DIR="$HOME_HERMES/agent"
 export HERMES_HOME="$HOME_HERMES/data"
 export UV_INSTALL_DIR="$HOME_HERMES/data/bin"
 export UV_CACHE_DIR="$HOME_HERMES/data/uv-cache"
@@ -128,7 +128,7 @@ source ~/.bashrc
 chmod +x hermes_init.sh && ./hermes_init.sh
 
 # 3. 执行自定义目录安装
-./install.sh --prefix $HERMES_INSTALL_PREFIX
+./install.sh --prefix $HERMES_INSTALL_DIR
 ```
 
 ## 六、关键注意事项

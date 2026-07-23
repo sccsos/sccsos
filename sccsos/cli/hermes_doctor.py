@@ -17,7 +17,7 @@ from sccsos.cli.hermes_cmd import (
     _check_hermes_installed,
     _get_hermes_config,
     _get_hermes_home,
-    _get_hermes_install_prefix,
+    _get_hermes_install_dir,
     _get_uv_install_dir,
     _get_uv_cache_dir,
     _get_profile_config_path,
@@ -158,11 +158,11 @@ def doctor(fix: bool) -> None:
 
     # 2b. Environment paths
     hermes_home = _get_hermes_home()
-    hermes_install_prefix = _get_hermes_install_prefix()
+    hermes_install_dir = _get_hermes_install_dir()
     uv_install_dir = _get_uv_install_dir()
     uv_cache_dir = _get_uv_cache_dir()
     click.echo(f"  HERMES_HOME:            {hermes_home}")
-    click.echo(f"  HERMES_INSTALL_PREFIX:  {hermes_install_prefix or 'not detected'}")
+    click.echo(f"  HERMES_INSTALL_DIR:  {hermes_install_dir or 'not detected'}")
     click.echo(f"  UV_INSTALL_DIR:         {uv_install_dir}")
     click.echo(f"  UV_CACHE_DIR:           {uv_cache_dir}")
     home_ok = Path(hermes_home).exists()
@@ -393,7 +393,7 @@ def env_setup(rc_file: Optional[str], yes: bool) -> None:
 
     Detects the user's shell (bash/zsh/fish) and OS (Linux/macOS),
     then appends the four core environment variables (HERMES_HOME,
-    HERMES_INSTALL_PREFIX, UV_INSTALL_DIR, UV_CACHE_DIR) plus PATH
+    HERMES_INSTALL_DIR, UV_INSTALL_DIR, UV_CACHE_DIR) plus PATH
     to the appropriate rc file.
 
     After running, execute ``source ~/.bashrc`` (or equivalent) to
