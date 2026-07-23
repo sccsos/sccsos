@@ -281,12 +281,16 @@ def _install_git(
     force: bool,
     home_override: Optional[str],
     install_dir_override: Optional[str],
+    uv_install_dir: str = "",
+    uv_cache_dir: str = "",
 ) -> None:
     """Install Hermes Agent via git clone + pip install -e."""
     hermes_home = home_override or _get_hermes_home()
     install_dir = target or str(Path(hermes_home) / "hermes-agent")
     install_path = Path(install_dir)
     final_install_dir = install_dir_override or install_dir
+    final_uv_install = uv_install_dir or _get_uv_install_dir()
+    final_uv_cache = uv_cache_dir or _get_uv_cache_dir()
 
     click.echo(f"  Mode:     git")
     click.echo(f"  Repo:     {git_url}")
@@ -336,9 +340,18 @@ def _install_git(
 
     click.echo("  → pip install -e .（实时输出，请耐心等待）...")
     click.echo("")
+    pip_env = os.environ.copy()
+    if hermes_home:
+        pip_env["HERMES_HOME"] = hermes_home
+    if final_install_dir:
+        pip_env["HERMES_INSTALL_DIR"] = final_install_dir
+    if final_uv_install:
+        pip_env["UV_INSTALL_DIR"] = final_uv_install
+    if final_uv_cache:
+        pip_env["UV_CACHE_DIR"] = final_uv_cache
     r = subprocess.run(
         [sys.executable, "-m", "pip", "install", "-e", install_dir],
-        timeout=300,
+        timeout=300, env=pip_env,
     )
     if r.returncode != 0:
         click.echo(f"  ❌ pip install -e 失败（退出码 {r.returncode}）")
@@ -354,7 +367,8 @@ def _install_git(
 
 
 def _install_script(china_mirror: bool, yes: bool, timeout: int = 600,
-                    home: str = "", install_dir: str = "") -> bool:
+                    home: str = "", install_dir: str = "",
+                    uv_install_dir: str = "", uv_cache_dir: str = "") -> bool:
     """Install Hermes Agent via official one-click install script.
 
     Uses the upstream install.sh which auto-configures venv, deps, and CLI.
@@ -375,9 +389,20 @@ def _install_script(china_mirror: bool, yes: bool, timeout: int = 600,
     click.echo("  → 下载并执行安装脚本（实时输出，请耐心等待）...")
     click.echo("")
     try:
+        # 如有自定义 home/install_dir/uv，传给 install.sh
+        env = os.environ.copy()
+        if home:
+            env["HERMES_HOME"] = home
+            click.echo(f"  ↪ 使用自定义路径: HERMES_HOME={home}")
+        if install_dir:
+            env["HERMES_INSTALL_DIR"] = install_dir
+        resolved_uv_bin = uv_install_dir or _get_uv_install_dir()
+        resolved_uv_cache = uv_cache_dir or _get_uv_cache_dir()
+        env["UV_INSTALL_DIR"] = resolved_uv_bin
+        env["UV_CACHE_DIR"] = resolved_uv_cache
         r = subprocess.run(
             ["bash", "-c", f"curl -fL --progress-bar {url} | bash"],
-            timeout=timeout,
+            timeout=timeout, env=env,
         )
         if r.returncode != 0:
             click.echo(f"  ❌ 安装失败（退出码 {r.returncode}），请检查网络后重试")
@@ -402,6 +427,7 @@ def _install_script(china_mirror: bool, yes: bool, timeout: int = 600,
 
 def _install_docker(version: Optional[str], yes: bool, force: bool,
                     home: str = "", install_dir: str = "",
+                    uv_install_dir: str = "", uv_cache_dir: str = "",
                     china_mirror: bool = False) -> bool:
     """Install Hermes Agent via Docker image pull.
 
@@ -783,24 +809,32 @@ def install(method, version, git_url, target, check, yes, force, home, install_d
     # ── 解析 home / install_dir：CLI 参数 > sccsos.yaml > 默认 ──
     resolved_home = home or _get_hermes_home()
     resolved_install_dir = install_dir or _get_hermes_install_dir()
+    resolved_uv_bin = _get_uv_install_dir()
+    resolved_uv_cache = _get_uv_cache_dir()
     if resolved_home:
-        click.echo(f"  HERMES_HOME:          {resolved_home}")
+        click.echo(f"  HERMES_HOME:            {resolved_home}")
     if resolved_install_dir:
-        click.echo(f"  INSTALL_DIR:       {resolved_install_dir}")
+        click.echo(f"  INSTALL_DIR:            {resolved_install_dir}")
+    click.echo(f"  UV_INSTALL_DIR:         {resolved_uv_bin}")
+    click.echo(f"  UV_CACHE_DIR:           {resolved_uv_cache}")
     click.echo("")
 
     # ── 执行安装 ──
     if method == "script":
-        _install_script(china_mirror, yes, home=resolved_home, install_dir=resolved_install_dir)
+        _install_script(china_mirror, yes, home=resolved_home, install_dir=resolved_install_dir,
+                        uv_install_dir=resolved_uv_bin, uv_cache_dir=resolved_uv_cache)
     elif method == "git":
         # china-mirror 时自动切换 git 源
         resolved_git_url = git_url
         if china_mirror and git_url == "https://github.com/NousResearch/hermes-agent.git":
             resolved_git_url = "https://cnb.cool/hermesagent-cn/hermes-agent-cn-mirror.git"
             click.echo(f"  ↪ 使用国内镜像: {resolved_git_url}")
-        _install_git(version, resolved_git_url, target, yes, force, resolved_home, resolved_install_dir)
+        _install_git(version, resolved_git_url, target, yes, force, resolved_home, resolved_install_dir,
+                     uv_install_dir=resolved_uv_bin, uv_cache_dir=resolved_uv_cache)
     elif method == "docker":
-        _install_docker(version, yes, force, home=resolved_home, install_dir=resolved_install_dir, china_mirror=china_mirror)
+        _install_docker(version, yes, force, home=resolved_home, install_dir=resolved_install_dir,
+                        uv_install_dir=resolved_uv_bin, uv_cache_dir=resolved_uv_cache,
+                        china_mirror=china_mirror)
 
     # ── 安装后验证 ──
     click.echo("")
