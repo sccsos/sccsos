@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.17.7] — 2026-07-22
+
+### Fixed
+
+- **install 后 HERMES_HOME 目录创建 + 连通性验证**: `_auto_apply_config` 写入配置前确保目录结构存在；`install` 命令新增 `-z ping` 验证，失败提示运行 `sccsos hermes setup`
+- **`hermes_install.py` 语法修复**: 移除两处 `cfg.install_dir` 残留导致的 IndentationError
+- **版本同步**: 全项目文件版本号 `0.17.6` → `0.17.7`
+
 ## [0.17.6] — 2026-07-22
 
 ### Fixed
