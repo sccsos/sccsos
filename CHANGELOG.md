@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.17.1] — 2026-07-22
+
+### Fixed
+
+- **`sccsos hermes install` UV env 注入修复**: `_install_script`/`_install_git`/`_install_docker` 子进程 env 缺少 `UV_INSTALL_DIR`/`UV_CACHE_DIR` 传递，导致 `sccsos.yaml` 中 `uv.install_dir`/`uv.cache_dir` 配置在安装时被忽略
+- **版本同步**: 全项目文件版本号 `0.17.0` → `0.17.1`
+
 ## [0.17.0] — 2026-07-22
 
 ### Added
