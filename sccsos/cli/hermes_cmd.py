@@ -898,6 +898,13 @@ def install(method, version, git_url, target, check, yes, force, home, install_d
             click.echo("     请运行: sccsos hermes setup")
             click.echo("")
 
+        # ── Shell RC 环境变量配置 ──
+        click.echo("")
+        click.echo("  ── Shell 环境变量配置 ──")
+        from sccsos.cli.hermes_install import _setup_shell_rc  # noqa: E402
+        _setup_shell_rc(yes=yes)
+        click.echo("")
+
         click.echo("后续步骤:")
         click.echo("  sccsos hermes setup              # 配置 API Key（如未设置环境变量）")
         click.echo("  sccsos hermes postinstall          # 安装 Browser 引擎等系统依赖")
