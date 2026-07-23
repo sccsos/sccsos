@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.17.3] — 2026-07-22
+
+### Changed
+
+- **全封闭安装目录布局优化**: 默认目录结构调整为 `data/`(HERMES_HOME) + `agent/`(HERMES_INSTALL_DIR)，UV工具目录移至 `$HERMES_HOME/bin`，UV 缓存移至 `$HERMES_HOME/uv-cache`，PATH 增加 `$HERMES_INSTALL_DIR/venv/bin`
+- **`HERMES_INSTALL_PREFIX` → `HERMES_INSTALL_DIR`**: 全项目一致性重命名（env var / config字段 / 函数名 / 参数），保留 `UV_INSTALL_DIR` 不变
+- **版本同步**: 全项目文件版本号 `0.17.1` → `0.17.3`
+
 ## [0.17.1] — 2026-07-22
 
 ### Fixed

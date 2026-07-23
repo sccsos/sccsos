@@ -24,7 +24,7 @@ spec:
         runAsUser: 1000
       containers:
         - name: sccsos
-          image: sccsos:0.17.1
+          image: sccsos:0.17.3
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8765

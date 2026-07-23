@@ -331,7 +331,7 @@ class HermesConfig:
 @dataclass
 class ProjectConfig:
     name: str = "sccsos"
-    version: str = "0.17.1"
+    version: str = "0.17.3"
 
 
 # ── Auto-merge helper ──────────────────────────────────────────────
