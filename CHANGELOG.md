@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.17.9] — 2026-07-22
+
+### Changed
+
+- **Shell RC 环境变量优化**: 去除 `HOME_HERMES` 中间变量，`HERMES_HOME`/`HERMES_INSTALL_DIR` 直接使用 `$HOME/hermes/...`，PATH 使用 `$HERMES_HOME/bin`
+- **版本同步**: 全项目文件版本号 `0.17.8` → `0.17.9`
+
 ## [0.17.8] — 2026-07-22
 
 ### Fixed
