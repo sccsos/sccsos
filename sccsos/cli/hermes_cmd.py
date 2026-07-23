@@ -66,7 +66,7 @@ def _resolve_hermes_binary() -> str:
 
 
 def _get_hermes_home() -> str:
-    """Get HERMES_HOME: env var > config > $HOME/hermes/runtime > ~/.hermes."""
+    """Get HERMES_HOME: env var > config > $HOME/hermes/data > ~/.hermes."""
     from_env = os.environ.get("HERMES_HOME", "")
     if from_env:
         return from_env
@@ -76,15 +76,15 @@ def _get_hermes_home() -> str:
             return cfg.home
     except Exception:
         pass
-    # Prefer $HOME/hermes/runtime (fully-enclosed pattern), fallback ~/.hermes
-    hermes_runtime = Path.home() / "hermes" / "runtime"
-    if hermes_runtime.exists():
-        return str(hermes_runtime)
+    # Prefer $HOME/hermes/data (fully-enclosed pattern), fallback ~/.hermes
+    hermes_data = Path.home() / "hermes" / "data"
+    if hermes_data.exists():
+        return str(hermes_data)
     return str(Path.home() / ".hermes")
 
 
 def _get_hermes_install_prefix() -> str:
-    """Get HERMES_INSTALL_PREFIX: env var > config > $HOME/hermes/install."""
+    """Get HERMES_INSTALL_PREFIX: env var > config > $HOME/hermes/agent."""
     from_env = os.environ.get("HERMES_INSTALL_PREFIX", "")
     if from_env:
         return from_env
@@ -94,11 +94,11 @@ def _get_hermes_install_prefix() -> str:
             return cfg.install_prefix
     except Exception:
         pass
-    return str(Path.home() / "hermes" / "install")
+    return str(Path.home() / "hermes" / "agent")
 
 
 def _get_uv_install_dir() -> str:
-    """Get UV_INSTALL_DIR: env var > config > $HOME/hermes/runtime/bin."""
+    """Get UV_INSTALL_DIR: env var > config > $HOME/hermes/data/bin."""
     from_env = os.environ.get("UV_INSTALL_DIR", "")
     if from_env:
         return from_env
@@ -108,11 +108,11 @@ def _get_uv_install_dir() -> str:
             return cfg.uv.install_dir
     except Exception:
         pass
-    return str(Path.home() / "hermes" / "runtime" / "bin")
+    return str(Path.home() / "hermes" / "data" / "bin")
 
 
 def _get_uv_cache_dir() -> str:
-    """Get UV_CACHE_DIR: env var > config > $HOME/hermes/uv-cache."""
+    """Get UV_CACHE_DIR: env var > config > $HOME/hermes/data/uv-cache."""
     from_env = os.environ.get("UV_CACHE_DIR", "")
     if from_env:
         return from_env
@@ -122,7 +122,7 @@ def _get_uv_cache_dir() -> str:
             return cfg.uv.cache_dir
     except Exception:
         pass
-    return str(Path.home() / "hermes" / "uv-cache")
+    return str(Path.home() / "hermes" / "data" / "uv-cache")
 
 
 def _run_hermes(args: list[str], timeout: int = 30) -> tuple[str, str, int]:

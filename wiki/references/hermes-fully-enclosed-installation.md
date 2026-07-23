@@ -23,41 +23,38 @@
 
 ```
 $HOME/hermes/
-├── install/                # HERMES_INSTALL_PREFIX 程序静态安装目录
-│   ├── bin/                # hermes 主程序、CLI 命令、启动脚本
-│   ├── lib/                # 静态依赖库、Python 扩展包
-│   ├── share/              # 配置模板、官方文档、示例文件
-│   ├── include/            # 底层依赖头文件
-│   ├── man/                # 帮助手册文档
-│   ├── versions/           # 多版本安装备份
-│   └── venv/               # Hermes 专属隔离 Python 虚拟环境
-├── runtime/                # HERMES_HOME 运行读写工作目录
-│   ├── config/             # 主配置 config.yaml、环境变量 .env、密钥凭证
-│   ├── logs/               # 运行日志、审计日志、日志归档
-│   ├── data/               # 本地持久化数据、任务队列、数据库快照
-│   ├── sessions/           # 会话记录、交互缓存
-│   ├── skills/             # 自定义技能、算子插件、工作流文件
-│   ├── memory/             # Agent 记忆文件存储目录
-│   ├── plugins/            # 第三方插件、AI 模型、自定义组件
-│   ├── pid/                # 进程 PID、socket 临时运行文件
-│   └── bin/                # UV_INSTALL_DIR 专属目录（uv/uvx 二进制）
-└── uv-cache/               # UV_CACHE_DIR Python 依赖全局缓存
-    ├── archives/           # 源码包、wheel 包归档缓存
-    ├── built-wheels/       # 本地编译 wheel 缓存
-    ├── indexes/            # PyPI 源索引、依赖解析缓存
-    ├── git/                # Git 源码依赖克隆缓存
-    └── metadata/           # 包元数据、版本锁定缓存
+├── agent/                 # HERMES_INSTALL_PREFIX 程序静态安装目录
+│   ├── bin/               # hermes 主程序、CLI 命令、启动脚本
+│   ├── lib/               # 静态依赖库、Python 扩展包
+│   ├── share/             # 配置模板、官方文档、示例文件
+│   ├── include/           # 底层依赖头文件
+│   ├── man/               # 帮助手册文档
+│   ├── versions/          # 多版本安装备份
+│   └── venv/              # Hermes 专属隔离 Python 虚拟环境
+├── data/                  # HERMES_HOME 运行读写工作目录
+│   ├── config/            # 主配置 config.yaml、环境变量 .env、密钥凭证
+│   ├── logs/              # 运行日志、审计日志、日志归档
+│   ├── sessions/          # 会话记录、交互缓存
+│   ├── skills/            # 自定义技能、算子插件、工作流文件
+│   ├── memory/            # Agent 记忆文件存储目录
+│   ├── plugins/           # 第三方插件、AI 模型、自定义组件
+│   ├── pid/               # 进程 PID、socket 临时运行文件
+│   ├── bin/               # UV_INSTALL_DIR（uv/uvx 二进制）
+│   └── uv-cache/          # UV_CACHE_DIR Python 依赖全局缓存
+│       ├── archives/      # 源码包、wheel 包归档缓存
+│       ├── git/           # Git 源码依赖克隆缓存
+│       └── metadata/      # 包元数据、版本锁定缓存
 ```
 
 ## 三、四大核心环境变量
 
 ```bash
 export HOME_HERMES="$HOME/hermes"
-export HERMES_INSTALL_PREFIX="$HOME_HERMES/install"    # 程序静态安装目录
-export HERMES_HOME="$HOME_HERMES/runtime"               # 业务运行工作目录
-export UV_INSTALL_DIR="$HOME_HERMES/runtime/bin"        # UV 工具本体安装目录
-export UV_CACHE_DIR="$HOME_HERMES/uv-cache"             # UV Python 依赖缓存
-export PATH="$HOME_HERMES/install/bin:$HOME_HERMES/runtime/bin:$PATH"
+export HERMES_INSTALL_PREFIX="$HOME_HERMES/agent"    # 程序静态安装目录
+export HERMES_HOME="$HOME_HERMES/data"               # 业务运行工作目录
+export UV_INSTALL_DIR="$HOME_HERMES/data/bin"        # UV 工具本体安装目录
+export UV_CACHE_DIR="$HOME_HERMES/data/uv-cache"             # UV Python 依赖缓存
+export PATH="$HERMES_INSTALL_PREFIX/venv/bin:$HOME_HERMES/data/bin:$PATH"
 ```
 
 ### 永久生效（.bashrc / .zshrc）
@@ -66,11 +63,11 @@ export PATH="$HOME_HERMES/install/bin:$HOME_HERMES/runtime/bin:$PATH"
 cat >> ~/.bashrc << 'EOF'
 # Hermes Agent 全封闭安装环境变量
 export HOME_HERMES="$HOME/hermes"
-export HERMES_INSTALL_PREFIX="$HOME_HERMES/install"
-export HERMES_HOME="$HOME_HERMES/runtime"
-export UV_INSTALL_DIR="$HOME_HERMES/runtime/bin"
-export UV_CACHE_DIR="$HOME_HERMES/uv-cache"
-export PATH="$HOME_HERMES/install/bin:$HOME_HERMES/runtime/bin:$PATH"
+export HERMES_INSTALL_PREFIX="$HOME_HERMES/agent"
+export HERMES_HOME="$HOME_HERMES/data"
+export UV_INSTALL_DIR="$HOME_HERMES/data/bin"
+export UV_CACHE_DIR="$HOME_HERMES/data/uv-cache"
+export PATH="$HERMES_INSTALL_PREFIX/venv/bin:$HOME_HERMES/data/bin:$PATH"
 EOF
 source ~/.bashrc
 ```
@@ -81,9 +78,9 @@ source ~/.bashrc
 #!/bin/bash
 export HOME_HERMES="$HOME/hermes"
 mkdir -p \
-  $HOME_HERMES/install/{bin,lib,share,include,man,versions,venv} \
-  $HOME_HERMES/runtime/{config,logs,data,sessions,skills,memory,plugins,pid,bin} \
-  $HOME_HERMES/uv-cache/{archives,built-wheels,indexes,git,metadata}
+  $HOME_HERMES/agent/{bin,lib,share,include,man,versions,venv} \
+  $HOME_HERMES/data/{config,logs,sessions,skills,memory,plugins,pid,bin} \
+  $HOME_HERMES/data/uv-cache/{archives,git,metadata}
 ```
 
 ## 五、UV 二进制找不到问题根治
@@ -94,22 +91,22 @@ Hermes 安装脚本硬编码读取 `HERMES_HOME/bin/uv`，若 `UV_INSTALL_DIR` �
 
 ### 修复方案
 
-**路径原生对齐**：将 `UV_INSTALL_DIR` 直接设为 `$HOME_HERMES/runtime/bin`，与 Hermes 校验路径一致，无需软链接。
+**路径原生对齐**：将 `UV_INSTALL_DIR` 直接设为 `$HOME_HERMES/data/bin`，与 Hermes 校验路径一致，无需软链接。
 
 ### 增强修复脚本
 
 ```bash
 #!/bin/bash
 export HOME_HERMES="$HOME/hermes"
-export HERMES_INSTALL_PREFIX="$HOME_HERMES/install"
-export HERMES_HOME="$HOME_HERMES/runtime"
-export UV_INSTALL_DIR="$HOME_HERMES/runtime/bin"
-export UV_CACHE_DIR="$HOME_HERMES/uv-cache"
+export HERMES_INSTALL_PREFIX="$HOME_HERMES/agent"
+export HERMES_HOME="$HOME_HERMES/data"
+export UV_INSTALL_DIR="$HOME_HERMES/data/bin"
+export UV_CACHE_DIR="$HOME_HERMES/data/uv-cache"
 
 mkdir -p \
-  $HOME_HERMES/install/{bin,lib,share,include,man,versions,venv} \
-  $HOME_HERMES/runtime/{config,logs,data,sessions,skills,memory,plugins,pid,bin} \
-  $HOME_HERMES/uv-cache/{archives,built-wheels,indexes,git,metadata}
+  $HOME_HERMES/agent/{bin,lib,share,include,man,versions,venv} \
+  $HOME_HERMES/data/{config,logs,sessions,skills,memory,plugins,pid,bin} \
+  $HOME_HERMES/data/uv-cache/{archives,git,metadata}
 
 # UV 自检与自愈
 if [ -f "$UV_INSTALL_DIR/uv" ]; then

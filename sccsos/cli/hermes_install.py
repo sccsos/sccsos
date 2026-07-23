@@ -187,7 +187,7 @@ def _ensure_hermes_home(home_path: str) -> None:
     """Create HERMES_HOME directory structure if it doesn't exist.
 
     Also creates the companion directories for the ``$HOME/hermes``
-    fully-enclosed pattern (install/, runtime/, uv-cache/).
+    fully-enclosed pattern (agent/, data/, data/uv-cache/).
     """
     hp = Path(home_path)
     if hp.exists():
@@ -195,17 +195,17 @@ def _ensure_hermes_home(home_path: str) -> None:
     click.echo(f"  → 创建 HERMES_HOME 目录结构: {home_path}")
 
     # Core HERMES_HOME subdirs
-    for sub in ["config", "logs", "data", "sessions", "skills", "memory", "plugins", "pid", "bin"]:
+    for sub in ["config", "logs", "data", "sessions", "skills", "memory", "plugins", "pid"]:
         (hp / sub).mkdir(parents=True, exist_ok=True)
 
     # Companion directories for fully-enclosed pattern
-    hermes_root = hp.parent  # $HOME/hermes when hp = $HOME/hermes/runtime
+    hermes_root = hp.parent  # $HOME/hermes when hp = $HOME/hermes/data
     if hermes_root.name == "hermes" and hermes_root.parent == Path.home():
-        (hermes_root / "install" / "bin").mkdir(parents=True, exist_ok=True)
-        (hermes_root / "install" / "venv").mkdir(parents=True, exist_ok=True)
-        (hermes_root / "install" / "lib").mkdir(parents=True, exist_ok=True)
-        (hermes_root / "uv-cache" / "archives").mkdir(parents=True, exist_ok=True)
-        (hermes_root / "uv-cache" / "git").mkdir(parents=True, exist_ok=True)
+        (hermes_root / "agent" / "venv" / "bin").mkdir(parents=True, exist_ok=True)
+        (hermes_root / "agent" / "lib").mkdir(parents=True, exist_ok=True)
+        (hp / "bin").mkdir(parents=True, exist_ok=True)       # UV_INSTALL_DIR
+        (hp / "uv-cache" / "archives").mkdir(parents=True, exist_ok=True)
+        (hp / "uv-cache" / "git").mkdir(parents=True, exist_ok=True)
         click.echo(f"  ✅ $HOME/hermes 全封闭目录结构已创建")
 
     # 写入最小 config.yaml
@@ -251,11 +251,11 @@ def _setup_shell_rc(rc_file: str = "", yes: bool = False) -> bool:
 
     env_block = f"""# ── Hermes Agent 全封闭安装环境变量 ──
 export HOME_HERMES="$HOME/hermes"
-export HERMES_INSTALL_PREFIX="$HOME_HERMES/install"
-export HERMES_HOME="$HOME_HERMES/runtime"
-export UV_INSTALL_DIR="$HOME_HERMES/runtime/bin"
-export UV_CACHE_DIR="$HOME_HERMES/uv-cache"
-export PATH="$HOME_HERMES/install/bin:$HOME_HERMES/runtime/bin:$PATH"
+export HERMES_HOME="$HOME_HERMES/data"
+export HERMES_INSTALL_PREFIX="$HOME_HERMES/agent"
+export UV_INSTALL_DIR="$HERMES_HOME/bin"
+export UV_CACHE_DIR="$HERMES_HOME/uv-cache"
+export PATH="$HERMES_INSTALL_PREFIX/venv/bin:$HOME_HERMES/data/bin:$PATH"
 # ── ──
 """
     if rc_path.exists():

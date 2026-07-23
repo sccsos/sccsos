@@ -554,12 +554,12 @@ project:
 hermes:
   profile: sccsos
   binary: hermes
-  home: ""                 # HERMES_HOME 覆盖（空值 = 使用环境变量或默认 $HOME/hermes/runtime）
-  install_prefix: ""       # HERMES_INSTALL_PREFIX 覆盖（空值 = 使用环境变量或默认 $HOME/hermes/install）
+  home: ""                 # HERMES_HOME 覆盖（空值 = 使用环境变量或默认 $HOME/hermes/data）
+  install_prefix: ""       # HERMES_INSTALL_PREFIX 覆盖（空值 = 使用环境变量或默认 $HOME/hermes/agent）
   adapter: subprocess
   uv:
-    install_dir: ""        # UV_INSTALL_DIR 覆盖（空值 = 使用环境变量或默认 $HOME/hermes/runtime/bin）
-    cache_dir: ""          # UV_CACHE_DIR 覆盖（空值 = 使用环境变量或默认 $HOME/hermes/uv-cache）
+    install_dir: ""        # UV_INSTALL_DIR 覆盖（空值 = 使用环境变量或默认 $HOME/hermes/data/bin）
+    cache_dir: ""          # UV_CACHE_DIR 覆盖（空值 = 使用环境变量或默认 $HOME/hermes/data/uv-cache）
   shell_rc:
     auto_setup: true       # 安装后自动写入 shell rc 文件
     rc_file: ""            # 强制指定 rc 文件（空值 = 自动检测）
