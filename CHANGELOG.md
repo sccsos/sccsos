@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.17.6] — 2026-07-22
+
+### Fixed
+
+- **install 后模型配置写入目标路径**: `_auto_apply_config()` 调用 `hermes config set` 时未设置 `HERMES_HOME`，导致自定义前缀安装后配置错写到 `~/.hermes`。新增 `_build_hermes_env()` + `extra_env` 透传机制
+- **版本同步**: 全项目文件版本号 `0.17.5` → `0.17.6`
+
 ## [0.17.5] — 2026-07-22
 
 ### Fixed
