@@ -73,8 +73,7 @@ def _update_hermes_paths_in_yaml(home: str, install_dir: str) -> None:
     if home and hermes.get("home") != home:
         hermes["home"] = home
         changed = True
-    cfg.install_dir
-        if hermes.get("install_dir") != install_dir:
+    if install_dir:
             hermes["install_dir"] = install_dir
             changed = True
     else:
@@ -306,7 +305,7 @@ def _install_script(china_mirror: bool, yes: bool, timeout: int = 600,
         if home:
             env["HERMES_HOME"] = home
             click.echo(f"  ↪ 使用自定义路径: HERMES_HOME={home}")
-        cfg.install_dir
+        if install_dir:
             env["HERMES_INSTALL_DIR"] = install_dir
         resolved_uv_bin = uv_install_dir or _get_uv_install_dir()
         resolved_uv_cache = uv_cache_dir or _get_uv_cache_dir()

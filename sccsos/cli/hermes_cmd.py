@@ -651,6 +651,10 @@ def _auto_apply_config() -> None:
         extra_env = _build_hermes_env()
         click.echo("  → 自动同步配置文件...")
 
+        # 确保 HERMES_HOME 目录结构存在（lazy import 避免循环引用）
+        from sccsos.cli.hermes_install import _ensure_hermes_home as _do_ensure_home  # noqa: E402
+        _do_ensure_home(_get_hermes_home())
+
         # Step 1: Write to default config
         default_path = _get_profile_config_path("default")
         ok = _write_model_config(_set_default_config, model, provider, base_url, api_key,
@@ -880,6 +884,19 @@ def install(method, version, git_url, target, check, yes, force, home, install_d
 
         # auto-sync sccsos.yaml model config → Hermes profile
         _auto_apply_config()
+
+        # ── 连通性验证 ──
+        click.echo("")
+        click.echo("  验证配置...")
+        extra_env = _build_hermes_env()
+        out, err, rc = _run_hermes(["-p", _get_hermes_config().profile or "sccsos",
+                                     "-z", "ping"], timeout=30, extra_env=extra_env)
+        if rc == 0:
+            click.echo("  ✅ Hermes 配置验证通过")
+        else:
+            click.echo(f"  ⚠️  Hermes 配置验证失败: {err[:100]}")
+            click.echo("     请运行: sccsos hermes setup")
+            click.echo("")
 
         click.echo("后续步骤:")
         click.echo("  sccsos hermes setup              # 配置 API Key（如未设置环境变量）")
