@@ -547,7 +547,7 @@ def _auto_apply_config() -> None:
 # ── CLI command ─────────────────────────────────────────────────────
 
 
-@click.option("--install-prefix", default=None,
+@click.option("--install-dir", default=None,
               help="写入 sccsos.yaml 的 HERMES_INSTALL_DIR 路径")
 @click.option("--home", default=None,
               help="写入 sccsos.yaml 的 HERMES_HOME 路径")

@@ -745,7 +745,7 @@ hermes_cmd.add_command(env_setup)
 @click.option("--force", "-f", is_flag=True, help="强制重新安装")
 @click.option("--home", default=None,
               help="写入 sccsos.yaml 的 HERMES_HOME 路径")
-@click.option("--install-prefix", default=None,
+@click.option("--install-dir", default=None,
               help="写入 sccsos.yaml 的 HERMES_INSTALL_DIR 路径")
 def install(method, version, git_url, target, check, yes, force, home, install_dir, china_mirror):
     """Install Hermes Agent on this machine.
