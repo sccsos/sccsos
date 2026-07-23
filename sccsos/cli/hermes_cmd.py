@@ -125,18 +125,27 @@ def _get_uv_cache_dir() -> str:
     return str(Path.home() / "hermes" / "data" / "uv-cache")
 
 
-def _run_hermes(args: list[str], timeout: int = 30) -> tuple[str, str, int]:
+def _run_hermes(args: list[str], timeout: int = 30,
+                extra_env: Optional[dict[str, str]] = None) -> tuple[str, str, int]:
     """Run a hermes CLI command and return (stdout, stderr, returncode).
 
     Resolves the Hermes binary via :func:`_resolve_hermes_binary`,
     which respects ``HERMES_BINARY`` env var, ``sccsos.yaml``'s
     ``hermes.binary`` setting, or falls back to ``hermes``.
+
+    When ``extra_env`` is provided, these additional environment variables
+    are injected into the subprocess (e.g. ``HERMES_HOME`` for custom
+    installation paths).
     """
     binary = _resolve_hermes_binary()
     try:
+        proc_env = os.environ.copy()
+        if extra_env:
+            proc_env.update(extra_env)
         r = subprocess.run(
             [binary, *args],
             capture_output=True, text=True, timeout=timeout,
+            env=proc_env,
         )
         return r.stdout.strip(), r.stderr.strip(), r.returncode
     except FileNotFoundError:
@@ -186,15 +195,16 @@ def _profile_exists(name: str) -> bool:
     return name in _list_profiles()
 
 
-def _create_profile(name: str) -> bool:
+def _create_profile(name: str, extra_env: Optional[dict[str, str]] = None) -> bool:
     """Create a Hermes profile via ``hermes profile create``."""
-    out, _, rc = _run_hermes(["profile", "create", name], timeout=60)
+    out, _, rc = _run_hermes(["profile", "create", name], timeout=60, extra_env=extra_env)
     return rc == 0
 
 
-def _set_profile_config(name: str, key: str, value: str) -> bool:
+def _set_profile_config(name: str, key: str, value: str,
+                        extra_env: Optional[dict[str, str]] = None) -> bool:
     """Set a config value in a Hermes profile via ``hermes -p <name> config set``."""
-    out, _, rc = _run_hermes(["-p", name, "config", "set", key, value])
+    out, _, rc = _run_hermes(["-p", name, "config", "set", key, value], extra_env=extra_env)
     return rc == 0
 
 
@@ -474,12 +484,6 @@ def _install_docker(version: Optional[str], yes: bool, force: bool,
     return True
 
 
-def _set_default_config(key: str, value: str) -> bool:
-    """Set a config value in the default Hermes config (~/.hermes/config.yaml)."""
-    out, _, rc = _run_hermes(["config", "set", key, value])
-    return rc == 0
-
-
 def _ensure_env_file(profile_name: str, provider: str, api_key: str, base_url: str = "") -> None:
     """Write API key and base URL to the Hermes ``.env`` file for a profile.
 
@@ -521,26 +525,34 @@ def _ensure_env_file(profile_name: str, provider: str, api_key: str, base_url: s
         new_lines.append(f"\n# sccsos: {provider} API Key\n" if not env_path.exists() else "")
         new_lines.append(f"{key_var}={api_key}\n")
     if base_url and not url_found:
-        new_lines.append(f"{url_var}={base_url}\n")
+        new_lines.append(f"{url_var}={base_url}\\n")
 
     env_path.write_text("".join(new_lines), encoding="utf-8")
     # Restrict permissions (same as Hermes defaults)
     env_path.chmod(0o600)
 
 
+def _set_default_config(key: str, value: str,
+                        extra_env: Optional[dict[str, str]] = None) -> bool:
+    """Set a config value in the default Hermes config (~/.hermes/config.yaml)."""
+    out, _, rc = _run_hermes(["config", "set", key, value], extra_env=extra_env)
+    return rc == 0
+
+
 def _write_model_config(target_fn, model: str, provider: str, base_url: str,
-                        api_key: str = "") -> bool:
+                        api_key: str = "",
+                        extra_env: Optional[dict[str, str]] = None) -> bool:
     """Write model.default/provider/base_url to a config target.
 
     ``target_fn`` is either ``_set_default_config`` or ``_set_profile_config``
     with the profile name already curried/bound.
     """
-    ok = target_fn("model.default", model)
-    ok = target_fn("model.provider", provider) and ok
+    ok = target_fn("model.default", model, extra_env=extra_env)
+    ok = target_fn("model.provider", provider, extra_env=extra_env) and ok
     if base_url:
-        ok = target_fn("model.base_url", base_url) and ok
+        ok = target_fn("model.base_url", base_url, extra_env=extra_env) and ok
     if api_key:
-        ok = target_fn("model.api_key", api_key) and ok
+        ok = target_fn("model.api_key", api_key, extra_env=extra_env) and ok
     return ok
 
 
@@ -594,6 +606,24 @@ def _get_profile_config_path(profile_name: str) -> Path:
 # ── Post-install config sync ────────────────────────────────────────
 
 
+def _build_hermes_env() -> dict[str, str]:
+    """Build extra env vars for Hermes CLI subprocess calls.
+
+    Ensures ``HERMES_HOME`` and ``HERMES_INSTALL_DIR`` are set so
+    ``hermes config set`` targets the correct installation even
+    when the binary was freshly installed to a custom prefix.
+    """
+    env: dict[str, str] = {}
+    hermes_home = _get_hermes_home()
+    if hermes_home:
+        env["HERMES_HOME"] = hermes_home
+    install_dir = _get_hermes_install_dir()
+    install_bin = Path(install_dir) / "bin"
+    if install_bin.exists():
+        env["PATH"] = f"{install_bin}:{os.environ.get('PATH', '')}"
+    return env
+
+
 def _auto_apply_config() -> None:
     """Auto-sync sccsos.yaml model config to Hermes after install.
 
@@ -611,16 +641,20 @@ def _auto_apply_config() -> None:
         provider = cfg.setup.provider
         model = cfg.setup.model
         if not provider or not model:
+            click.echo("  ⚠️  sccsos.yaml 中 hermes.setup.provider/model 未配置，跳过自动同步")
+            click.echo("     请编辑 sccsos.yaml 后运行: sccsos hermes setup")
             return
 
         profile_name = cfg.profile or "sccsos"
         base_url = cfg.setup.base_url or PROVIDER_DEFAULT_URLS.get(provider, "")
         api_key = cfg.setup.api_key or _get_env_api_key(provider) or ""
+        extra_env = _build_hermes_env()
         click.echo("  → 自动同步配置文件...")
 
         # Step 1: Write to default config
         default_path = _get_profile_config_path("default")
-        ok = _write_model_config(_set_default_config, model, provider, base_url, api_key)
+        ok = _write_model_config(_set_default_config, model, provider, base_url, api_key,
+                                 extra_env=extra_env)
         if not ok:
             click.echo("  ⚠️  默认配置写入异常，请检查 Hermes CLI 状态")
             return
@@ -629,7 +663,7 @@ def _auto_apply_config() -> None:
         # Step 2: Clone to target profile
         if profile_name != "default":
             if not _profile_exists(profile_name):
-                if not _create_profile(profile_name):
+                if not _create_profile(profile_name, extra_env=extra_env):
                     click.echo(f"  ⚠️  Profile '{profile_name}' 创建失败，跳过")
                     return
 
@@ -668,8 +702,8 @@ def _auto_apply_config() -> None:
 
             prof_path = _get_profile_config_path(profile_name)
             ok = _write_model_config(
-                lambda k, v: _set_profile_config(profile_name, k, v),
-                model, provider, base_url, api_key,
+                lambda k, v: _set_profile_config(profile_name, k, v, extra_env=extra_env),
+                model, provider, base_url, api_key, extra_env=extra_env,
             )
             if not ok:
                 click.echo(f"  ⚠️  Profile '{profile_name}' 写入异常")
