@@ -1,9 +1,9 @@
-# ADR-024：SCCS OS v0.18.9→v0.20.5 — config-sync 分离与安全修复
+# ADR-024：SCCS OS v0.18.9→v0.20.6 — config-sync 分离与安全修复
 
 - **日期**: 2026-07-25
 - **状态**: 已接受
-- **版本关联**: v0.18.9 ~ v0.20.5
-- **当前版本**: v0.20.5
+- **版本关联**: v0.18.9 ~ v0.20.6
+- **当前版本**: v0.20.6
 - **前置 ADR**: ADR-023（v0.16.5→v0.17.9 全封闭安装）
 - **后置延续**: 待定
 
@@ -17,7 +17,7 @@ v0.18.9 完成 Hermes CLI 安装流程和 Shell 环境配置后，config 同步�
 2. `_auto_apply_config` 函数中 config 同步 + .env 管理 + profile 克隆 + 一致性验证 4 件事混在一起
 3. 无单元测试覆盖 config 同步逻辑
 
-本 ADR 覆盖 v0.18.9→v0.20.5 共 2 个版本的架构决策。
+本 ADR 覆盖 v0.18.9→v0.20.6 共 2 个版本的架构决策。
 
 ## 二、变更汇总
 
@@ -29,7 +29,7 @@ v0.18.9 完成 Hermes CLI 安装流程和 Shell 环境配置后，config 同步�
 | **`sccsos hermes config-sync`** | 新增独立 CLI 命令 |
 | 迁移的函数 | `_auto_apply_config`, `_ensure_env_file`, `_set_default_config`, `_write_model_config`, `_build_hermes_env` |
 
-### v0.20.5 — 修复（2026-07-25）
+### v0.20.6 — 修复（2026-07-25）
 
 | 变更 | 说明 |
 |------|------|
@@ -40,7 +40,7 @@ v0.18.9 完成 Hermes CLI 安装流程和 Shell 环境配置后，config 同步�
 
 ## 三、架构变化
 
-### 3.1 模块关系（v0.20.5）
+### 3.1 模块关系（v0.20.6）
 
 ```
 hermes_cmd.py (CLI 入口)

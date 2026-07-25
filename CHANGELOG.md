@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.20.6] — 2026-07-25
+
+### 新功能
+- 新增 `HERMES_BIN` / `HERMES_BIN_DIR` 环境变量，写入 rc 文件及立即生效
+- `_resolve_hermes_binary` 优先读取 `HERMES_BIN`（兼容 `HERMES_BINARY`）
+- `_find_hermes_bin_dir` 优先检查 `HERMES_BIN_DIR`
+
 ## [0.20.5] — 2026-07-25
 
 ### 优化
