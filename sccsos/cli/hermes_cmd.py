@@ -62,7 +62,7 @@ def _resolve_hermes_binary() -> str:
     # 1. Explicit env var overrides (HERMES_BIN > HERMES_BINARY)
     for var in ("HERMES_BIN", "HERMES_BINARY"):
         val = os.environ.get(var, "")
-        if val:
+        if val and Path(val).exists():
             return val
     # 2. Explicit binary path in sccsos.yaml (skip default "hermes")
     try:
