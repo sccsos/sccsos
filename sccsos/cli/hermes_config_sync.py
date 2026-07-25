@@ -225,7 +225,7 @@ def _auto_apply_config() -> None:
 
         # Step 2: Clone to target profile
         if profile_name != "default":
-            if not _profile_exists(profile_name):
+            if not _profile_exists(profile_name, extra_env=extra_env):
                 if not _create_profile(profile_name, extra_env=extra_env):
                     click.echo(f"  ⚠️  Profile '{profile_name}' 创建失败，跳过")
                     return

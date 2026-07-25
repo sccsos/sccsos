@@ -173,9 +173,13 @@ def _check_hermes_installed() -> bool:
     return rc == 0
 
 
-def _list_profiles() -> list[str]:
-    """List available Hermes profiles via ``hermes profile list``."""
-    out, _, rc = _run_hermes(["profile", "list"])
+def _list_profiles(extra_env: Optional[dict[str, str]] = None) -> list[str]:
+    """List available Hermes profiles via ``hermes profile list``.
+
+    Args:
+        extra_env: Optional env vars override (e.g. resolved HERMES_HOME).
+    """
+    out, _, rc = _run_hermes(["profile", "list"], extra_env=extra_env)
     if rc != 0 or not out:
         return []
     # Parse table: skip header line and separator line (contain "Profile" or dashes)
@@ -192,9 +196,13 @@ def _list_profiles() -> list[str]:
     return profiles
 
 
-def _profile_exists(name: str) -> bool:
-    """Check if a Hermes profile exists."""
-    return name in _list_profiles()
+def _profile_exists(name: str, extra_env: Optional[dict[str, str]] = None) -> bool:
+    """Check if a Hermes profile exists.
+
+    Args:
+        extra_env: Optional env vars override (e.g. resolved HERMES_HOME).
+    """
+    return name in _list_profiles(extra_env=extra_env)
 
 
 def _create_profile(name: str, extra_env: Optional[dict[str, str]] = None) -> bool:
