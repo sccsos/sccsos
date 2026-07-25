@@ -148,6 +148,7 @@ def _find_hermes_bin_dir() -> str | None:
     """Resolve the directory containing the Hermes CLI binary.
 
     Checks (in order):
+    0. ``$HERMES_BIN_DIR`` — explicit env var override
     1. ``$HERMES_INSTALL_DIR/venv/bin/`` — git/pip install (venv)
     2. ``$HERMES_INSTALL_DIR/bin/`` — legacy install
     3. ``$HERMES_HOME/../hermes-agent/venv/bin/`` — git install (root-relative)
@@ -159,6 +160,8 @@ def _find_hermes_bin_dir() -> str | None:
     install_dir = _get_hermes_install_dir()
     hermes_root = _get_hermes_home()
     candidates = [
+        # Explicit env var override
+        Path(os.environ.get("HERMES_BIN_DIR", "")),
         # Direct install-dir paths
         Path(install_dir) / "venv" / "bin",
         Path(install_dir) / "bin",

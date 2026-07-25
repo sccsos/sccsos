@@ -281,12 +281,16 @@ def _setup_shell_rc(rc_file: str = "", yes: bool = False,
     resolved_uv_bin = "$HERMES_HOME/bin"
     resolved_uv_cache = "$HERMES_HOME/uv-cache"
     resolved_path = "$HERMES_INSTALL_DIR/venv/bin:$HERMES_HOME/bin:$PATH"
+    resolved_bin = "$HERMES_INSTALL_DIR/venv/bin/hermes"
+    resolved_bin_dir = "$HERMES_INSTALL_DIR/venv/bin"
 
     env_block = f"""
 # ── Hermes Agent 全封闭安装环境变量 ──
 export HERMES_HOME="{resolved_home}"
 export HERMES_CONFIG_PATH="{resolved_home}"
 export HERMES_INSTALL_DIR="{resolved_install}"
+export HERMES_BIN="{resolved_bin}"
+export HERMES_BIN_DIR="{resolved_bin_dir}"
 export UV_INSTALL_DIR="{resolved_uv_bin}"
 export UV_CACHE_DIR="{resolved_uv_cache}"
 export PATH="{resolved_path}"
@@ -316,6 +320,8 @@ export PATH="{resolved_path}"
     os.environ["HERMES_HOME"] = export_home
     os.environ["HERMES_CONFIG_PATH"] = export_home
     os.environ["HERMES_INSTALL_DIR"] = export_install
+    os.environ["HERMES_BIN"] = os.path.expandvars(resolved_bin)
+    os.environ["HERMES_BIN_DIR"] = os.path.expandvars(resolved_bin_dir)
     os.environ["UV_INSTALL_DIR"] = os.path.expandvars(resolved_uv_bin)
     os.environ["UV_CACHE_DIR"] = os.path.expandvars(resolved_uv_cache)
     click.echo(f"  ✅ 当前会话已生效")

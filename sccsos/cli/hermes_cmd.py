@@ -59,10 +59,11 @@ def _resolve_hermes_binary() -> str:
     even when the binary is not yet in ``PATH`` (e.g. right after
     installation before shell rc is re-sourced).
     """
-    # 1. Explicit env var override
-    from_env = os.environ.get("HERMES_BINARY", "")
-    if from_env:
-        return from_env
+    # 1. Explicit env var overrides (HERMES_BIN > HERMES_BINARY)
+    for var in ("HERMES_BIN", "HERMES_BINARY"):
+        val = os.environ.get(var, "")
+        if val:
+            return val
     # 2. Explicit binary path in sccsos.yaml (skip default "hermes")
     try:
         cfg = _get_hermes_config()
