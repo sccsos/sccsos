@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.20.9] — 2026-07-25
+
+### 修复
+- `env-setup` 跳过 rc 写入时仍导出 `HERMES_BIN`/`HERMES_BIN_DIR` 到当前会话
+- 抽取 `_export_current_session()` 函数统一 `os.environ` 导出逻辑
+
 ## [0.20.8] — 2026-07-25
 
 ### 修复
