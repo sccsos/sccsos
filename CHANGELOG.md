@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.20.7] — 2026-07-25
+
+### 修复
+- install 前 `_setup_shell_rc` 未传 `home`/`install_dir` 导致已设 env 被默认值覆盖，二进制找不到、profile 未创建
+
 ## [0.20.6] — 2026-07-25
 
 ### 新功能
