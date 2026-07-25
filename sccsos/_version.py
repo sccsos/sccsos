@@ -1,2 +1,2 @@
 """Single source of truth for sccsos version."""
-__version__ = "0.20.3"
+__version__ = "0.20.5"
