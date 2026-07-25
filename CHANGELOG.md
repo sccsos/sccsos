@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.19.6] — 2026-07-25
+
+### 修复
+- `pyproject.toml` 打包配置补上 `cli/_default_config.yaml`，确保 `sccsos init` 在 pip 安装环境正常工作
+- 重建 wheel 验证：`_default_config.yaml` 已包含在包内
+
 ## [0.19.5] — 2026-07-25
 
 ### 修复
