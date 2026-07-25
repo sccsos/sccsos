@@ -382,15 +382,25 @@ def install(method, version, git_url, target, check, yes, force, home, install_d
 
     三种安装方式：
 
-    \\b
+    \\\b
     - script（默认）：一键在线脚本，自动配置环境，新手首选
     - git：源码编译安装，适合二次开发
     - docker：Docker 容器部署，适合生产环境
 
     安装完成后运行 ``sccsos hermes setup`` 配置 LLM Provider 和 API Key。
+
+    .. note::
+       仅支持 Linux / macOS。Windows 用户请使用 WSL2。
     """
     click.echo("── SCCS OS — Hermes Agent 安装 ──")
     click.echo("")
+
+    # ── 平台检查 ──
+    import sys as _sys
+    if _sys.platform == "win32":
+        click.echo("  ❌ Windows 暂不支持。Hermes Agent 仅支持 Linux / macOS。")
+        click.echo("     请使用 WSL2（Windows Subsystem for Linux）或虚拟机。")
+        return
 
     if check:
         _report_install_status()
