@@ -1,6 +1,6 @@
 [project]
 name = "sccsos"
-version = "0.19.7"
+version = "0.20.0"
 description = "SCCS Operating System — Smart Agent Runtime Platform for SCCS-T Product Ecosystem"
 readme = "README.md"
 requires-python = ">=3.11"

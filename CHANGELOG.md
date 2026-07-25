@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.20.0] — 2026-07-25
+
+### 修复
+- `_default_config.yaml` 补 `allowed_commands`（12 个命令），修复新项目 sandbox 空白名单
+- `_default_config.yaml` 纳入 wheel 打包，修复 `sccsos init` 在 pip 安装环境报错
+- `pyproject.toml` package-data 补 `cli/_default_config.yaml`
+
+### 架构
+- `hermes_config_sync.py` 模块分离，`sccsos hermes config-sync` 独立命令
+- `_resolve_hermes_root()` 修复 HERMES_HOME 指向 profile 目录时路径解析
+- 注入检测 `\b` 词边界修复命令误报
+
 ## [0.19.7] — 2026-07-25
 
 ### 修复
