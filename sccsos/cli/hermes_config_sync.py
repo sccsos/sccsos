@@ -245,6 +245,10 @@ def _auto_apply_config() -> None:
     not to ``config.yaml`` — respects Hermes secrets convention.
     """
     try:
+        from sccsos.cli.hermes_cmd import _resolve_hermes_binary  # noqa: E402
+        hermes_bin = _resolve_hermes_binary()
+        click.echo(f"  🛠️  HERMES_BIN: {hermes_bin}  {'✅ exists' if Path(hermes_bin).exists() else '❌ NOT FOUND'}")
+
         cfg = _get_hermes_config()
         provider = cfg.setup.provider or "deepseek"
         model = cfg.setup.model or PROVIDER_DEFAULT_MODELS.get(provider, "deepseek-v4-flash")
