@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.20.3] — 2026-07-25
+
+### 修复
+- 全链路 Hermes 二进制路径解析审计：`_resolve_hermes_binary` 跳过默认值，`_create_adapter` 传全路径，sandbox 白名单支持全路径匹配
+- `PATH_TRAVERSAL_PATTERNS` 移除 `/dev/` 避免误伤 `~/dev/` 路径，替换为精确的设备盘符模式
+
 ## [0.20.2] — 2026-07-25
 
 ### 修复
