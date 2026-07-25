@@ -599,6 +599,10 @@ def install(method, version, git_url, target, check, yes, force, home, install_d
         click.echo(f"  HERMES_HOME:            {resolved_home}")
     if resolved_install_dir:
         click.echo(f"  HERMES_INSTALL_DIR:  {resolved_install_dir}")
+        resolved_bin = f"{resolved_install_dir}/venv/bin/hermes"
+        resolved_bin_dir = f"{resolved_install_dir}/venv/bin"
+        click.echo(f"  HERMES_BIN:             {resolved_bin}")
+        click.echo(f"  HERMES_BIN_DIR:         {resolved_bin_dir}")
     click.echo(f"  UV_INSTALL_DIR:         {resolved_uv_bin}")
     click.echo(f"  UV_CACHE_DIR:           {resolved_uv_cache}")
     click.echo("")
