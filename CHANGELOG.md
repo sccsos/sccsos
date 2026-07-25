@@ -4,6 +4,7 @@
 
 ### 修复
 - 命令注入检测正则加 `\b` 词边界，修复 `` `python3 --version` `` 等反引号命令误报
+- `pyproject.toml` 打包配置补上 `cli/_default_config.yaml`，修复 `sccsos init` 在 pip 安装环境报 `No such file or directory`
 
 ## [0.19.4] — 2026-07-25
 
