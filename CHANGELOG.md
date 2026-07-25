@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.20.2] — 2026-07-25
+
+### 修复
+- `_find_hermes_bin_dir()` 新增 + `_build_hermes_env()` 改用，安装后自动补充 `venv/bin` 到 PATH，确保 config-sync 立即可用
+
 ## [0.20.1] — 2026-07-25
 
 ### 修复
