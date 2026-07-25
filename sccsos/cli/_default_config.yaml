@@ -1,7 +1,7 @@
-# sccsos v0.19.6 project configuration
+# sccsos v0.19.7 project configuration
 project:
   name: sccsos
-  version: 0.19.6
+  version: 0.19.7
 hermes:
   profile: sccsos
   binary: hermes

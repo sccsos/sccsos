@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.19.7] — 2026-07-25
+
+### 修复
+- `_default_config.yaml` 补 `allowed_commands`（12 个命令），修复 `sccsos init` 新项目 sandbox 空白名单导致所有命令被拦截
+
 ## [0.19.6] — 2026-07-25
 
 ### 修复
