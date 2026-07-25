@@ -116,10 +116,11 @@ class RuntimeCore:
             dangerous_patterns=list(wl_dangerous) if wl_dangerous else None,
         )
         hermes_cfg = cfg.hermes
+        from sccsos.cli.hermes_cmd import _resolve_hermes_binary  # noqa: E402
         self._adapter = create_adapter(
             mode=hermes_cfg.adapter,
             whitelist=sandbox,
-            hermes_bin=hermes_cfg.binary,
+            hermes_bin=_resolve_hermes_binary(),
         )
 
         # Memory, session, model router, KB

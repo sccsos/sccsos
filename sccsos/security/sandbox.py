@@ -51,7 +51,9 @@ PATH_TRAVERSAL_PATTERNS: list[str] = [
     "/var/log/",
     "/proc/",
     "/sys/",
-    "/dev/",
+    "/dev/sd",
+    "/dev/nvme",
+    "/dev/vd",
 ]
 
 # Environment variable patterns that should be checked
@@ -178,6 +180,9 @@ class CommandWhitelist(SandboxABC):
             return SandboxResult(allowed=False, reason="Empty command")
         for allowed in self._allowed:
             if base_cmd == allowed or base_cmd.startswith(allowed + "/"):
+                return SandboxResult(allowed=True)
+            # Allow full-path binary (e.g. /.../venv/bin/hermes)
+            if allowed and base_cmd.endswith(f"/{allowed}"):
                 return SandboxResult(allowed=True)
         return SandboxResult(
             allowed=False,

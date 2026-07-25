@@ -52,16 +52,32 @@ PROVIDER_DEFAULT_URLS: dict[str, str] = {
 
 
 def _resolve_hermes_binary() -> str:
-    """Resolve Hermes binary path: env var > config > default."""
+    """Resolve Hermes binary path: env var > explicit config > discovered > default.
+
+    Returns the full path to ``hermes`` when found via
+    :func:`_find_hermes_bin_dir`, so subprocess invocations succeed
+    even when the binary is not yet in ``PATH`` (e.g. right after
+    installation before shell rc is re-sourced).
+    """
+    # 1. Explicit env var override
     from_env = os.environ.get("HERMES_BINARY", "")
     if from_env:
         return from_env
+    # 2. Explicit binary path in sccsos.yaml (skip default "hermes")
     try:
         cfg = _get_hermes_config()
-        if cfg.binary:
+        if cfg.binary and cfg.binary != "hermes":
             return cfg.binary
     except Exception:
         pass
+    # 3. Discover the actual binary on disk
+    from sccsos.cli.hermes_config_sync import _find_hermes_bin_dir  # noqa: E402
+    bin_dir = _find_hermes_bin_dir()
+    if bin_dir:
+        full_path = str(Path(bin_dir) / "hermes")
+        if Path(full_path).exists():
+            return full_path
+    # 4. Fallback — hope it's in PATH
     return "hermes"
 
 
