@@ -546,10 +546,10 @@ SAMPLE_PRICING = """{
 # Enriched sccsos.yaml (with --samples)
 # ═══════════════════════════════════════════════════════════════════════
 
-SAMPLE_YAML_FULL = """# sccsos v0.20.9 project configuration (full)
+SAMPLE_YAML_FULL = """# sccsos v0.20.10 project configuration (full)
 project:
   name: sccsos
-  version: 0.20.9
+  version: 0.20.10
 
 hermes:
   profile: sccsos

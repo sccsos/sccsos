@@ -2,8 +2,8 @@ apiVersion: v2
 name: sccsos
 description: SCCS OS — Smart Agent Runtime Platform
 type: application
-version: 0.20.9
-appVersion: "0.20.9"
+version: 0.20.10
+appVersion: "0.20.10"
 keywords:
   - ai-agent
   - multi-agent

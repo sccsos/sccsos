@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.20.10] — 2026-07-25
+
+### 变更
+- rc 文件 `export PATH` 下行添加 `. $HERMES_INSTALL_DIR/venv/bin`
+
 ## [0.20.9] — 2026-07-25
 
 ### 修复

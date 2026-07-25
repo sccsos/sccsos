@@ -28,7 +28,7 @@ spec:
       containers:
         # ── 主容器：SCCS OS (slim 镜像) ──────────────────────────
         - name: sccsos
-          image: sccsos:0.20.9-slim
+          image: sccsos:0.20.10-slim
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8765
@@ -89,7 +89,7 @@ spec:
 
         # ── Sidecar：Hermes Agent ──────────────────────────────────
         - name: hermes-agent
-          image: sccsos-hermes:0.20.9
+          image: sccsos-hermes:0.20.10
           imagePullPolicy: IfNotPresent
           # 保持运行，等待主容器通过 docker exec 调用
           command: ["sleep", "infinity"]
