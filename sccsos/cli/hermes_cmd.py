@@ -359,6 +359,25 @@ hermes_cmd.add_command(config_sync)
 
 
 
+# ── Trace helper ─────────────────────────────────────────────────────
+
+
+def _trace_env(stage: str) -> None:
+    """Debug: print all tracked Hermes env vars at a given stage."""
+    vars = [
+        "HERMES_HOME", "HERMES_CONFIG_PATH", "HERMES_INSTALL_DIR",
+        "HERMES_BIN", "HERMES_BIN_DIR", "HERMES_BINARY",
+        "UV_INSTALL_DIR", "UV_CACHE_DIR",
+    ]
+    parts = [f"  🪵 [{stage}]"]
+    for v in vars:
+        val = os.environ.get(v, "")
+        if val:
+            exists = "✅" if v in ("HERMES_BIN", "HERMES_BINARY") and Path(val).exists() else ""
+            parts.append(f"  {v}={val[:80]} {exists}")
+    click.echo("\n".join(parts))
+
+
 @hermes_cmd.command(name="install")
 @click.option("--method", "-m", default="script", type=click.Choice(["script", "git", "docker"]),
               help="安装方式（默认 script：一键安装脚本）")
@@ -439,19 +458,28 @@ def install(method, version, git_url, target, check, yes, force, home, install_d
     click.echo(f"  UV_CACHE_DIR:           {resolved_uv_cache}")
     click.echo("")
 
+    # ── 🪵 trace ──
+    _trace_env("A-解析后")
+
     # ── 导出到当前 shell 环境 ──
     # 确保安装子进程继承正确路径，同时后续命令直接可用
     os.environ["HERMES_HOME"] = resolved_home
     os.environ["HERMES_CONFIG_PATH"] = resolved_config_path
     os.environ["HERMES_INSTALL_DIR"] = resolved_install_dir
+    os.environ["HERMES_BIN"] = resolved_bin
+    os.environ["HERMES_BIN_DIR"] = resolved_bin_dir
     os.environ["UV_INSTALL_DIR"] = resolved_uv_bin
     os.environ["UV_CACHE_DIR"] = resolved_uv_cache
     click.echo("  ✅ 当前会话已设置环境变量")
+    # ── 🪵 trace ──
+    _trace_env("B-导出后")
 
     # ── 写入 shell rc 文件（持久化） ──
     from sccsos.cli.hermes_install import _setup_shell_rc  # noqa: E402
     _setup_shell_rc(yes=True, home=resolved_home,
                     install_dir=resolved_install_dir)
+    # ── 🪵 trace ──
+    _trace_env("C-rc写入后")
 
     # ── 执行安装 ──
     if method == "script":
@@ -479,6 +507,8 @@ def install(method, version, git_url, target, check, yes, force, home, install_d
     if bin_dir:
         os.environ["PATH"] = f"{bin_dir}:{os.environ.get('PATH', '')}"
         click.echo(f"  ✅ PATH 已补充: {bin_dir}")
+    # ── 🪵 trace ──
+    _trace_env("D-安装后")
 
     click.echo("")
     click.echo("  验证安装...")
@@ -488,6 +518,8 @@ def install(method, version, git_url, target, check, yes, force, home, install_d
         click.echo("")
 
         # auto-sync sccsos.yaml model config → Hermes profile
+        # ── 🪵 trace ──
+        _trace_env("E-config-sync前")
         from sccsos.cli.hermes_config_sync import _auto_apply_config as _do_sync  # noqa: E402
         _do_sync()
 

@@ -650,6 +650,9 @@ def install(method, version, git_url, target, check, yes, force, home, install_d
     if bin_dir:
         os.environ["PATH"] = f"{bin_dir}:{os.environ.get('PATH', '')}"
         click.echo(f"  ✅ PATH 已补充: {bin_dir}")
+    # ── 🪵 trace ──
+    from sccsos.cli.hermes_cmd import _trace_env
+    _trace_env("D-安装后")
 
     click.echo("")
     click.echo("  验证安装...")
@@ -659,6 +662,9 @@ def install(method, version, git_url, target, check, yes, force, home, install_d
         click.echo("")
 
         # auto-sync sccsos.yaml model config → Hermes profile
+        # ── 🪵 trace ──
+        from sccsos.cli.hermes_cmd import _trace_env as _te
+        _te("E-config-sync前")
         from sccsos.cli.hermes_config_sync import _auto_apply_config as _do_sync  # noqa: E402
         _do_sync()
 
