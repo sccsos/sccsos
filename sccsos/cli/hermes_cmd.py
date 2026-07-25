@@ -436,7 +436,8 @@ def install(method, version, git_url, target, check, yes, force, home, install_d
 
     # ── 写入 shell rc 文件（持久化） ──
     from sccsos.cli.hermes_install import _setup_shell_rc  # noqa: E402
-    _setup_shell_rc(yes=True)
+    _setup_shell_rc(yes=True, home=resolved_home,
+                    install_dir=resolved_install_dir)
 
     # ── 执行安装 ──
     if method == "script":
