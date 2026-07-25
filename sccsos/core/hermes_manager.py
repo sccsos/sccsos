@@ -385,6 +385,7 @@ def _create_adapter(mode: str) -> "HermesAdapter":
     installation discovery results.
     """
     from sccsos.core.hermes_adapter import create_adapter
+    from sccsos.cli.hermes_cmd import _resolve_hermes_binary
 
     if mode == "auto":
         inst = get_manager().discover()
@@ -399,4 +400,4 @@ def _create_adapter(mode: str) -> "HermesAdapter":
         from sccsos.core.hermes_docker_adapter import DockerHermesAdapter
         return DockerHermesAdapter(container=cfg.container, network=cfg.network)
 
-    return create_adapter(mode)
+    return create_adapter(mode, hermes_bin=_resolve_hermes_binary())
