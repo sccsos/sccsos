@@ -144,6 +144,32 @@ def _resolve_hermes_root() -> str:
     return str(hermes_home)
 
 
+def _find_hermes_bin_dir() -> str | None:
+    """Resolve the directory containing the Hermes CLI binary.
+
+    Checks (in order):
+    1. ``$HERMES_INSTALL_DIR/venv/bin/`` — git/pip install (venv)
+    2. ``$HERMES_INSTALL_DIR/bin/`` — legacy install
+    3. ``~/.local/bin/`` — script install (install.sh)
+    4. ``shutil.which('hermes')`` — already in PATH
+    """
+    install_dir = _get_hermes_install_dir()
+    candidates = [
+        Path(install_dir) / "venv" / "bin",
+        Path(install_dir) / "bin",
+        Path.home() / ".local" / "bin",
+    ]
+    for cand in candidates:
+        if (cand / "hermes").exists():
+            return str(cand)
+    # Fallback: already in PATH
+    import shutil
+    resolved = shutil.which("hermes")
+    if resolved:
+        return str(Path(resolved).parent)
+    return None
+
+
 def _build_hermes_env() -> dict[str, str]:
     """Build extra env vars for Hermes CLI subprocess calls.
 
@@ -151,6 +177,10 @@ def _build_hermes_env() -> dict[str, str]:
     ``UV_INSTALL_DIR``, and ``UV_CACHE_DIR`` are set so ``hermes config set``
     targets the correct installation (resolved root, not a profile sub-directory)
     even when the binary was freshly installed to a custom prefix.
+
+    Also prepends the Hermes binary directory to ``PATH`` so that
+    ``hermes`` subprocess calls succeed immediately after installation
+    (before shell rc files are re-sourced).
     """
     env: dict[str, str] = {}
     hermes_home = _resolve_hermes_root()
@@ -160,9 +190,9 @@ def _build_hermes_env() -> dict[str, str]:
     install_dir = _get_hermes_install_dir()
     if install_dir:
         env["HERMES_INSTALL_DIR"] = install_dir
-    install_bin = Path(install_dir) / "bin"
-    if install_bin.exists():
-        env["PATH"] = f"{install_bin}:{os.environ.get('PATH', '')}"
+    bin_dir = _find_hermes_bin_dir()
+    if bin_dir:
+        env["PATH"] = f"{bin_dir}:{os.environ.get('PATH', '')}"
 
     uv_bin = _get_uv_install_dir()
     if uv_bin:

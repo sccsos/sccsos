@@ -440,6 +440,14 @@ def install(method, version, git_url, target, check, yes, force, home, install_d
                         china_mirror=china_mirror)
 
     # ── 安装后验证 ──
+    # 安装脚本已将 hermes 安装到 venv/bin 或 ~/.local/bin，
+    # 但当前 shell 会话的 PATH 尚未更新。补充查找 binary 路径。
+    from sccsos.cli.hermes_config_sync import _find_hermes_bin_dir  # noqa: E402
+    bin_dir = _find_hermes_bin_dir()
+    if bin_dir:
+        os.environ["PATH"] = f"{bin_dir}:{os.environ.get('PATH', '')}"
+        click.echo(f"  ✅ PATH 已补充: {bin_dir}")
+
     click.echo("")
     click.echo("  验证安装...")
     out, _, rc = _run_hermes(["--version"])
