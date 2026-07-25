@@ -51,3 +51,16 @@ policies:
       - terminal
       - delegate_task
     blocked_tools: []
+    allowed_commands:
+      - hermes
+      - git
+      - ls
+      - cat
+      - head
+      - tail
+      - echo
+      - python3
+      - pip3
+      - node
+      - npm
+      - which
