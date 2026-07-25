@@ -150,18 +150,37 @@ def _find_hermes_bin_dir() -> str | None:
     Checks (in order):
     1. ``$HERMES_INSTALL_DIR/venv/bin/`` — git/pip install (venv)
     2. ``$HERMES_INSTALL_DIR/bin/`` — legacy install
-    3. ``~/.local/bin/`` — script install (install.sh)
-    4. ``shutil.which('hermes')`` — already in PATH
+    3. ``$HERMES_HOME/../hermes-agent/venv/bin/`` — git install (root-relative)
+    4. ``$HERMES_HOME/hermes-agent/venv/bin/`` — git install (home-relative)
+    5. ``~/.local/bin/`` — script install (install.sh)
+    6. ``$HOME/.hermes/venv/bin/`` — classic hermes install
+    7. ``shutil.which('hermes')`` — already in PATH
     """
     install_dir = _get_hermes_install_dir()
+    hermes_root = _get_hermes_home()
     candidates = [
+        # Direct install-dir paths
         Path(install_dir) / "venv" / "bin",
         Path(install_dir) / "bin",
+        # Relative to HERMES_HOME root (handles profile-dir paths via walkup)
+        Path(hermes_root).parent / "hermes-agent" / "venv" / "bin",
+        Path(hermes_root) / "hermes-agent" / "venv" / "bin",
+        # Common user paths
         Path.home() / ".local" / "bin",
+        Path.home() / ".hermes" / "venv" / "bin",
     ]
+    # Deduplicate by resolved path
+    seen = set()
     for cand in candidates:
-        if (cand / "hermes").exists():
-            return str(cand)
+        try:
+            resolved = cand.resolve()
+        except (OSError, RuntimeError):
+            continue
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        if (resolved / "hermes").exists():
+            return str(resolved)
     # Fallback: already in PATH
     import shutil
     resolved = shutil.which("hermes")
