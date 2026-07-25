@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.20.1] — 2026-07-25
+
+### 修复
+- `_profile_exists` 未传 `extra_env` 导致路径与 `_create_profile` 不一致，修复 install 后 profile 未自动生成
+
 ## [0.20.0] — 2026-07-25
 
 ### 修复
