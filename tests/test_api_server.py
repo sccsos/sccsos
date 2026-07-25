@@ -15,12 +15,19 @@ PORT = 18998
 @pytest.fixture(scope="module", autouse=True)
 def server():
     """Start sccsos API server on a high port with mock adapter."""
-    from sccsos.core.agent_runtime import AgentRuntime, set_runtime
+    from sccsos.core.agent_runtime import AgentRuntime, set_runtime, reset_runtime
     from sccsos.core.hermes_adapter import create_adapter
     from sccsos.api.server import run_server
 
+    # Use in-memory DB to avoid SQLite lock with other test suites
+    from sccsos.core.config import AgentOSConfig
+    tmp_cfg = AgentOSConfig()
+    tmp_cfg.database.path = ":memory:"
+    tmp_cfg.pricing.path = ""
+    tmp_cfg.tracing.enabled = False
+
     # Inject a mock runtime so the API server doesn't try real Hermes CLI subprocess
-    runtime = AgentRuntime()
+    runtime = AgentRuntime(config=tmp_cfg)
     # Initialize with default config
     runtime.initialize()
     # Override the real adapter with mock after initialization
@@ -38,6 +45,9 @@ def server():
     t.start()
     time.sleep(0.8)
     yield
+    # Clean up: stop server and reset runtime singleton so other test
+    # suites don't inherit stale state
+    reset_runtime()
     # Daemon thread dies with the test process
 
 
@@ -73,7 +83,7 @@ class TestAPIEndpoints:
     def test_01_health(self):
         status, data = _get("/health")
         assert status == 200
-        assert data.get('version') == "0.17.9"
+        assert data.get('version') == "0.19.4"
         assert "initialized" in data
 
     def test_02_agents_list(self):
@@ -101,6 +111,7 @@ class TestAPIEndpoints:
         status, data = _get("/agents/nonexistent-xyz")
         assert status == 404
 
+    @pytest.mark.slow
     def test_06_start_agent(self):
         """Start agent creates a lifecycle instance."""
         status, data = _post("/agents/api-agent-1/start", {})
@@ -166,6 +177,7 @@ class TestAPIEndpoints:
 
     # ── New tests: pause/resume/restart/ask/visualize ──────────
 
+    @pytest.mark.slow
     def test_18_pause_resume_agent(self):
         """Register, start, pause, then resume an agent via API."""
         status, data = _post("/agents/register", {
@@ -187,6 +199,7 @@ class TestAPIEndpoints:
         # Stop cleanup
         _post("/agents/lifecycle-agent/stop", {})
 
+    @pytest.mark.slow
     def test_19_restart_agent(self):
         """Register, start, fail, then restart an agent via API."""
         status, data = _post("/agents/register", {

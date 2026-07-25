@@ -102,7 +102,7 @@ class AgentRuntime:
     def policy_engine(self):
         self._ensure_initialized()
         if self._wf and self._wf.engine:
-            return self._wf.engine._policy_engine
+            return self._wf.engine.policy_engine
         return None
 
     @property
@@ -119,6 +119,14 @@ class AgentRuntime:
     def session_manager(self) -> AgentSessionManager:
         self._ensure_initialized()
         return self._core.session_manager
+
+    @property
+    def message_bus(self):
+        """AgentMessageBus for inter-agent communication (wired via WorkflowRuntime)."""
+        self._ensure_initialized()
+        if self._wf and self._wf.message_bus:
+            return self._wf.message_bus
+        return None
 
     @property
     def is_initialized(self) -> bool:

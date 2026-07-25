@@ -504,168 +504,147 @@ CREATE TABLE IF NOT EXISTS subscriptions (
 def apply_migrations(conn) -> None:
     """Apply incremental schema migrations for existing databases."""
     try:
-        # Migration v1: Add tenant_id columns
-        for table in ('agents', 'audit_log', 'workflow_runs'):
-            col_info = conn.execute(
-                f"PRAGMA table_info({table})"
-            ).fetchall()
-            col_names = [c[1] for c in col_info]
-            if 'tenant_id' not in col_names:
-                conn.execute(
-                    f"ALTER TABLE {table} ADD COLUMN tenant_id TEXT NOT NULL DEFAULT 'default'"
-                )
-                conn.commit()
-
-        # Migration v2: Create memory_store table
-        tables = [r[0] for r in conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table'"
-        ).fetchall()]
-        if 'memory_store' not in tables:
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS memory_store (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    tenant_id TEXT NOT NULL DEFAULT 'default',
-                    agent_name TEXT NOT NULL,
-                    key TEXT NOT NULL,
-                    value TEXT NOT NULL,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    UNIQUE(tenant_id, agent_name, key)
-                )
-            """)
-            conn.commit()
-
-        # Migration v3: Add ttl_seconds to memory_store
-        col_info = conn.execute(
-            "PRAGMA table_info(memory_store)"
-        ).fetchall()
-        col_names = [c[1] for c in col_info]
-        if 'ttl_seconds' not in col_names:
-            conn.execute(
-                "ALTER TABLE memory_store ADD COLUMN ttl_seconds INTEGER DEFAULT 0"
-            )
-            conn.commit()
-
-        # Migration v4: Create agent_sessions and session_messages
-        tables = [r[0] for r in conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table'"
-        ).fetchall()]
-        if 'agent_sessions' not in tables:
-            conn.executescript("""
-                CREATE TABLE IF NOT EXISTS agent_sessions (
-                    id TEXT PRIMARY KEY,
-                    agent_name TEXT NOT NULL,
-                    tenant_id TEXT NOT NULL DEFAULT 'default',
-                    status TEXT NOT NULL DEFAULT 'active',
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    context_summary TEXT DEFAULT ''
-                );
-                CREATE TABLE IF NOT EXISTS session_messages (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    session_id TEXT NOT NULL,
-                    role TEXT NOT NULL,
-                    content TEXT NOT NULL,
-                    tokens INTEGER DEFAULT 0,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (session_id) REFERENCES agent_sessions(id)
-                );
-                CREATE INDEX IF NOT EXISTS idx_session_messages_session
-                    ON session_messages(session_id, created_at);
-                CREATE INDEX IF NOT EXISTS idx_agent_sessions_agent
-                    ON agent_sessions(tenant_id, agent_name, status);
-            """)
-            conn.commit()
-
-        # Migration v5: Add review_notes to skill_market
-        col_info = conn.execute(
-            "PRAGMA table_info(skill_market)"
-        ).fetchall()
-        col_names = [c[1] for c in col_info]
-        if 'review_notes' not in col_names:
-            conn.execute(
-                "ALTER TABLE skill_market ADD COLUMN review_notes TEXT DEFAULT ''"
-            )
-            conn.commit()
-
-        # Migration v6: Create tenant_quotas table
-        tables = [r[0] for r in conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table'"
-        ).fetchall()]
-        if 'tenant_quotas' not in tables:
-            conn.executescript("""
-                CREATE TABLE IF NOT EXISTS tenant_quotas (
-                    tenant_id TEXT PRIMARY KEY,
-                    max_agents INTEGER NOT NULL DEFAULT 10,
-                    max_tokens_per_day INTEGER NOT NULL DEFAULT 500000,
-                    max_cost_per_day REAL NOT NULL DEFAULT 10.0,
-                    max_cost_total REAL NOT NULL DEFAULT 100.0,
-                    max_memory_entries INTEGER NOT NULL DEFAULT 10000,
-                    max_storage_mb INTEGER NOT NULL DEFAULT 1024,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );
-            """)
-            conn.commit()
-
-        # Migration v7: Create skill_ratings table
-        tables = [r[0] for r in conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table'"
-        ).fetchall()]
-        if 'skill_ratings' not in tables:
-            conn.executescript("""
-                CREATE TABLE IF NOT EXISTS skill_ratings (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    skill_name TEXT NOT NULL,
-                    skill_version TEXT NOT NULL DEFAULT '1.0',
-                    user_id TEXT NOT NULL,
-                    score INTEGER NOT NULL CHECK(score >= 1 AND score <= 5),
-                    comment TEXT DEFAULT '',
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    UNIQUE(skill_name, skill_version, user_id)
-                );
-                CREATE INDEX IF NOT EXISTS idx_skill_ratings_skill
-                    ON skill_ratings(skill_name, skill_version);
-                CREATE INDEX IF NOT EXISTS idx_skill_ratings_score
-                    ON skill_ratings(score);
-            """)
-            conn.commit()
-
-        # Migration v8: Add install_count and category to skill_market
-        col_info = conn.execute(
-            "PRAGMA table_info(skill_market)"
-        ).fetchall()
-        col_names = [c[1] for c in col_info]
-        if 'install_count' not in col_names:
-            conn.execute(
-                "ALTER TABLE skill_market ADD COLUMN install_count INTEGER DEFAULT 0"
-            )
-            conn.commit()
-        if 'category' not in col_names:
-            conn.execute(
-                "ALTER TABLE skill_market ADD COLUMN category TEXT DEFAULT ''"
-            )
-            conn.commit()
-
-        # Migration v9: Create subscriptions table
-        tables = [r[0] for r in conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table'"
-        ).fetchall()]
-        if 'subscriptions' not in tables:
-            conn.executescript("""
-                CREATE TABLE IF NOT EXISTS subscriptions (
-                    id TEXT PRIMARY KEY,
-                    tenant_id TEXT NOT NULL UNIQUE,
-                    tier TEXT NOT NULL DEFAULT 'pay_per_token',
-                    monthly_fee REAL DEFAULT 0.0,
-                    flat_fee_per_call REAL DEFAULT 0.01,
-                    model_rates TEXT DEFAULT '{}',
-                    active INTEGER DEFAULT 1,
-                    created_at TEXT DEFAULT '',
-                    updated_at TEXT DEFAULT ''
-                );
-            """)
-            conn.commit()
+        _migrate_v1_add_tenant_id(conn)
+        _migrate_v2_memory_store(conn)
+        _migrate_v3_memory_ttl(conn)
+        _migrate_v4_sessions(conn)
+        _migrate_v5_review_notes(conn)
+        _migrate_v6_quotas(conn)
+        _migrate_v7_skill_ratings(conn)
+        _migrate_v8_skill_columns(conn)
+        _migrate_v9_subscriptions(conn)
     except Exception as e:
         logger.warning("Migration failed (schema may be compatible): %s", e)
+
+
+def _migrate_v1_add_tenant_id(conn) -> None:
+    for table in ('agents', 'audit_log', 'workflow_runs'):
+        col_info = conn.execute(f"PRAGMA table_info({table})").fetchall()
+        col_names = [c[1] for c in col_info]
+        if 'tenant_id' not in col_names:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN tenant_id TEXT NOT NULL DEFAULT 'default'")
+            conn.commit()
+
+
+def _migrate_v2_memory_store(conn) -> None:
+    _create_table_if_not_exists(conn, 'memory_store', """
+        CREATE TABLE IF NOT EXISTS memory_store (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tenant_id TEXT NOT NULL DEFAULT 'default',
+            agent_name TEXT NOT NULL,
+            key TEXT NOT NULL,
+            value TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(tenant_id, agent_name, key)
+        )
+    """)
+
+
+def _migrate_v3_memory_ttl(conn) -> None:
+    _add_column_if_not_exists(conn, 'memory_store', 'ttl_seconds', 'INTEGER DEFAULT 0')
+
+
+def _migrate_v4_sessions(conn) -> None:
+    _create_table_if_not_exists(conn, 'agent_sessions', """
+        CREATE TABLE IF NOT EXISTS agent_sessions (
+            id TEXT PRIMARY KEY,
+            agent_name TEXT NOT NULL,
+            tenant_id TEXT NOT NULL DEFAULT 'default',
+            status TEXT NOT NULL DEFAULT 'active',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            context_summary TEXT DEFAULT ''
+        );
+        CREATE TABLE IF NOT EXISTS session_messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id TEXT NOT NULL,
+            role TEXT NOT NULL,
+            content TEXT NOT NULL,
+            tokens INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (session_id) REFERENCES agent_sessions(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_session_messages_session
+            ON session_messages(session_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_agent_sessions_agent
+            ON agent_sessions(tenant_id, agent_name, status);
+    """)
+
+
+def _migrate_v5_review_notes(conn) -> None:
+    _add_column_if_not_exists(conn, "skill_market", "review_notes", "TEXT DEFAULT ''")
+
+
+def _migrate_v6_quotas(conn) -> None:
+    _create_table_if_not_exists(conn, 'tenant_quotas', """
+        CREATE TABLE IF NOT EXISTS tenant_quotas (
+            tenant_id TEXT PRIMARY KEY,
+            max_agents INTEGER NOT NULL DEFAULT 10,
+            max_tokens_per_day INTEGER NOT NULL DEFAULT 500000,
+            max_cost_per_day REAL NOT NULL DEFAULT 10.0,
+            max_cost_total REAL NOT NULL DEFAULT 100.0,
+            max_memory_entries INTEGER NOT NULL DEFAULT 10000,
+            max_storage_mb INTEGER NOT NULL DEFAULT 1024,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+    """)
+
+
+def _migrate_v7_skill_ratings(conn) -> None:
+    _create_table_if_not_exists(conn, 'skill_ratings', """
+        CREATE TABLE IF NOT EXISTS skill_ratings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            skill_name TEXT NOT NULL,
+            skill_version TEXT NOT NULL DEFAULT '1.0',
+            user_id TEXT NOT NULL,
+            score INTEGER NOT NULL CHECK(score >= 1 AND score <= 5),
+            comment TEXT DEFAULT '',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(skill_name, skill_version, user_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_skill_ratings_skill
+            ON skill_ratings(skill_name, skill_version);
+        CREATE INDEX IF NOT EXISTS idx_skill_ratings_score
+            ON skill_ratings(score);
+    """)
+
+
+def _migrate_v8_skill_columns(conn) -> None:
+    _add_column_if_not_exists(conn, "skill_market", "install_count", "INTEGER DEFAULT 0")
+    _add_column_if_not_exists(conn, "skill_market", "category", "TEXT DEFAULT ''")
+
+
+def _migrate_v9_subscriptions(conn) -> None:
+    _create_table_if_not_exists(conn, 'subscriptions', """
+        CREATE TABLE IF NOT EXISTS subscriptions (
+            id TEXT PRIMARY KEY,
+            tenant_id TEXT NOT NULL UNIQUE,
+            tier TEXT NOT NULL DEFAULT 'pay_per_token',
+            monthly_fee REAL DEFAULT 0.0,
+            flat_fee_per_call REAL DEFAULT 0.01,
+            model_rates TEXT DEFAULT '{}',
+            active INTEGER DEFAULT 1,
+            created_at TEXT DEFAULT '',
+            updated_at TEXT DEFAULT ''
+        );
+    """)
+
+
+def _create_table_if_not_exists(conn, table_name: str, ddl: str) -> None:
+    tables = [r[0] for r in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'"
+    ).fetchall()]
+    if table_name not in tables:
+        conn.executescript(ddl)
+        conn.commit()
+
+
+def _add_column_if_not_exists(conn, table: str, column: str, col_def: str) -> None:
+    col_info = conn.execute(f"PRAGMA table_info({table})").fetchall()
+    col_names = [c[1] for c in col_info]
+    if column not in col_names:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {col_def}")
+        conn.commit()

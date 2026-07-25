@@ -9,15 +9,15 @@
 #   - 独立运行的 Hermes 节点供 RemoteHermesAdapter 使用
 #
 # 构建：
-#   docker build -t sccsos-hermes:0.16.0 -f Dockerfile.hermes .
+#   docker build -t sccsos-hermes:0.17.9 -f Dockerfile.hermes .
 #
 # 运行（保持存活供 docker exec）：
-#   docker run -d --name hermes-agent sccsos-hermes:0.16.0
+#   docker run -d --name hermes-agent sccsos-hermes:0.17.9
 
 FROM python:3.11-slim
 
 LABEL org.sccsos.name="sccsos-hermes" \
-      org.sccsos.version="0.16.0" \
+      org.sccsos.version="0.17.9" \
       org.sccsos.description="SCCS OS — Hermes Agent standalone container"
 
 # 最小系统依赖：hermes 自身需要 git/curl 用于 git-installer 模式

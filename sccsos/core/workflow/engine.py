@@ -68,15 +68,9 @@ class WorkflowEngine:
         self._memory_store = memory_store
         self._personality_registry = personality_registry
         self._model_router = model_router
-        # PolicyEngine is injected from WorkflowRuntime, not created here.
-        # Fallback: if not injected but config is given, create one for backward compat.
+        # PolicyEngine is injected from WorkflowRuntime (runtime_workflow.py).
+        # If not injected, self._policy_engine stays None (no fallback auto-create).
         self._policy_engine = policy_engine
-        if self._policy_engine is None and config is not None:
-            from sccsos.security.policy import PolicyEngine
-            try:
-                self._policy_engine = PolicyEngine(db, config)
-            except Exception:
-                logger.warning("PolicyEngine auto-create failed (non-fatal)")
         self._db_lock = threading.Lock()
         self._run_contexts: dict[str, WorkflowRunContext] = {}
         self._bus = get_bus()
@@ -95,6 +89,11 @@ class WorkflowEngine:
             .with_injection_guard(injection_guard)
             .build()
         )
+
+    @property
+    def policy_engine(self):
+        """Public accessor for PolicyEngine (injected at build time)."""
+        return self._policy_engine
 
     def validate(self, workflow: WorkflowDef) -> list[str]:
         """Validate a workflow. Returns list of warnings (empty = valid)."""

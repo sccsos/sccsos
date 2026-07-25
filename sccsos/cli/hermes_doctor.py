@@ -12,8 +12,9 @@ from typing import Optional
 
 import click
 
+from sccsos.cli.hermes_config_sync import _auto_apply_config
+
 from sccsos.cli.hermes_cmd import (
-    _auto_apply_config,
     _check_hermes_installed,
     _get_hermes_config,
     _get_hermes_home,
@@ -105,6 +106,219 @@ def _install_cua_driver(yes: bool, timeout: int = 120) -> bool:
     return True
 
 
+# ── Doctor check helpers ────────────────────────────────────────────
+
+
+def _doctor_check_cli(fix: bool, issues: list) -> bool:
+    """Check Hermes CLI availability. Returns False if fatal (must abort)."""
+    binary_path = _resolve_hermes_binary()
+    installed = _check_hermes_installed()
+    click.echo(f"  Hermes CLI:     {'✅' if installed else '❌'} {'可用' if installed else '未安装'}")
+    click.echo(f"  Binary path:    {binary_path}")
+
+    # Installation mode
+    try:
+        from sccsos.core.hermes_manager import get_manager
+        inst = get_manager().discover()
+        click.echo(f"  安装模式:       {inst.mode.value}")
+    except Exception:
+        pass
+
+    if not installed:
+        issues.append(("CLI", "Hermes CLI 未安装", "pip install hermes-agent"))
+        if fix:
+            click.echo("  → 正在安装 hermes-agent...")
+            r = subprocess.run(
+                [sys.executable, "-m", "pip", "install", "hermes-agent"],
+                capture_output=True, text=True, timeout=120,
+            )
+            if r.returncode == 0:
+                click.echo("  ✅ Hermes Agent 安装完成")
+                installed = True
+            else:
+                click.echo(f"  ❌ 安装失败: {r.stderr.strip()[:200]}")
+                return False
+        else:
+            click.echo("  建议: pip install hermes-agent")
+            return False
+    return True
+
+
+def _doctor_check_version_env(issues: list) -> None:
+    """Check Hermes version and environment paths."""
+    out, _, _ = _run_hermes(["--version"])
+    click.echo(f"  Version:        {out or 'unknown'}")
+
+    hermes_home = _get_hermes_home()
+    hermes_install_dir = _get_hermes_install_dir()
+    uv_install_dir = _get_uv_install_dir()
+    uv_cache_dir = _get_uv_cache_dir()
+    click.echo(f"  HERMES_HOME:            {hermes_home}")
+    click.echo(f"  HERMES_CONFIG_PATH:     {hermes_home}")
+    click.echo(f"  HERMES_INSTALL_DIR:  {hermes_install_dir or 'not detected'}")
+    click.echo(f"  UV_INSTALL_DIR:         {uv_install_dir}")
+    click.echo(f"  UV_CACHE_DIR:           {uv_cache_dir}")
+    if not Path(hermes_home).exists():
+        issues.append(("home", f"HERMES_HOME 目录不存在: {hermes_home}", "sccsos hermes setup"))
+
+
+def _doctor_check_config_dir(issues: list) -> None:
+    """Check Hermes config directory (resolved from HERMES_HOME)."""
+    from sccsos.cli.hermes_cmd import _get_hermes_home
+    hermes_dir = Path(_get_hermes_home())
+    # 若 _get_hermes_home() 返回的是 profiles/<name> 子目录，向上取根
+    if hermes_dir.name != ".hermes" and hermes_dir.parent.name == "profiles":
+        hermes_dir = hermes_dir.parent.parent
+    elif not (hermes_dir / "config.yaml").exists() and not (hermes_dir / "profiles").exists():
+        hermes_dir = hermes_dir.parent
+    config_ok = hermes_dir.exists()
+    click.echo(f"  Config dir:     {'✅' if config_ok else '❌'} {hermes_dir}")
+    if not config_ok:
+        issues.append(("config", f"Hermes 配置目录不存在: {hermes_dir}", "sccsos hermes setup"))
+    else:
+        # Check config.yaml exists
+        config_file = hermes_dir / "config.yaml"
+        if config_file.exists():
+            click.echo(f"  Config file:    ✅ {config_file}")
+        else:
+            click.echo(f"  Config file:    ⚠️  {config_file} 不存在")
+            issues.append(("config", f"Hermes 配置文件不存在: {config_file}", "sccsos hermes setup"))
+
+
+def _doctor_check_profiles(issues: list) -> list[str]:
+    """Check available Hermes profiles. Returns profile list."""
+    profiles = _list_profiles()
+    if profiles:
+        click.echo(f"  Profiles:       ✅ {len(profiles)} 个: {', '.join(profiles)}")
+    else:
+        click.echo(f"  Profiles:       ❌ 无可用 profile")
+        issues.append(("profile", "无可用 Hermes profile", "sccsos hermes setup"))
+    return profiles
+
+
+def _doctor_check_env_vars(profiles: list[str]) -> int:
+    """Check provider environment variables. Returns count of valid env vars."""
+    click.echo("  ── 环境变量 ──")
+    env_found = 0
+    for provider, env_key in sorted(PROVIDER_ENV_KEYS.items()):
+        val = os.environ.get(env_key, "")
+        if val:
+            env_found += 1
+            click.echo(f"    ✅ {env_key}=***{val[-4:]}")
+        else:
+            click.echo(f"    ❌ {env_key} 未设置")
+    click.echo(f"    --- {env_found}/{len(PROVIDER_ENV_KEYS)} 个有效")
+
+    if env_found == 0 and profiles:
+        cfg = _get_hermes_config()
+        active = cfg.profile if cfg.profile in profiles else profiles[0]
+        click.echo(f"  → 可通过 'sccsos hermes setup' 为 profile '{active}' 注入 API Key")
+    return env_found
+
+
+def _doctor_check_connectivity(profiles: list[str], issues: list) -> None:
+    """Test profile connectivity."""
+    test_profile = profiles[0] if profiles else ""
+    if test_profile:
+        ok, msg = _test_profile(test_profile)
+        click.echo(f"  Chat test ({test_profile}): {'✅' if ok else '❌'} {'通过' if ok else msg[:80]}")
+        if not ok:
+            issues.append(("connectivity", f"Profile '{test_profile}' 连通性测试失败", "sccsos hermes setup --yes"))
+    else:
+        ok, msg = _test_profile("default")
+        click.echo(f"  Chat test (default): {'✅' if ok else '❌'} {'通过' if ok else msg[:80]}")
+
+
+def _doctor_check_config_sync(issues: list) -> None:
+    """Check sccsos.yaml ↔ Hermes config sync."""
+    import yaml
+    try:
+        sccsos_cfg = _get_hermes_config()
+        target_profile = sccsos_cfg.profile or "sccsos"
+        default_path = _get_profile_config_path("default")
+        prof_path = _get_profile_config_path(target_profile)
+
+        dv = _verify_model_config(default_path)
+        if dv["errors"]:
+            for e in dv["errors"]:
+                click.echo(f"  Default config:  ⚠️  {e}")
+                issues.append(("config_sync", f"默认配置: {e}", "sccsos hermes install --force"))
+        elif dv["is_dict"]:
+            detail = f"  Default config:  ✅ 默认配置: {dv['model'].get('provider')} / {dv['model'].get('default')}"
+            if dv['model'].get('base_url'):
+                detail += f" / {dv['model'].get('base_url')}"
+            click.echo(detail)
+
+        pv = _verify_model_config(prof_path)
+        if not pv["exists"]:
+            click.echo(f"  Profile config:  ⚠️  {prof_path} 不存在")
+            issues.append(("config_sync", f"Profile '{target_profile}' 配置文件不存在",
+                           "sccsos hermes install --force 或 setup"))
+        elif pv["errors"]:
+            for e in pv["errors"]:
+                click.echo(f"  Profile config:  ⚠️  {e}")
+                issues.append(("config_sync", f"Profile '{target_profile}': {e}",
+                               "sccsos hermes install --force 或 --fix"))
+        elif pv["is_dict"]:
+            detail = f"  Profile config:  ✅ Profile '{target_profile}': {pv['model'].get('provider')} / {pv['model'].get('default')}"
+            if pv['model'].get('base_url'):
+                detail += f" / {pv['model'].get('base_url')}"
+            click.echo(detail)
+
+        sccsos_has = bool(sccsos_cfg.setup.model) and bool(sccsos_cfg.setup.provider)
+        if sccsos_has and pv["is_dict"]:
+            match = (pv["model"].get("default") == sccsos_cfg.setup.model and
+                     pv["model"].get("provider") == sccsos_cfg.setup.provider)
+            if match:
+                click.echo(f"  Config sync:    ✅ sccsos.yaml ↔ Profile '{target_profile}' 一致")
+            else:
+                click.echo(f"  Config sync:    ⚠️ sccsos.yaml 与 Profile '{target_profile}' 值不一致")
+                issues.append(("config_sync", f"sccsos.yaml 与 Profile '{target_profile}' 值不一致", "--fix"))
+        elif sccsos_has and not pv["is_dict"] and pv["exists"]:
+            click.echo(f"  Config sync:    ⚠️ sccsos.yaml 有配置但 Profile 结构异常")
+
+        if dv["is_dict"] and pv["is_dict"]:
+            diff_keys = [k for k in ["default", "provider", "base_url"]
+                         if dv["model"].get(k) != pv["model"].get(k)]
+            if diff_keys:
+                click.echo(f"  Default↔Profile: ⚠️  不一致: {', '.join(diff_keys)}")
+                issues.append(("config_sync", f"默认配置与 Profile '{target_profile}' 不一致", "--fix"))
+            else:
+                click.echo(f"  Default↔Profile: ✅ 一致")
+    except Exception as e:
+        click.echo(f"  Config sync:    ⚠️  检查失败: {e}")
+
+
+def _doctor_check_skills() -> None:
+    """Check skills directory."""
+    skills_dir = Path("skills")
+    if skills_dir.exists():
+        skill_count = len(list(skills_dir.glob("*.yaml"))) + len(list(skills_dir.glob("*.py")))
+        click.echo(f"  Skills dir:     ✅ {skills_dir}/ ({skill_count} 个技能)")
+    else:
+        click.echo(f"  Skills dir:     ⚠️  skills/ 目录不存在（可选）")
+
+
+def _doctor_show_summary(issues: list, fix: bool) -> None:
+    """Show summary and fix hints."""
+    click.echo("")
+    if not issues:
+        click.echo("🎉 所有检查通过！SCCS OS 已就绪。")
+    else:
+        click.echo(f"⚠️  发现 {len(issues)} 个问题:")
+        for section, desc, hint in issues:
+            click.echo(f"  [{section}] {desc}")
+            click.echo(f"    → {hint}")
+        if fix:
+            if any(s == "config_sync" for s, _, _ in issues):
+                click.echo("")
+                click.echo("  → 自动同步配置文件...")
+                _auto_apply_config()
+            click.echo("\n--fix 模式：已自动修复可修复项，剩余问题请按提示处理。")
+        else:
+            click.echo("\n使用 '--fix' 参数自动修复，或按提示手动处理。")
+
+
 # ── Doctor command ──────────────────────────────────────────────────
 
 
@@ -119,185 +333,17 @@ def doctor(fix: bool) -> None:
 
     issues: list[tuple[str, str, str]] = []  # (section, description, fix_hint)
 
-    # 1. CLI availability
-    binary_path = _resolve_hermes_binary()
-    installed = _check_hermes_installed()
-    click.echo(f"  Hermes CLI:     {'✅' if installed else '❌'} {'可用' if installed else '未安装'}")
-    click.echo(f"  Binary path:    {binary_path}")
+    if not _doctor_check_cli(fix, issues):
+        return
 
-    # 1b. Installation mode (via HermesManager)
-    try:
-        from sccsos.core.hermes_manager import get_manager
-        inst = get_manager().discover()
-        click.echo(f"  安装模式:       {inst.mode.value}")
-    except Exception:
-        pass
-    if not installed:
-        issues.append(("CLI", "Hermes CLI 未安装", "pip install hermes-agent"))
-
-    if not installed:
-        if fix:
-            click.echo("  → 正在安装 hermes-agent...")
-            r = subprocess.run(
-                [sys.executable, "-m", "pip", "install", "hermes-agent"],
-                capture_output=True, text=True, timeout=120,
-            )
-            if r.returncode == 0:
-                click.echo("  ✅ Hermes Agent 安装完成")
-                installed = True
-            else:
-                click.echo(f"  ❌ 安装失败: {r.stderr.strip()[:200]}")
-                return
-        else:
-            click.echo("  建议: pip install hermes-agent")
-            return
-
-    # 2. Version
-    out, _, _ = _run_hermes(["--version"])
-    click.echo(f"  Version:        {out or 'unknown'}")
-
-    # 2b. Environment paths
-    hermes_home = _get_hermes_home()
-    hermes_install_dir = _get_hermes_install_dir()
-    uv_install_dir = _get_uv_install_dir()
-    uv_cache_dir = _get_uv_cache_dir()
-    click.echo(f"  HERMES_HOME:            {hermes_home}")
-    click.echo(f"  HERMES_INSTALL_DIR:  {hermes_install_dir or 'not detected'}")
-    click.echo(f"  UV_INSTALL_DIR:         {uv_install_dir}")
-    click.echo(f"  UV_CACHE_DIR:           {uv_cache_dir}")
-    home_ok = Path(hermes_home).exists()
-    if not home_ok:
-        issues.append(("home", f"HERMES_HOME 目录不存在: {hermes_home}", "sccsos hermes setup"))
-
-    # 3. Hermes config directory
-    hermes_dir = Path.home() / ".hermes"
-    config_ok = hermes_dir.exists()
-    click.echo(f"  Config dir:     {'✅' if config_ok else '❌'} {hermes_dir}")
-    if not config_ok:
-        issues.append(("config", "Hermes 配置目录不存在", "hermes setup"))
-
-    # 4. Profiles
-    profiles = _list_profiles()
-    if profiles:
-        click.echo(f"  Profiles:       ✅ {len(profiles)} 个: {', '.join(profiles)}")
-    else:
-        click.echo(f"  Profiles:       ❌ 无可用 profile")
-        issues.append(("profile", "无可用 Hermes profile", "sccsos hermes setup"))
-
-    # 5. Environment variables
-    click.echo(f"  ── 环境变量 ──")
-    env_found = 0
-    for provider, env_key in sorted(PROVIDER_ENV_KEYS.items()):
-        val = os.environ.get(env_key, "")
-        if val:
-            env_found += 1
-            click.echo(f"    ✅ {env_key}=***{val[-4:]}")
-        else:
-            click.echo(f"    ❌ {env_key} 未设置")
-    click.echo(f"    --- {env_found}/{len(PROVIDER_ENV_KEYS)} 个有效")
-
-    # If env vars are missing but a profile is configured, check for API key in profile
-    if env_found == 0 and profiles:
-        # Try the active profile
-        cfg = _get_hermes_config()
-        active = cfg.profile if cfg.profile in profiles else profiles[0]
-        click.echo(f"  → 可通过 'sccsos hermes setup' 为 profile '{active}' 注入 API Key")
-
-    # 6. Profile connectivity test
-    test_profile = profiles[0] if profiles else ""
-    if test_profile:
-        ok, msg = _test_profile(test_profile)
-        click.echo(f"  Chat test ({test_profile}): {'✅' if ok else '❌'} {'通过' if ok else msg[:80]}")
-        if not ok:
-            issues.append(("connectivity", f"Profile '{test_profile}' 连通性测试失败", "sccsos hermes setup --yes"))
-    else:
-        test_profile = "default"
-        ok, msg = _test_profile("default")
-        click.echo(f"  Chat test ({test_profile}): {'✅' if ok else '❌'} {'通过' if ok else msg[:80]}")
-
-    # 7. Config sync check (sccsos.yaml ↔ Hermes configs)
-    import yaml
-    try:
-        sccsos_cfg = _get_hermes_config()
-        target_profile = sccsos_cfg.profile or "sccsos"
-        default_path = _get_profile_config_path("default")
-        prof_path = _get_profile_config_path(target_profile)
-
-        # Default config structure
-        dv = _verify_model_config(default_path)
-        if dv["errors"]:
-            for e in dv["errors"]:
-                click.echo(f"  Default config:  ⚠️  {e}")
-                issues.append(("config_sync", f"默认配置: {e}", "sccsos hermes install --force"))
-        elif dv["is_dict"]:
-            click.echo(f"  Default config:  ✅ 默认配置: {dv['model'].get('provider')} / {dv['model'].get('default')}" +
-                      (f" / {dv['model'].get('base_url')}" if dv['model'].get('base_url') else ""))
-
-        # Profile config structure
-        pv = _verify_model_config(prof_path)
-        if not pv["exists"]:
-            click.echo(f"  Profile config:  ⚠️  {prof_path} 不存在")
-            issues.append(("config_sync", f"Profile '{target_profile}' 配置文件不存在", "sccsos hermes install --force 或 setup"))
-        elif pv["errors"]:
-            for e in pv["errors"]:
-                click.echo(f"  Profile config:  ⚠️  {e}")
-                issues.append(("config_sync", f"Profile '{target_profile}': {e}", "sccsos hermes install --force 或 --fix"))
-        elif pv["is_dict"]:
-            click.echo(f"  Profile config:  ✅ Profile '{target_profile}': {pv['model'].get('provider')} / {pv['model'].get('default')}" +
-                      (f" / {pv['model'].get('base_url')}" if pv['model'].get('base_url') else ""))
-
-        # Cross-check: sccsos.yaml vs profile
-        sccsos_has = bool(sccsos_cfg.setup.model) and bool(sccsos_cfg.setup.provider)
-        if sccsos_has and pv["is_dict"]:
-            match = (pv["model"].get("default") == sccsos_cfg.setup.model and
-                     pv["model"].get("provider") == sccsos_cfg.setup.provider)
-            if match:
-                click.echo(f"  Config sync:    ✅ sccsos.yaml ↔ Profile '{target_profile}' 一致")
-            else:
-                click.echo(f"  Config sync:    ⚠️ sccsos.yaml 与 Profile '{target_profile}' 值不一致")
-                issues.append(("config_sync", f"sccsos.yaml 与 Profile '{target_profile}' 值不一致", "--fix"))
-        elif sccsos_has and not pv["is_dict"] and pv["exists"]:
-            click.echo(f"  Config sync:    ⚠️ sccsos.yaml 有配置但 Profile 结构异常")
-
-        # Cross-check: default vs profile consistency
-        if dv["is_dict"] and pv["is_dict"]:
-            diff_keys = [k for k in ["default", "provider", "base_url"]
-                         if dv["model"].get(k) != pv["model"].get(k)]
-            if diff_keys:
-                click.echo(f"  Default↔Profile: ⚠️  不一致: {', '.join(diff_keys)}")
-                issues.append(("config_sync", f"默认配置与 Profile '{target_profile}' 不一致", "--fix"))
-            else:
-                click.echo(f"  Default↔Profile: ✅ 一致")
-    except Exception as e:
-        click.echo(f"  Config sync:    ⚠️  检查失败: {e}")
-
-    # 8. Skills directory
-    skills_ok = True
-    skills_dir = Path("skills")
-    if skills_dir.exists():
-        skill_count = len(list(skills_dir.glob("*.yaml"))) + len(list(skills_dir.glob("*.py")))
-        click.echo(f"  Skills dir:     ✅ {skills_dir}/ ({skill_count} 个技能)")
-    else:
-        click.echo(f"  Skills dir:     ⚠️  skills/ 目录不存在（可选）")
-
-    # 8. Summary
-    click.echo("")
-    if not issues:
-        click.echo("🎉 所有检查通过！SCCS OS 已就绪。")
-    else:
-        click.echo(f"⚠️  发现 {len(issues)} 个问题:")
-        for section, desc, hint in issues:
-            click.echo(f"  [{section}] {desc}")
-            click.echo(f"    → {hint}")
-        if fix:
-            # Auto-fix config sync if needed
-            if any(s == "config_sync" for s, _, _ in issues):
-                click.echo("")
-                click.echo("  → 自动同步配置文件...")
-                _auto_apply_config()
-            click.echo("\n--fix 模式：已自动修复可修复项，剩余问题请按提示处理。")
-        else:
-            click.echo("\n使用 '--fix' 参数自动修复，或按提示手动处理。")
+    _doctor_check_version_env(issues)
+    _doctor_check_config_dir(issues)
+    profiles = _doctor_check_profiles(issues)
+    _doctor_check_env_vars(profiles)
+    _doctor_check_connectivity(profiles, issues)
+    _doctor_check_config_sync(issues)
+    _doctor_check_skills()
+    _doctor_show_summary(issues, fix)
 
 
 # ── Postinstall command ────────────────────────────────────────────

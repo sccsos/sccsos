@@ -2,12 +2,11 @@
 project:
   name: sccsos
   version: 0.19.4
-
 hermes:
   profile: sccsos
   binary: hermes
   home: ""                 # HERMES_HOME 覆盖（空值 = 使用环境变量或默认 $HOME/hermes/data）
-  install_dir: ""          # HERMES_INSTALL_DIR 覆盖（空值 = 使用环境变量或默认 $HOME/hermes/agent）
+  install_dir: ""       # HERMES_INSTALL_DIR 覆盖（空值 = 使用环境变量或默认 $HOME/hermes/agent）
   adapter: subprocess
   uv:
     install_dir: ""        # UV_INSTALL_DIR 覆盖（空值 = 使用环境变量或默认 $HOME/hermes/data/bin）
@@ -20,49 +19,26 @@ hermes:
     model: deepseek-v4-flash
     api_key: ""
     base_url: "https://api.deepseek.com/v1"
-
 database:
   path: ./data/sccsos.db
-
 defaults:
   hermes_profile: sccsos
   max_turns: 90
   timeout: 1800
-
 logging:
   level: INFO
   format: json
   directory: ./logs
   retention_days: 30
-
 tracing:
   enabled: true
   export_path: ./traces/
-
 pricing:
   path: ./config/pricing.json
-
 agents:
   path: ./agents
   wiki_path: ./wiki
   personalities_path: ./personalities
-
-model_pool:
-  enabled: false
-  models:
-    - name: reasoning
-      provider: deepseek
-      model: deepseek-v4-flash
-      capabilities: [reasoning, code]
-    - name: fast
-      provider: deepseek
-      model: deepseek-v4-flash
-      capabilities: [chat, quick]
-    - name: preview
-      provider: deepseek
-      model: deepseek-v4-pro
-      capabilities: [analysis, planning]
-
 policies:
   default:
     max_tokens_per_session: 100000
@@ -75,20 +51,3 @@ policies:
       - terminal
       - delegate_task
     blocked_tools: []
-    allowed_commands:
-      - hermes
-      - git
-      - ls
-      - cat
-      - head
-      - tail
-      - echo
-      - python3
-      - pip3
-      - node
-      - npm
-      - which
-
-webhooks:
-  enabled: false
-  endpoints: []

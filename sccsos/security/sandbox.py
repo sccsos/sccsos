@@ -100,37 +100,40 @@ class CommandWhitelist(SandboxABC):
             return SandboxResult(allowed=True)
 
         # Layer 0: Length enforcement
+        result = self._check_length(command)
+        if not result.allowed:
+            return result
+
+        cmd_lower = command.strip().lower()
+        cmd_unquoted = re.sub(r"'[^']*'|\"[^\"]*\"", "", cmd_lower)
+
+        # Layer 1: Dangerous patterns (multi-word, alphanumeric, symbolic)
+        result = self._check_dangerous_patterns(cmd_unquoted)
+        if not result.allowed:
+            return result
+
+        # Layer 1.5: Environment variable leak (even in allow_all mode)
+        result = self._check_env_leak(cmd_lower)
+        if not result.allowed:
+            return result
+
+        # Layer 2: Whitelist check
+        return self._check_whitelist(command)
+
+    def _check_length(self, command: str) -> SandboxResult:
+        """Layer 0: Enforce maximum command length."""
         if len(command) > self._max_length:
             return SandboxResult(
                 allowed=False,
                 reason=f"Command exceeds max length ({len(command)} > {self._max_length})",
             )
+        return SandboxResult(allowed=True)
 
-        # Layer 1: Dangerous pattern check (regex-based)
-        cmd_lower = command.strip().lower()
-
-        # Shell quotation strips all special meaning — anything inside
-        # '...' or "..." is a string literal (not a command / operator).
-        # Strip it so pattern matching doesn't flag harmless quoted content.
-        cmd_unquoted = re.sub(r"'[^']*'|\"[^\"]*\"", "", cmd_lower)
-
-        # Check max length after stripping
-        if len(cmd_lower) > self._max_length:
-            cmd_lower = cmd_lower[:self._max_length]
-            cmd_unquoted = cmd_unquoted[:self._max_length]
-
-        # Built-in dangerous patterns
+    def _check_dangerous_patterns(self, cmd_unquoted: str) -> SandboxResult:
+        """Layer 1: Check against built-in and configurable dangerous patterns."""
         all_patterns = list(DANGEROUS_PATTERNS)
-
-        # Also block chaining operators
-        for chain_pat in CHAINING_PATTERNS:
-            all_patterns.append(chain_pat)
-
-        # Also block path traversal patterns
-        for trav_pat in PATH_TRAVERSAL_PATTERNS:
-            all_patterns.append(trav_pat)
-
-        # Extra dangerous patterns from config (if any)
+        all_patterns.extend(CHAINING_PATTERNS)
+        all_patterns.extend(PATH_TRAVERSAL_PATTERNS)
         if self._extra_dangerous:
             all_patterns.extend(self._extra_dangerous)
 
@@ -139,75 +142,46 @@ class CommandWhitelist(SandboxABC):
             if not p:
                 continue
             if ' ' in p:
-                # Multi-word pattern — substring match (already specific enough)
                 if p in cmd_unquoted:
-                    return SandboxResult(
-                        allowed=False,
-                        reason=f"Command blocked: contains dangerous pattern '{pattern}'",
-                    )
+                    return SandboxResult(allowed=False, reason=f"Command blocked: contains dangerous pattern '{pattern}'")
             elif p.isalnum() or p.replace('-', '').isalnum():
-                # Alphanumeric (or hyphenated) pattern — use regex word boundary
-                # Avoids false positives like "sudo" inside "pseudocode"
                 if re.search(r'\b' + re.escape(p) + r'\b', cmd_unquoted):
-                    return SandboxResult(
-                        allowed=False,
-                        reason=f"Command blocked: contains dangerous pattern '{pattern}'",
-                    )
+                    return SandboxResult(allowed=False, reason=f"Command blocked: contains dangerous pattern '{pattern}'")
             else:
-                # Symbolic pattern (operators, path separators, etc.)
-                # Substring match — word boundary doesn't apply to non-word chars
-                #
-                # NOTE: cmd_unquoted already has quoted content stripped, so
-                # chaining operators (;, |, &&) inside quoted arguments are
-                # correctly ignored.  Example: python3 -c "import sys; print()"
                 if p in cmd_unquoted:
-                    return SandboxResult(
-                        allowed=False,
-                        reason=f"Command blocked: contains dangerous pattern '{pattern}'",
-                    )
+                    return SandboxResult(allowed=False, reason=f"Command blocked: contains dangerous pattern '{pattern}'")
+        return SandboxResult(allowed=True)
 
-        # Layer 1.5: Environment variable leak check (even in allow_all mode)
-        if ENV_VAR_PATTERN.search(cmd_lower):
-            # Allow explicit env vars only for known benign patterns (e.g. PATH, HOME)
-            env_vars = ENV_VAR_PATTERN.findall(cmd_lower)
-            benign_prefixes = ("path=", "home=", "user=", "shell=", "term=",
-                               "lang=", "pwd=", "editor=", "http_", "https_")
-            for ev in env_vars:
-                ev_lower = ev.lower()
-                if not any(ev_lower.startswith(bp) for bp in benign_prefixes):
-                    return SandboxResult(
-                        allowed=False,
-                        reason=f"Command blocked: environment variable leak '{ev}'",
-                    )
-
-        # Layer 2: Whitelist check
-        if self._allow_all:
-            # Even in allow_all mode, check for env var leakage
-            # and length enforcement (already done above)
+    def _check_env_leak(self, cmd_lower: str) -> SandboxResult:
+        """Layer 1.5: Detect environment variable leakage attempts."""
+        if not ENV_VAR_PATTERN.search(cmd_lower):
             return SandboxResult(allowed=True)
+        env_vars = ENV_VAR_PATTERN.findall(cmd_lower)
+        benign_prefixes = ("path=", "home=", "user=", "shell=", "term=",
+                           "lang=", "pwd=", "editor=", "http_", "https_")
+        for ev in env_vars:
+            ev_lower = ev.lower()
+            if not any(ev_lower.startswith(bp) for bp in benign_prefixes):
+                return SandboxResult(allowed=False, reason=f"Command blocked: environment variable leak '{ev}'")
+        return SandboxResult(allowed=True)
 
-        # Extract the base command (first token)
+    def _check_whitelist(self, command: str) -> SandboxResult:
+        """Layer 2: Whitelist-based command verification."""
+        if self._allow_all:
+            return SandboxResult(allowed=True)
         try:
             tokens = shlex.split(command)
             base_cmd = tokens[0] if tokens else command.strip()
         except ValueError:
-            # If shlex fails, use simple split
             base_cmd = command.strip().split()[0] if command.strip() else ""
-
         if not base_cmd:
             return SandboxResult(allowed=False, reason="Empty command")
-
-        # Check against allowed prefixes
         for allowed in self._allowed:
             if base_cmd == allowed or base_cmd.startswith(allowed + "/"):
                 return SandboxResult(allowed=True)
-
         return SandboxResult(
             allowed=False,
-            reason=(
-                f"Command '{base_cmd}' not in whitelist. "
-                f"Allowed: {sorted(self._allowed)}"
-            ),
+            reason=f"Command '{base_cmd}' not in whitelist. Allowed: {sorted(self._allowed)}",
         )
 
     def to_config(self) -> dict:

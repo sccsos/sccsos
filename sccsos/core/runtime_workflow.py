@@ -31,6 +31,7 @@ class WorkflowRuntime:
         self._cfg = config
         self._engine: Optional[WorkflowEngine] = None
         self._personality_registry: Optional[PersonalityRegistry] = None
+        self._agent_message_bus = None
         # Shared thread pool for fire-and-forget background tasks
         # (alert evaluation, webhook dispatch — already best-effort)
         self._bg_executor = ThreadPoolExecutor(
@@ -46,20 +47,29 @@ class WorkflowRuntime:
     def personality_registry(self) -> PersonalityRegistry:
         return self._personality_registry
 
+    @property
+    def message_bus(self):
+        """AgentMessageBus for inter-agent communication (wired at init)."""
+        return self._agent_message_bus
+
     def initialize(self) -> None:
         cfg = self._cfg
         core = self._core
 
-        # Personality registry
+        self._init_personality_registry(cfg)
+        self._build_workflow_engine(cfg, core)
+        self._wire_eventbus(core)
+
+    def _init_personality_registry(self, cfg) -> None:
         from pathlib import Path
         self._personality_registry = PersonalityRegistry()
         personalities_dir = Path(cfg.agents.personalities_path)
         if personalities_dir.exists():
             self._personality_registry.load_from_dir(personalities_dir)
 
-        # Workflow engine (via builder)
+    def _build_workflow_engine(self, cfg, core) -> None:
+        """Build WorkflowEngine via builder chain with security modules."""
         from sccsos.core.workflow.builder import WorkflowEngineBuilder
-        # Create PolicyEngine here and inject into WorkflowEngine
         policy_engine = None
         try:
             from sccsos.security.policy import PolicyEngine
@@ -70,7 +80,6 @@ class WorkflowRuntime:
                 "PolicyEngine init failed — policy enforcement DISABLED: %s", e,
             )
 
-        # Create PromptInjectionGuard for pre-step injection detection
         injection_guard = None
         try:
             from sccsos.security.injection import PromptInjectionGuard
@@ -93,7 +102,8 @@ class WorkflowRuntime:
             .build()
         )
 
-        # EventBus wiring
+    def _wire_eventbus(self, core) -> None:
+        """Wire EventBus observers: persistence, webhooks, alerts, AgentMessageBus."""
         bus = get_bus()
 
         def _persist_event(event: str, data: dict) -> None:
@@ -141,3 +151,25 @@ class WorkflowRuntime:
                    self._obs.alert_manager.evaluate_after_run,
                    kw.get("run_id", ""),
                ))
+
+        # Wire AgentMessageBus into EventBus for inter-agent communication
+        try:
+            from sccsos.core.agent_message_bus import AgentMessageBus
+            self._agent_message_bus = AgentMessageBus(
+                "sccsos-runtime", db=core.db,
+            )
+            self._agent_message_bus.connect()
+
+            # First consumer: broadcast lifecycle events so agents can
+            # react to peer status changes (e.g., coordinator starts
+            # after reviewer is ready)
+            for evt in ("agent.created", "agent.started", "agent.stopped",
+                        "agent.paused", "agent.resumed", "agent.failed"):
+                bus.on(evt, lambda **kw: self._agent_message_bus.broadcast(kw)
+                       if self._agent_message_bus else None)
+
+        except Exception:
+            from sccsos.observability.logger import get_logger
+            get_logger().warning(
+                "AgentMessageBus init failed — inter-agent messaging DISABLED",
+            )

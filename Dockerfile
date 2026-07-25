@@ -12,7 +12,7 @@ RUN pip install --no-cache-dir build && \
 FROM python:3.11-slim
 
 LABEL org.sccsos.name="sccsos" \
-      org.sccsos.version="0.16.0" \
+      org.sccsos.version="0.18.1" \
       org.sccsos.description="SCCS OS — Smart Agent Runtime Platform"
 
 # Install system dependencies (Hermes CLI needs git/curl/xz-utils for git-installer; curl for health)
@@ -29,7 +29,7 @@ COPY --from=builder /build/dist/*.whl /tmp/
 
 # Install SCCS OS with API extras
 RUN pip install --no-cache-dir /tmp/*.whl && \
-    pip install --no-cache-dir "sccsos[api] @ file:///tmp/sccsos-0.16.0-py3-none-any.whl" && \
+    pip install --no-cache-dir "sccsos[api] @ file:///tmp/sccsos-0.18.1-py3-none-any.whl" && \
     rm /tmp/*.whl
 
 # ── Hermes Agent：官方安装脚本（root FHS 布局） ─────────────────────

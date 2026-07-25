@@ -19,7 +19,15 @@ API_V1 = "/api/v1"
 @pytest.fixture(scope="module")
 def client():
     """FastAPI TestClient backed by a mock runtime."""
-    runtime = AgentRuntime()
+    # Use a temporary config with in-memory DB to avoid SQLite lock issues
+    # when running alongside other test suites that share the same DB file.
+    from sccsos.core.config import AgentOSConfig
+    tmp_cfg = AgentOSConfig()
+    tmp_cfg.database.path = ":memory:"
+    tmp_cfg.pricing.path = ""
+    tmp_cfg.tracing.enabled = False
+
+    runtime = AgentRuntime(config=tmp_cfg)
     runtime.initialize()
     runtime._core._adapter = create_adapter("mock")
     if runtime._core._runner is not None:
@@ -31,9 +39,14 @@ def client():
     app = create_app()
     client = TestClient(app)
     yield client
+    # Clean up: reset runtime singleton so other test suites
+    # don't inherit stale state
+    from sccsos.core.agent_runtime import reset_runtime
+    reset_runtime()
 
 
 class TestFastAPIEndpoints:
+    _ADMIN = {"X-Role": "admin"}
 
     def test_01_health(self, client):
         resp = client.get(f"{API_V1}/health")
@@ -53,13 +66,15 @@ class TestFastAPIEndpoints:
         resp = client.post(
             f"{API_V1}/agents/register",
             json={"name": "test-agent", "description": "For API test"},
+            headers=self._ADMIN,
         )
         assert resp.status_code == 201
         data = resp.json()
         assert data["registered"] == "test-agent"
 
     def test_04_agent_status_found(self, client):
-        client.post(f"{API_V1}/agents/register", json={"name": "status-test"})
+        client.post(f"{API_V1}/agents/register", json={"name": "status-test"},
+                    headers=self._ADMIN)
         resp = client.get(f"{API_V1}/agents/status-test")
         assert resp.status_code == 200
         data = resp.json()
@@ -71,9 +86,10 @@ class TestFastAPIEndpoints:
         assert "error" in resp.text.lower() or "detail" in resp.text.lower()
 
     def test_06_start_agent(self, client):
-        client.post(f"{API_V1}/agents/register", json={"name": "startable"})
+        client.post(f"{API_V1}/agents/register", json={"name": "startable"},
+                    headers=self._ADMIN)
         resp = client.post(f"{API_V1}/agents/startable/start",
-                           headers={"X-Role": "admin"})
+                           headers=self._ADMIN)
         assert resp.status_code == 200
         data = resp.json()
         assert "started" in data or "id" in data
@@ -138,32 +154,36 @@ class TestFastAPIEndpoints:
         assert resp.status_code == 404
 
     def test_18_pause_resume_agent(self, client):
-        client.post("/agents/register", json={"name": "pausable"})
-        client.post(f"{API_V1}/agents/pausable/start")
+        client.post(f"{API_V1}/agents/register", json={"name": "pausable"},
+                    headers=self._ADMIN)
+        client.post(f"{API_V1}/agents/pausable/start", headers=self._ADMIN)
 
-        resp = client.post(f"{API_V1}/agents/pausable/pause")
+        resp = client.post(f"{API_V1}/agents/pausable/pause", headers=self._ADMIN)
         assert resp.status_code == 200
         data = resp.json()
         assert "paused" in data or "error" in data
 
-        resp = client.post(f"{API_V1}/agents/pausable/resume")
+        resp = client.post(f"{API_V1}/agents/pausable/resume", headers=self._ADMIN)
         assert resp.status_code == 200
 
     def test_19_restart_agent(self, client):
-        client.post(f"{API_V1}/agents/register", json={"name": "restartable"})
-        client.post(f"{API_V1}/agents/restartable/start")
-        resp = client.post(f"{API_V1}/agents/restartable/restart")
+        client.post(f"{API_V1}/agents/register", json={"name": "restartable"},
+                    headers=self._ADMIN)
+        client.post(f"{API_V1}/agents/restartable/start", headers=self._ADMIN)
+        resp = client.post(f"{API_V1}/agents/restartable/restart", headers=self._ADMIN)
         # restart may succeed or return state-dependent error
         assert resp.status_code in (200, 400)
 
     def test_20_ask_agent(self, client):
         name = "askable"
-        client.post(f"{API_V1}/agents/register", json={"name": name})
-        client.post(f"{API_V1}/agents/{name}/start")
+        client.post(f"{API_V1}/agents/register", json={"name": name},
+                    headers=self._ADMIN)
+        client.post(f"{API_V1}/agents/{name}/start", headers=self._ADMIN)
 
         resp = client.post(
             f"{API_V1}/agents/{name}/ask",
             json={"prompt": "Hello", "timeout": 5},
+            headers=self._ADMIN,
         )
         assert resp.status_code == 200
         data = resp.json()

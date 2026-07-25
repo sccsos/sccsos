@@ -1,9 +1,10 @@
 """sccsos HTTP API Server — built-in, zero external dependencies.
 
 .. deprecated::
-    Use ``api/fastapi_app.py`` (FastAPI) instead. This legacy http.server
-    module is deprecated and will be removed in v0.12.0.
-    Install ``sccsos[api]`` extras for the FastAPI server.
+    **REMOVAL IMMINENT** — Use ``api/fastapi_app.py`` (FastAPI) instead.
+    This legacy http.server module is deprecated since v0.9.0 and will
+    be removed in the next major version.
+    Install ``sccsos[api]`` extras for FastAPI.
 
 Exposes all sccsos functionality via a lightweight JSON HTTP API
 using Python's built-in ``http.server`` module.

@@ -12,6 +12,128 @@ from sccsos.cli.sample_templates import (
 from sccsos.cli.role_cmd import install_role_on_init
 
 
+# ── Init helpers ────────────────────────────────────────────────────
+
+
+def _init_create_dirs(target: Path) -> None:
+    """Create project directory structure."""
+    dirs = [
+        target / "data",
+        target / "logs",
+        target / "traces",
+        target / "agents",
+        target / "workflows",
+        target / "personalities",
+        target / "wiki",
+        target / "config",
+    ]
+    for d in dirs:
+        d.mkdir(parents=True, exist_ok=True)
+
+
+def _init_write_config(
+    target: Path,
+    samples: bool,
+    force: bool,
+    interactive: bool,
+    db_type: str,
+    pg_dsn: str,
+    pricing_tier: str,
+    admin_tenant: str,
+    admin_name: str,
+) -> None:
+    """Write sccsos.yaml, sample agents, pricing, and admin user files."""
+    # ── sccsos.yaml ──
+    cfg_path = target / "sccsos.yaml"
+    if samples:
+        yaml_content = SAMPLE_YAML_FULL
+    else:
+        from sccsos.cli import get_default_yaml
+        yaml_content = get_default_yaml()
+    if not cfg_path.exists() or force:
+        cfg_path.write_text(yaml_content, encoding="utf-8")
+        click.echo(f"  Created: sccsos.yaml{' (full)' if samples else ''}")
+
+    # Apply interactive settings
+    if interactive and cfg_path.exists():
+        import yaml as pyyaml
+        try:
+            with open(cfg_path) as f:
+                cfg_data = pyyaml.safe_load(f) or {}
+            changed = False
+            if db_type == "postgresql" and pg_dsn:
+                cfg_data.setdefault("database", {})
+                cfg_data["database"]["type"] = "postgresql"
+                cfg_data["database"]["dsn"] = pg_dsn
+                cfg_data["database"]["path"] = ""
+                changed = True
+            if pricing_tier != "free":
+                cfg_data.setdefault("pricing", {})
+                cfg_data["pricing"]["tier"] = pricing_tier
+                changed = True
+            if changed:
+                with open(cfg_path, "w") as f:
+                    pyyaml.dump(cfg_data, f, default_flow_style=False, allow_unicode=True)
+                click.echo("  Updated: sccsos.yaml (interactive settings)")
+        except Exception as e:
+            click.echo(f"  ⚠ Failed to apply interactive settings: {e}")
+
+    # ── Sample agents ──
+    sample_agent_dir = target / "agents"
+    if samples:
+        click.echo("  Generating sample files...")
+        for rel_path, content in SAMPLE_FILES.items():
+            fp = target / rel_path
+            if not fp.exists() or force:
+                fp.parent.mkdir(parents=True, exist_ok=True)
+                fp.write_text(content.lstrip("\n"), encoding="utf-8")
+                click.echo(f"    {rel_path}")
+    else:
+        installer = sample_agent_dir / "hermes-installer.yaml"
+        if not installer.exists() or force:
+            from sccsos.cli.sample_templates import SAMPLE_AGENT_HERMES_INSTALL
+            installer.write_text(SAMPLE_AGENT_HERMES_INSTALL.lstrip("\n"), encoding="utf-8")
+            click.echo(f"  Created: agents/hermes-installer.yaml")
+
+        wf_path = target / "workflows" / "hermes-setup.yaml"
+        if not wf_path.exists() or force:
+            from sccsos.cli.sample_templates import SAMPLE_WORKFLOW_HERMES_SETUP
+            wf_path.write_text(SAMPLE_WORKFLOW_HERMES_SETUP.lstrip("\n"), encoding="utf-8")
+            click.echo(f"  Created: workflows/hermes-setup.yaml")
+
+    # ── Pricing ──
+    pricing_path = target / "config" / "pricing.json"
+    if not pricing_path.exists():
+        pricing_path.write_text(SAMPLE_PRICING, encoding="utf-8")
+        click.echo(f"  Created: config/pricing.json")
+
+    # ── Admin user ──
+    if interactive and admin_name and admin_tenant:
+        admin_agent = sample_agent_dir / "admin.yaml"
+        if not admin_agent.exists() or force:
+            admin_yaml = f"""name: {admin_name}
+version: 1.0
+description: Admin user for RBAC management
+tenant_id: {admin_tenant}
+personality: default-admin
+profile: sccsos
+lifecycle:
+  max_turns: 90
+  timeout: 1800
+auto_approve: true
+"""
+            admin_agent.write_text(admin_yaml.lstrip("\n"), encoding="utf-8")
+            click.echo(f"  Created: agents/{admin_name}.yaml")
+
+
+def _init_install_role(role: str, target: Path) -> None:
+    """Install role package if specified."""
+    install_role_on_init(role, str(target))
+
+
+# ── Init command ────────────────────────────────────────────────────
+
+
 @click.command()
 @click.option("--dir", "-d", default=".", help="Project directory (default: current)")
 @click.option("--force", "-f", is_flag=True, help="Overwrite existing files")
@@ -31,20 +153,9 @@ def init(dir, force, samples, interactive, role):
     target = Path(dir).resolve()
     click.echo(f"Initializing sccsos project at: {target}")
 
-    dirs = [
-        target / "data",
-        target / "logs",
-        target / "traces",
-        target / "agents",
-        target / "workflows",
-        target / "personalities",
-        target / "wiki",
-        target / "config",
-    ]
-    for d in dirs:
-        d.mkdir(parents=True, exist_ok=True)
+    _init_create_dirs(target)
 
-    # Interactive setup wizard
+    # Interactive setup wizard (collects user input for config writing)
     db_type = "sqlite"
     pg_dsn = ""
     admin_tenant = ""
@@ -94,93 +205,11 @@ def init(dir, force, samples, interactive, role):
         click.echo("")
         click.echo("─" * 48)
 
-    # ── sccsos.yaml ──
-    cfg_path = target / "sccsos.yaml"
-    if samples:
-        yaml_content = SAMPLE_YAML_FULL
-    else:
-        from sccsos.cli import _DEFAULT_YAML as _dy
-        yaml_content = _dy
-    if not cfg_path.exists() or force:
-        cfg_path.write_text(yaml_content, encoding="utf-8")
-        click.echo(f"  Created: sccsos.yaml{' (full)' if samples else ''}")
+    _init_write_config(target, samples, force, interactive,
+                       db_type, pg_dsn, pricing_tier, admin_tenant, admin_name)
 
-    # Apply interactive settings
-    if interactive and cfg_path.exists():
-        import yaml as pyyaml
-        try:
-            with open(cfg_path) as f:
-                cfg_data = pyyaml.safe_load(f) or {}
-            changed = False
-            if db_type == "postgresql" and pg_dsn:
-                cfg_data.setdefault("database", {})
-                cfg_data["database"]["type"] = "postgresql"
-                cfg_data["database"]["dsn"] = pg_dsn
-                cfg_data["database"]["path"] = ""
-                changed = True
-            if pricing_tier != "free":
-                cfg_data.setdefault("pricing", {})
-                cfg_data["pricing"]["tier"] = pricing_tier
-                changed = True
-            if changed:
-                with open(cfg_path, "w") as f:
-                    pyyaml.dump(cfg_data, f, default_flow_style=False, allow_unicode=True)
-                click.echo("  Updated: sccsos.yaml (interactive settings)")
-        except Exception as e:
-            click.echo(f"  ⚠ Failed to apply interactive settings: {e}")
-
-    # ── Sample agents ──
-    sample_agent_dir = target / "agents"
-    if samples:
-        click.echo("  Generating sample files...")
-        for rel_path, content in SAMPLE_FILES.items():
-            fp = target / rel_path
-            if not fp.exists() or force:
-                fp.parent.mkdir(parents=True, exist_ok=True)
-                fp.write_text(content.lstrip("\n"), encoding="utf-8")
-                click.echo(f"    {rel_path}")
-    else:
-        # Create hermes-installer as the default agent
-        installer = sample_agent_dir / "hermes-installer.yaml"
-        if not installer.exists() or force:
-            from sccsos.cli.sample_templates import SAMPLE_AGENT_HERMES_INSTALL
-            installer.write_text(SAMPLE_AGENT_HERMES_INSTALL.lstrip("\n"), encoding="utf-8")
-            click.echo(f"  Created: agents/hermes-installer.yaml")
-
-        # Create hermes-setup as the default workflow
-        wf_path = target / "workflows" / "hermes-setup.yaml"
-        if not wf_path.exists() or force:
-            from sccsos.cli.sample_templates import SAMPLE_WORKFLOW_HERMES_SETUP
-            wf_path.write_text(SAMPLE_WORKFLOW_HERMES_SETUP.lstrip("\n"), encoding="utf-8")
-            click.echo(f"  Created: workflows/hermes-setup.yaml")
-
-    # ── Pricing ──
-    pricing_path = target / "config" / "pricing.json"
-    if not pricing_path.exists():
-        pricing_path.write_text(SAMPLE_PRICING, encoding="utf-8")
-        click.echo(f"  Created: config/pricing.json")
-
-    # ── Admin user ──
-    if interactive and admin_name and admin_tenant:
-        admin_agent = sample_agent_dir / "admin.yaml"
-        if not admin_agent.exists() or force:
-            admin_yaml = f"""name: {admin_name}
-version: 1.0
-description: Admin user for RBAC management
-tenant_id: {admin_tenant}
-personality: default-admin
-profile: sccsos
-lifecycle:
-  max_turns: 90
-  timeout: 1800
-auto_approve: true
-"""
-            admin_agent.write_text(admin_yaml.lstrip("\n"), encoding="utf-8")
-            click.echo(f"  Created: agents/{admin_name}.yaml")
-
-    # ── Role package ──
     if role:
-        install_role_on_init(role, str(target))
+        _init_install_role(role, target)
 
     click.echo("")
     click.echo("sccsos project initialized.")

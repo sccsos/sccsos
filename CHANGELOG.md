@@ -1,5 +1,91 @@
 # Changelog
 
+## [0.19.4] — 2026-07-25
+
+### 修复
+- `.env` 文件仅当 `api_key` 非空才写的硬门控 → 解除，`base_url` 始终写入
+- `_ensure_env_file` 支持仅写 `base_url`（无 `api_key` 时也工作）
+- `_resolve_hermes_root` 修复 `HERMES_HOME` 指向 profile 目录时路径解析错误
+- `_write_model_config` lambda 参数 `**kw` 兼容，修复 profile config 写入异常
+
+## [0.19.3] — 2026-07-25
+
+### 新功能
+- `sccsos hermes config-sync` 独立命令：从 sccsos.yaml 同步 model/config 到 Hermes profile，无需重新安装
+
+### 重构
+- `_auto_apply_config` 及 5 个 config 同步函数从 `hermes_cmd.py` 分离到独立模块 `hermes_config_sync.py`
+- `_ensure_env_file` / `_set_default_config` / `_write_model_config` / `_build_hermes_env` 一起迁移
+- `install` / `doctor --fix` 改为 lazy import 调用新模块
+
+## [0.18.9] — 2026-07-25
+
+### 变更
+- `_write_model_config` 移除 `api_key` 写入 config.yaml（仅保留 .env 写入）
+- `.env` 追加 base_url 时修复尾部冗余反斜杠
+
+[0.18.8] — 2026-07-25
+
+### 新功能
+- `HERMES_CONFIG_PATH` 环境变量全面注入（rc 文件 + os.environ + 子进程 env）
+- rc 文件重复检测改为双标记（`HERMES_INSTALL_DIR` + `HERMES_CONFIG_PATH`），旧版区块自动重写
+
+[0.18.7] — 2026-07-25
+
+### 新功能
+- `sccsos hermes install`: 调用 install.sh 时加 `--skip-setup` 参数，跳过安装后交互式设置
+- `sccsos hermes env-setup`: 写入后立即生效到当前会话
+
+[0.18.6] — 2026-07-25
+
+### 新功能
+- `doctor` / `postinstall` 命令注册到 `sccsos hermes` 组
+- `sccsos hermes env-setup`: 去除首行空行，PATH 等变量保留 shell 引用格式，完成后立即生效到当前会话
+- `sccsos hermes install`: 安装前导出环境变量 + 写入 rc 文件
+
+[0.18.5] — 2026-07-24
+
+### Fixed
+
+- **Shell RC 写入时机提前**: 从安装后移至安装前，使 `HERMES_HOME` 等环境变量在安装脚本执行前即可被终端会话感知
+- **Shell RC 写入跳过二次确认**: 安装流程中 `_setup_shell_rc` 不再弹 `click.confirm`（`yes=True`），避免非交互终端静默失败
+- **`_detect_shell_rc` 兜底创建文件**: 无 rc 文件时自动 `mkidr + touch` 创建候选文件，不再返回不存在的路径
+- **版本升级**: 全项目 0.18.3 → 0.18.5
+
+## [0.18.2] — 2026-07-24
+
+### Fixed
+
+- **10 测试失败修复**: RBAC header 补齐 + fixture 隔离（`:memory:` DB）消除跨模块 runtime singleton 争抢 + PolicyEngine 注入 + legacy test slow 标记
+- **Shell RC 自定义路径**: `_setup_shell_rc()` 接受 `home`/`install_dir` 参数，`install` 命令传入 `resolved_home`
+- **`_get_hermes_home()` 首次安装路径错误**: 删除 `exists()` 检查，始终返回 `$HOME/hermes/data` 而非回退 `~/.hermes`。修复 `sccsos hermes install --china-mirror` 时 uv 被错误安装到 `/root/.hermes/bin` 的问题
+- **版本升级**: 全项目 0.18.0 → 0.18.2
+
+### Architecture
+
+- **CLI God 模块拆分**: `hermes_cmd.py` 812→683 行，6 个重复函数去重（`_install_script`/`_install_docker`/`_report_install_status`/`_verify_model_config`/`_get_profile_config_path`/`_auto_apply_config` → 委托到 `hermes_install.py`）
+- **CircuitBreaker 提取**: `event_bus_kafka.py` → `sccsos/core/circuit_breaker.py` 独立工具类
+- **覆盖率基线** `20%→50%`（实际 65%）
+- **`api/server.py` 移除倒计时**: deprecation 警告明确 v0.20 移除
+- **安装网络重试**: `_install_script` 的 `curl | bash` 加 3 次重试（指数退避 1s/2s/4s）
+- **AgentMessageBus 首个消费者**: 6 个 agent 生命周期事件通过 EventBus → AgentMessageBus 广播
+- **`api/server` deprecation 升级**: 移除倒计时明确为 v0.20，运行时输出 `⚠️`
+
+## [0.18.0] — 2026-07-24
+
+### Architecture
+
+- **版本升级**: 全项目 0.17.9 → 0.18.0（28 文件同步）
+- **环境变量统一**: `_install_script()` 4 个路径变量（HERMES_HOME/INSTALL_DIR/UV_INSTALL_DIR/UV_CACHE_DIR）从条件设置改为始终传递到 install.sh
+- **`_build_hermes_env()` 补齐**: 新增 HERMES_INSTALL_DIR、UV_INSTALL_DIR、UV_CACHE_DIR
+- **`_install_git()` 环境变量无条件化**: 4 个路径变量不再用 `if x:` 条件包裹
+- **CLI 瘦身**: 删除 `hermes_cmd.py` 中重复的 `_update_hermes_paths_in_yaml`（委托到 `hermes_install.py`）
+- **`_auto_apply_config()` 去重**: `hermes_install.py` 82 行版本→惰性委托到 `hermes_cmd.py` 规范版
+- **`roles → cli` 反向依赖修复**: 添加 `core/hermes_manager.run_hermes()`，`roles/installer.py` 不再直接引用 `cli.hermes_cmd`
+- **`initialize()` 拆分**: `runtime_workflow.py` 108 行→3 个子方法
+- **CLI 模板外置**: `_DEFAULT_YAML` 内联字符串→`cli/_default_config.yaml` 文件
+- **覆盖率基线**: `pyproject.toml` fail-under 68%→20%（实际 64.46%）
+
 ## [0.17.9] — 2026-07-22
 
 ### Changed

@@ -74,6 +74,7 @@ def _update_hermes_paths_in_yaml(home: str, install_dir: str) -> None:
         hermes["home"] = home
         changed = True
     if install_dir:
+        if hermes.get("install_dir") != install_dir:
             hermes["install_dir"] = install_dir
             changed = True
     else:
@@ -158,14 +159,11 @@ def _install_git(
     click.echo("  → pip install -e .（实时输出，请耐心等待）...")
     click.echo("")
     pip_env = os.environ.copy()
-    if hermes_home:
-        pip_env["HERMES_HOME"] = hermes_home
-    if final_install_dir:
-        pip_env["HERMES_INSTALL_DIR"] = final_install_dir
-    if final_uv_install:
-        pip_env["UV_INSTALL_DIR"] = final_uv_install
-    if final_uv_cache:
-        pip_env["UV_CACHE_DIR"] = final_uv_cache
+    pip_env["HERMES_HOME"] = hermes_home
+    pip_env["HERMES_CONFIG_PATH"] = hermes_home
+    pip_env["HERMES_INSTALL_DIR"] = final_install_dir
+    pip_env["UV_INSTALL_DIR"] = final_uv_install
+    pip_env["UV_CACHE_DIR"] = final_uv_cache
     r = subprocess.run(
         [sys.executable, "-m", "pip", "install", "-e", install_dir],
         timeout=300,
@@ -180,6 +178,9 @@ def _install_git(
 
     # 创建 HERMES_HOME 目录结构（如使用自定义路径且不存在）
     _ensure_hermes_home(hermes_home)
+
+    # 初始化默认 profile 配置
+    _run_hermes(["profile", "list"], timeout=30)
 
 
 def _ensure_hermes_home(home_path: str) -> None:
@@ -218,12 +219,19 @@ def _ensure_hermes_home(home_path: str) -> None:
 
 
 def _detect_shell_rc() -> str:
-    """Detect the user's shell rc file based on OS and $SHELL."""
+    """Detect the user's shell rc file based on OS and $SHELL.
+
+    Returns the first existing rc file, or falls back to the most
+    appropriate location for the detected OS/shell, creating it if
+    the file does not already exist.
+    """
     shell = os.environ.get("SHELL", "")
+
+    # Build candidate list by OS/shell
+    candidates: list[str] = []
     if "zsh" in shell:
         candidates = [".zshrc", ".zprofile"]
     elif "bash" in shell:
-        # Linux → .bashrc, macOS → .bash_profile
         if sys.platform == "darwin":
             candidates = [".bash_profile", ".bashrc", ".zshrc"]
         else:
@@ -231,34 +239,62 @@ def _detect_shell_rc() -> str:
     elif "fish" in shell:
         return str(Path.home() / ".config" / "fish" / "config.fish")
     else:
-        candidates = [".bashrc", ".zshrc", ".profile"]
+        # SHELL not set or unknown — use platform defaults
+        if sys.platform == "darwin":
+            candidates = [".zshrc", ".bash_profile", ".bashrc"]
+        else:
+            candidates = [".bashrc", ".zshrc", ".profile"]
 
+    # Return the first existing rc file
     for c in candidates:
         rc = Path.home() / c
         if rc.exists():
             return str(rc)
-    # Fallback: use the first candidate
-    return str(Path.home() / candidates[0])
+
+    # No rc file exists yet — create the best candidate
+    best = candidates[0]
+    rc_path = Path.home() / best
+    rc_path.parent.mkdir(parents=True, exist_ok=True)
+    rc_path.touch()
+    return str(rc_path)
 
 
-def _setup_shell_rc(rc_file: str = "", yes: bool = False) -> bool:
+def _setup_shell_rc(rc_file: str = "", yes: bool = False,
+                    home: str = "", install_dir: str = "") -> bool:
     """Write Hermes core environment variables to the user's shell rc file.
+
+    When ``home`` or ``install_dir`` are provided, those values are used
+    in the env block instead of the default ``$HOME/hermes/data`` /
+    ``$HOME/hermes/agent`` paths.
 
     Returns True if changes were made.
     """
     rc_path = Path(rc_file) if rc_file else Path(_detect_shell_rc())
 
-    env_block = f"""# ── Hermes Agent 全封闭安装环境变量 ──
-export HERMES_HOME="$HOME/hermes/data"
-export HERMES_INSTALL_DIR="$HOME/hermes/agent"
-export UV_INSTALL_DIR="$HERMES_HOME/bin"
-export UV_CACHE_DIR="$HERMES_HOME/uv-cache"
-export PATH="$HERMES_INSTALL_DIR/venv/bin:$HERMES_HOME/bin:$PATH"
+    # Resolve paths: parameter > default shell-var pattern
+    # NOTE: for shell rc files we deliberately use shell variable references
+    # ($HOME, $HERMES_HOME, $PATH) rather than resolving from the current
+    # environment — the rc file defines defaults; actual values are resolved
+    # by the shell at login time.
+    resolved_home = home or "$HOME/hermes/data"
+    resolved_install = install_dir or "$HOME/hermes/agent"
+    resolved_uv_bin = "$HERMES_HOME/bin"
+    resolved_uv_cache = "$HERMES_HOME/uv-cache"
+    resolved_path = "$HERMES_INSTALL_DIR/venv/bin:$HERMES_HOME/bin:$PATH"
+
+    env_block = f"""
+# ── Hermes Agent 全封闭安装环境变量 ──
+export HERMES_HOME="{resolved_home}"
+export HERMES_CONFIG_PATH="{resolved_home}"
+export HERMES_INSTALL_DIR="{resolved_install}"
+export UV_INSTALL_DIR="{resolved_uv_bin}"
+export UV_CACHE_DIR="{resolved_uv_cache}"
+export PATH="{resolved_path}"
 # ── ──
 """
     if rc_path.exists():
         existing = rc_path.read_text(encoding="utf-8")
-        if "HERMES_INSTALL_DIR" in existing:
+        if "HERMES_INSTALL_DIR" in existing and "HERMES_CONFIG_PATH" in existing:
             click.echo(f"  ⏭ Hermes 环境变量已在 {rc_path.name} 中存在，跳过")
             return False
 
@@ -270,9 +306,19 @@ export PATH="$HERMES_INSTALL_DIR/venv/bin:$HERMES_HOME/bin:$PATH"
 
     rc_path.parent.mkdir(parents=True, exist_ok=True)
     with open(rc_path, "a", encoding="utf-8") as f:
-        f.write(f"\\n{env_block}")
+        f.write(env_block)
     click.echo(f"  ✅ 环境变量已写入 {rc_path.name}")
-    click.echo(f"     执行 source {rc_path.name} 立即生效")
+    click.echo(f"     路径: {rc_path}")
+
+    # Export to current shell session immediately
+    export_home = os.path.expandvars(resolved_home)
+    export_install = os.path.expandvars(resolved_install)
+    os.environ["HERMES_HOME"] = export_home
+    os.environ["HERMES_CONFIG_PATH"] = export_home
+    os.environ["HERMES_INSTALL_DIR"] = export_install
+    os.environ["UV_INSTALL_DIR"] = os.path.expandvars(resolved_uv_bin)
+    os.environ["UV_CACHE_DIR"] = os.path.expandvars(resolved_uv_cache)
+    click.echo(f"  ✅ 当前会话已生效")
     return True
 
 
@@ -299,24 +345,43 @@ def _install_script(china_mirror: bool, yes: bool, timeout: int = 600,
     click.echo("  → 下载并执行安装脚本（实时输出，请耐心等待）...")
     click.echo("")
     try:
-        # 如有自定义 home/install_dir/uv，传给 install.sh
+        # Always resolve and forward ALL environment variables to install.sh
         env = os.environ.copy()
-        if home:
-            env["HERMES_HOME"] = home
-            click.echo(f"  ↪ 使用自定义路径: HERMES_HOME={home}")
-        if install_dir:
-            env["HERMES_INSTALL_DIR"] = install_dir
+        resolved_home = home or _get_hermes_home()
+        resolved_install = install_dir or _get_hermes_install_dir()
         resolved_uv_bin = uv_install_dir or _get_uv_install_dir()
         resolved_uv_cache = uv_cache_dir or _get_uv_cache_dir()
+
+        env["HERMES_HOME"] = resolved_home
+        env["HERMES_CONFIG_PATH"] = resolved_home
+        env["HERMES_INSTALL_DIR"] = resolved_install
         env["UV_INSTALL_DIR"] = resolved_uv_bin
         env["UV_CACHE_DIR"] = resolved_uv_cache
-        r = subprocess.run(
-            ["bash", "-c", f"curl -fL --progress-bar {url} | bash"],
-            timeout=timeout,
-            env=env,
-        )
-        if r.returncode != 0:
-            click.echo(f"  ❌ 安装失败（退出码 {r.returncode}），请检查网络后重试")
+        click.echo(f"  ↪ HERMES_HOME={resolved_home}")
+        click.echo(f"  ↪ HERMES_CONFIG_PATH={resolved_home}")
+        click.echo(f"  ↪ HERMES_INSTALL_DIR={resolved_install}")
+        click.echo(f"  ↪ UV_INSTALL_DIR={resolved_uv_bin}")
+        click.echo(f"  ↪ UV_CACHE_DIR={resolved_uv_cache}")
+        # Retry loop for transient network failures
+        max_attempts = 3
+        last_rc = -1
+        for attempt in range(1, max_attempts + 1):
+            if attempt > 1:
+                wait = min(2 ** (attempt - 1), 10)
+                click.echo(f"  → 重试 {attempt}/{max_attempts}（等待 {wait}s）...")
+                import time as _time
+                _time.sleep(wait)
+            r = subprocess.run(
+                ["bash", "-c", f"curl -fL --progress-bar {url} | bash -s -- --skip-setup"],
+                timeout=timeout, env=env,
+            )
+            if r.returncode == 0:
+                last_rc = 0
+                break
+            last_rc = r.returncode
+            click.echo(f"  ⚠️  第 {attempt} 次失败（退出码 {r.returncode}）")
+        if last_rc != 0:
+            click.echo(f"  ❌ 安装失败（退出码 {last_rc}），请检查网络后重试")
             return False
         click.echo("")
         click.echo("  ✅ 一键脚本安装完成")
@@ -455,93 +520,6 @@ def _get_profile_config_path(profile_name: str) -> Path:
     return hermes_home / "profiles" / profile_name / "config.yaml"
 
 
-# ── Post-install config sync ────────────────────────────────────────
-
-
-def _auto_apply_config() -> None:
-    """Auto-sync sccsos.yaml model config to Hermes after install.
-
-    Strategy:
-    1. Write model.default/provider/base_url to the **default** config
-       (~/.hermes/config.yaml) — always, as fallback.
-    2. If sccsos.yaml hermes.profile differs from "default",
-       clone the config to that profile (create if missing).
-    3. Verify both configs are valid dict structures and consistent.
-
-    Does NOT set API key (security) — user must run ``sccsos hermes setup``.
-    """
-    try:
-        cfg = _get_hermes_config()
-        provider = cfg.setup.provider
-        model = cfg.setup.model
-        if not provider or not model:
-            return
-
-        profile_name = cfg.profile or "sccsos"
-        base_url = cfg.setup.base_url or PROVIDER_DEFAULT_URLS.get(provider, "")
-        click.echo("  → 自动同步配置文件...")
-
-        # Step 1: Write to default config
-        default_path = _get_profile_config_path("default")
-        ok = _write_model_config(_set_default_config, model, provider, base_url)
-        if not ok:
-            click.echo("  ⚠️  默认配置写入异常，请检查 Hermes CLI 状态")
-            return
-        click.echo(f"  ✅ 默认配置已更新: {provider} / {model}")
-
-        # Step 2: Clone to target profile
-        if profile_name != "default":
-            if not _profile_exists(profile_name):
-                if not _create_profile(profile_name):
-                    click.echo(f"  ⚠️  Profile '{profile_name}' 创建失败，跳过")
-                    return
-                click.echo(f"  ✅ Profile '{profile_name}' 已创建（从默认配置克隆）")
-
-            prof_path = _get_profile_config_path(profile_name)
-            ok = _write_model_config(
-                lambda k, v: _set_profile_config(profile_name, k, v),
-                model, provider, base_url,
-            )
-            if not ok:
-                click.echo(f"  ⚠️  Profile '{profile_name}' 写入异常")
-                return
-            click.echo(f"  ✅ Profile '{profile_name}' 已同步")
-
-        # Step 3: Verify both configs
-        errors = []
-        for label, path in [("默认配置", default_path),
-                            (f"Profile '{profile_name}'", _get_profile_config_path(profile_name))]:
-            v = _verify_model_config(path)
-            if v["errors"]:
-                errors.extend([f"{label}: {e}" for e in v["errors"]])
-            elif v["is_dict"]:
-                url = v["model"].get("base_url", "")
-                click.echo(f"  ✅ {label} 结构正确: {v['model'].get('provider')} / {v['model'].get('default')}" +
-                          (f" / {url}" if url else ""))
-
-        # Cross-check consistency
-        if profile_name != "default":
-            dv = _verify_model_config(default_path)
-            pv = _verify_model_config(_get_profile_config_path(profile_name))
-            if dv["is_dict"] and pv["is_dict"]:
-                for k in ["default", "provider", "base_url"]:
-                    if dv["model"].get(k) != pv["model"].get(k):
-                        errors.append(
-                            f"model.{k} 不一致: 默认={dv['model'].get(k)!r} ≠ "
-                            f"profile={pv['model'].get(k)!r}")
-
-        if errors:
-            click.echo(f"  ⚠️  配置不一致 ({len(errors)} 项):")
-            for e in errors:
-                click.echo(f"    {e}")
-        else:
-            click.echo("  ✅ 默认配置 ↔ Profile 一致")
-        click.echo("")
-
-    except Exception as e:
-        click.echo(f"  ⚠️  自动配置跳过: {e}")
-
-
 # ── CLI command ─────────────────────────────────────────────────────
 
 
@@ -610,6 +588,21 @@ def install(method, version, git_url, target, check, yes, force, home, install_d
     click.echo(f"  UV_CACHE_DIR:           {resolved_uv_cache}")
     click.echo("")
 
+    # ── Shell RC 配置（安装前设置，确保后续终端会话可用） ──
+    # 安装流程中用户已确认安装，不重复弹窗确认
+    do_shell_rc = shell_rc if shell_rc is not None else None
+    if do_shell_rc is None:
+        try:
+            from sccsos.core.config import get_config
+            do_shell_rc = get_config().hermes.shell_rc.auto_setup
+        except Exception:
+            do_shell_rc = True
+    if do_shell_rc:
+        click.echo("")
+        click.echo("  ── Shell 环境变量配置 ──")
+        _setup_shell_rc(yes=True, home=resolved_home,
+                        install_dir=resolved_install_dir)
+
     # ── 执行安装 ──
     if method == "script":
         _install_script(china_mirror, yes, home=resolved_home,
@@ -639,23 +632,14 @@ def install(method, version, git_url, target, check, yes, force, home, install_d
         click.echo("")
 
         # auto-sync sccsos.yaml model config → Hermes profile
-        _auto_apply_config()
-
-        # ── Shell RC 配置 ──
-        do_shell_rc = shell_rc if shell_rc is not None else None
-        if do_shell_rc is None:
-            try:
-                from sccsos.core.config import get_config
-                do_shell_rc = get_config().hermes.shell_rc.auto_setup
-            except Exception:
-                do_shell_rc = True
-        if do_shell_rc:
-            click.echo("")
-            click.echo("  ── Shell 环境变量配置 ──")
-            _setup_shell_rc(yes=yes)
+        from sccsos.cli.hermes_config_sync import _auto_apply_config as _do_sync  # noqa: E402
+        _do_sync()
 
         click.echo("")
         click.echo("后续步骤:")
+        click.echo("  source {}              # 立即激活环境变量".format(
+            _detect_shell_rc() if not shell_rc else shell_rc,
+        ))
         click.echo("  sccsos hermes setup              # 配置 API Key（如未设置环境变量）")
         click.echo("  sccsos hermes postinstall          # 安装 Browser 引擎等系统依赖")
         click.echo("  sccsos hermes doctor              # 验证安装完整性")

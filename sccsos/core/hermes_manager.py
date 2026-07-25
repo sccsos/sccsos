@@ -184,7 +184,7 @@ class HermesManager:
                 pass
 
         # Pip — check pip show
-        if self._pip_installed():
+        if HermesManager._pip_installed():
             return HermesInstallMode.PIP
 
         # Nix — check /nix/store or nix profile
@@ -192,8 +192,7 @@ class HermesManager:
             return HermesInstallMode.NIX
 
         # Install prefix exists but no .git (stable git-installer without repo)
-        cfg.install_dir
-            return HermesInstallMode.GIT_INSTALLER
+        return HermesInstallMode.GIT_INSTALLER
 
         # Could not determine
         return HermesInstallMode.UNKNOWN
@@ -348,6 +347,34 @@ def sys_exe() -> str:
     """Get the current Python executable path."""
     import sys
     return sys.executable
+
+
+def run_hermes(args: list[str], timeout: int = 30) -> tuple[str, str, int]:
+    """Run a Hermes CLI command and return (stdout, stderr, returncode).
+
+    Resolves the hermes binary from config/env (same resolution as
+    :func:`sccsos.cli.hermes_cmd._resolve_hermes_binary`).
+    """
+    import os
+    import subprocess
+    from sccsos.core.config import get_config
+
+    binary = os.environ.get("HERMES_BINARY", "")
+    if not binary:
+        try:
+            binary = get_config().hermes.binary or "hermes"
+        except Exception:
+            binary = "hermes"
+    try:
+        r = subprocess.run(
+            [binary, *args],
+            capture_output=True, text=True, timeout=timeout,
+        )
+        return r.stdout.strip(), r.stderr.strip(), r.returncode
+    except FileNotFoundError:
+        return "", f"Hermes CLI not found: {binary}", -1
+    except subprocess.TimeoutExpired:
+        return "", f"Timeout ({timeout}s)", -1
 
 
 # Late import to avoid circular deps in factory

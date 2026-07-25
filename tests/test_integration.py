@@ -473,11 +473,15 @@ class TestToolPermissions:
 
         # Create minimal WorkflowEngine with policy engine
         from sccsos.core.workflow import WorkflowEngine
-        engine = WorkflowEngine(db, adapter, config=config)
+        from sccsos.security.policy import PolicyEngine
+        policy_engine = PolicyEngine(db, config)
+        engine = WorkflowEngine(db, adapter, config=config,
+                                policy_engine=policy_engine)
         runtime._wf._engine = engine
         runtime._wf.engine = engine  # also set property for runtime access
 
-        spec = AgentSpec(name="bad-agent", toolsets=["terminal"])
+        spec = AgentSpec(name="bad-agent", toolsets=["terminal"],
+                         policy={"blocked_tools": ["terminal"]})
         with pytest.raises(PolicyViolation, match="blocked"):
             runtime.register_agent(spec)
 

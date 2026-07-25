@@ -56,7 +56,7 @@ SCCS OS（Smart Agent Operating System）是一个基于 Hermes Agent 运行时�
 | 组件 | 版本 | 验证命令 |
 |------|------|----------|
 | Python | ≥ 3.11 | `python3 --version` |
-| Hermes Agent | ≥ v0.18.0 | `hermes --version` |
+| Hermes Agent | ≥ v0.18.6 | `hermes --version` |
 | pip | ≥ 21.0 | `pip3 --version` |
 
 ## 2.2 安装 SCCS OS
@@ -78,7 +78,7 @@ pip install "sccsos[all]"
 
 ```bash
 # WHL 文件安装
-pip install dist/sccsos-0.17.9-py3-none-any.whl
+pip install dist/sccsos-0.18.6-py3-none-any.whl
 
 # WHL 安装后，补装扩展组件
 pip install "sccsos[all]"
@@ -106,17 +106,17 @@ sccsos hermes install --china-mirror
 
 # 源码编译安装（开发者）
 sccsos hermes install --method git
-sccsos hermes install --method git -v v0.18.0   # 指定版本
+sccsos hermes install --method git -v v0.18.6   # 指定版本
 
 # Docker 容器部署（生产环境）
 sccsos hermes install --method docker
-sccsos hermes install --method docker -v 0.18.0
+sccsos hermes install --method docker -v 0.18.6
 
 # 仅检测安装状态
 sccsos hermes install --check
 
 # 验证安装
-hermes --version        # → Hermes Agent v0.18.0
+hermes --version        # → Hermes Agent v0.18.6
 ```
 
 **配置 Hermes Agent：**

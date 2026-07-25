@@ -223,15 +223,15 @@ def serve(port, host, legacy):
                 err=True,
             )
 
-    # Legacy server fallback
+    # Legacy server fallback — DEPRECATED, will be removed in v0.20
     if legacy:
         click.echo(
-            "WARNING: --legacy mode is deprecated and will be removed in v0.12.0. "
-            "Use 'pip install sccsos[api]' for the FastAPI server.",
+            "⚠️  --legacy mode is DEPRECATED since v0.9.0 and will be REMOVED "
+            "in v0.20. Use 'pip install sccsos[api]' for the FastAPI server.",
             err=True,
         )
     from sccsos.api.server import run_server as run_legacy
-    click.echo(f"Starting sccsos API server (legacy) on {host}:{port}")
+    click.echo(f"  ⚠️  Starting legacy http.server on {host}:{port} — switch to 'pip install sccsos[api]'")
     run_legacy(host=host, port=port)
 
 
@@ -270,60 +270,10 @@ main.add_command(role_cmd)
 # ── template constants ────────────────────────────────────────────
 
 
-_DEFAULT_YAML = """# sccsos v0.17.9 project configuration
-project:
-  name: sccsos
-  version: 0.17.9
-hermes:
-  profile: sccsos
-  binary: hermes
-  home: ""                 # HERMES_HOME 覆盖（空值 = 使用环境变量或默认 $HOME/hermes/data）
-  install_dir: ""       # HERMES_INSTALL_DIR 覆盖（空值 = 使用环境变量或默认 $HOME/hermes/agent）
-  adapter: subprocess
-  uv:
-    install_dir: ""        # UV_INSTALL_DIR 覆盖（空值 = 使用环境变量或默认 $HOME/hermes/data/bin）
-    cache_dir: ""          # UV_CACHE_DIR 覆盖（空值 = 使用环境变量或默认 $HOME/hermes/data/uv-cache）
-  shell_rc:
-    auto_setup: true       # 安装后自动写入 shell rc 文件
-    rc_file: ""            # 强制指定 rc 文件（空值 = 自动检测）
-  setup:
-    provider: deepseek
-    model: deepseek-v4-flash
-    api_key: ""
-    base_url: "https://api.deepseek.com/v1"
-database:
-  path: ./data/sccsos.db
-defaults:
-  hermes_profile: sccsos
-  max_turns: 90
-  timeout: 1800
-logging:
-  level: INFO
-  format: json
-  directory: ./logs
-  retention_days: 30
-tracing:
-  enabled: true
-  export_path: ./traces/
-pricing:
-  path: ./config/pricing.json
-agents:
-  path: ./agents
-  wiki_path: ./wiki
-  personalities_path: ./personalities
-policies:
-  default:
-    max_tokens_per_session: 100000
-    max_cost_usd: 5.0
-    allowed_tools:
-      - read_file
-      - search_files
-      - web_search
-      - web_extract
-      - terminal
-      - delegate_task
-    blocked_tools: []
-"""
+def get_default_yaml() -> str:
+    """Read default sccsos.yaml template from bundled file."""
+    from pathlib import Path
+    return (Path(__file__).parent / "_default_config.yaml").read_text(encoding="utf-8")
 
 
 if __name__ == "__main__":

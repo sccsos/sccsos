@@ -171,7 +171,7 @@ class RolePackageInstaller:
         Updates the active Hermes profile's model and temperature
         settings to match the role's recommendations.
         """
-        from sccsos.cli.hermes_cmd import _run_hermes
+        from sccsos.core.hermes_manager import run_hermes as _run_hermes
         from sccsos.core.config import get_config
 
         profile = get_config().hermes.profile or "sccsos"

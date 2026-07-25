@@ -28,10 +28,12 @@ SaaS 多租户大规模部署 | K8s 集群 | PostgreSQL + Kafka
 
 ```bash
 # WHL 文件安装
-pip install dist/sccsos-0.17.9-py3-none-any.whl
+pip install dist/sccsos-0.18.6-py3-none-any.whl
 
 # WHL 安装后，补装扩展组件
 pip install "sccsos[all]"
+
+sccsos hermes install --method git -v v0.18.6  # 指定版本安装
 ```
 
 > **说明**：WHL 安装后无需重新构建核心包，通过 `pip install "sccsos[...]"` 按需补装扩展即可。`sccsos doctor` 可用于验证全部依赖状态。
@@ -43,7 +45,7 @@ SCCS OS 提供 `sccsos hermes` 命令组，用于企业环境的 Hermes Agent �
 ```bash
 # ── 安装 ──
 sccsos hermes install                        # 一键脚本安装（推荐）
-sccsos hermes install --method git -v v0.18.0  # 指定版本安装
+sccsos hermes install --method git -v v0.18.5  # 指定版本安装
 sccsos hermes install --method docker        # Docker 部署
 
 # ── 配置 ──

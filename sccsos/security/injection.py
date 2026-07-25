@@ -73,7 +73,7 @@ INJECTION_PATTERNS: list[tuple[str, float, str]] = [
     (r"('|\")(--| OR | AND | UNION)(\s+|--)", 0.75, "SQL injection — tautology"),
 
     # Command injection (medium severity)
-    (r"(;|\||`|\$\(|\$\{)\s*(rm|wget|curl|bash|sh|python|nc|mkfs|dd)", 0.85, "command injection"),
+    (r"(;|\||`|\$\(|\$\{)\s*(\b(?:rm|wget|curl|bash|sh|python|nc|mkfs|dd)\b)", 0.85, "command injection"),
     (r"\bexec\s*\(|\beval\s*\(|\bsystem\s*\(|\bpopen\s*\(", 0.8, "code execution function"),
 
     # XSS / HTML injection (low severity)

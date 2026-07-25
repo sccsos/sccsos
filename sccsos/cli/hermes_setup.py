@@ -64,6 +64,146 @@ def _update_yaml(key_path: list[str], value: str) -> None:
     )
 
 
+# ── Setup helpers ───────────────────────────────────────────────────
+
+
+def _setup_hermes_check(yes: bool) -> bool:
+    """检查 Hermes CLI + 版本. Returns True if ready to proceed."""
+    click.echo("\n[1/5] 检查 Hermes Agent 安装...")
+    if not _check_hermes_installed():
+        click.echo("  ❌ Hermes CLI 未安装")
+        if yes or click.confirm("  是否安装 hermes-agent?"):
+            r = subprocess.run(
+                [sys.executable, "-m", "pip", "install", "hermes-agent"],
+                capture_output=True, text=True, timeout=120,
+            )
+            if r.returncode != 0:
+                click.echo(f"  ❌ 安装失败: {r.stderr.strip()[:200]}")
+                return False
+            click.echo("  ✅ Hermes Agent 安装完成")
+        else:
+            return False
+    else:
+        out, _, _ = _run_hermes(["--version"])
+        click.echo(f"  ✅ Hermes CLI 可用 ({out})")
+    return True
+
+
+def _setup_provider_prompt(cfg, provider: Optional[str], model: Optional[str]) -> tuple[str, str]:
+    """交互式选择 provider 和 model. Returns (resolved_provider, resolved_model)."""
+    click.echo("\n[2/5] 解析 LLM 配置...")
+    resolved_provider = provider or cfg.setup.provider or ""
+    if not resolved_provider:
+        resolved_provider = click.prompt(
+            "  LLM 服务商",
+            type=click.Choice(list(PROVIDER_ENV_KEYS.keys())),
+            default="deepseek",
+        )
+
+    resolved_model = model or cfg.setup.model or ""
+    if not resolved_model:
+        resolved_model = click.prompt(
+            "  模型名称", default=PROVIDER_DEFAULT_MODELS.get(resolved_provider, ""),
+        )
+    return resolved_provider, resolved_model
+
+
+def _setup_env(
+    resolved_provider: str,
+    resolved_api_key: str,
+    skip_env: bool,
+    yes: bool,
+) -> str:
+    """配置环境变量. Returns the env key name."""
+    env_key_name = PROVIDER_ENV_KEYS.get(resolved_provider, "")
+    if not skip_env and env_key_name:
+        click.echo(f"\n[4/5] 设置环境变量...")
+
+        shell_rc = None
+        for rc_file in [".zshrc", ".bashrc", ".bash_profile", ".zprofile"]:
+            rc_path = Path.home() / rc_file
+            if rc_path.exists():
+                shell_rc = rc_path
+                break
+
+        if shell_rc and not yes:
+            if click.confirm(f"  将 {env_key_name} 写入 {shell_rc.name}?"):
+                escaped_key = resolved_api_key.replace("'", "'\\''")
+                line = f"export {env_key_name}='{escaped_key}'"
+                if line not in shell_rc.read_text(encoding="utf-8"):
+                    with open(shell_rc, "a", encoding="utf-8") as f:
+                        f.write(f"\n# sccsos: {resolved_provider} API Key\n{line}\n")
+                    click.echo(f"  ✅ {env_key_name} 已追加到 {shell_rc.name}")
+                else:
+                    click.echo(f"  ⚠️  {env_key_name} 已在 {shell_rc.name} 中存在，跳过")
+
+        os.environ[env_key_name] = resolved_api_key
+        click.echo(f"  ✅ 当前会话已设置 {env_key_name}")
+    return env_key_name
+
+
+def _setup_profile(
+    profile_name: str,
+    resolved_provider: str,
+    resolved_model: str,
+    resolved_api_key: str,
+    resolved_base_url: str,
+    yes: bool,
+    skip_env: bool,
+    cfg,
+) -> None:
+    """创建/更新 Hermes profile."""
+    step_label = "[4/5]" if skip_env else "[5/5]"
+    click.echo(f"\n{step_label} 配置 Hermes Profile '{profile_name}'...")
+
+    if _profile_exists(profile_name):
+        if not yes and not click.confirm(f"  覆盖 '{profile_name}' 的现有配置?"):
+            click.echo("  跳过 Profile 配置")
+        else:
+            _set_profile_config(profile_name, "model.default", resolved_model)
+            _set_profile_config(profile_name, "model.provider", resolved_provider)
+            _set_profile_config(profile_name, "model.api_key", resolved_api_key)
+            if resolved_base_url:
+                _set_profile_config(profile_name, "model.base_url", resolved_base_url)
+            click.echo(f"  ✅ Provider: {resolved_provider}")
+            click.echo(f"  ✅ Model:    {resolved_model}")
+            click.echo(f"  ✅ API Key:  {'***' + resolved_api_key[-4:] if len(resolved_api_key) > 4 else '***'}")
+            if resolved_base_url:
+                click.echo(f"  ✅ Base URL: {resolved_base_url}")
+    else:
+        click.echo(f"  → 创建 Profile '{profile_name}'...")
+        if not _create_profile(profile_name):
+            click.echo("  ❌ 创建 Profile 失败")
+            return
+        _set_profile_config(profile_name, "model.default", resolved_model)
+        _set_profile_config(profile_name, "model.provider", resolved_provider)
+        _set_profile_config(profile_name, "model.api_key", resolved_api_key)
+        if resolved_base_url:
+            _set_profile_config(profile_name, "model.base_url", resolved_base_url)
+        click.echo(f"  ✅ Profile '{profile_name}' 已创建并配置")
+
+    _update_yaml(["hermes", "profile"], profile_name)
+    click.echo("  ✅ sccsos.yaml 已更新")
+
+
+def _setup_validate(profile_name: str) -> None:
+    """验证 Profile end-to-end connectivity."""
+    click.echo(f"\n  验证 Profile '{profile_name}'...")
+    ok, msg = _test_profile(profile_name, timeout=90)
+    if ok:
+        click.echo("  ✅ Profile 验证通过 — LLM 响应正常")
+        click.echo(f"\n🎉 Hermes Agent 配置完成！Profile '{profile_name}' 已就绪。")
+        click.echo("\n后续步骤:")
+        click.echo("  sccsos health                    # 检查 SCCS OS 健康状态")
+        click.echo("  sccsos agent create architect     # 创建一个 Agent")
+        click.echo("  sccsos agent start architect      # 启动 Agent")
+        click.echo("  sccsos workflow run demo.yaml     # 运行工作流")
+    else:
+        click.echo(f"  ❌ 验证失败: {msg[:200]}")
+        click.echo("  请检查 API Key 和网络连接后重试。")
+        click.echo(f"  → 环境变量 {PROVIDER_ENV_KEYS.get(profile_name, 'API_KEY')} 已设置，可直接重试命令。")
+
+
 # ── Commands ────────────────────────────────────────────────────────
 
 
@@ -77,6 +217,7 @@ def show() -> None:
     click.echo(f"  Binary:     {cfg.binary} ({_resolve_hermes_binary()})")
     click.echo(f"  Adapter:    {cfg.adapter}")
     click.echo(f"  HERMES_HOME:            {cfg.home or _get_hermes_home()}")
+    click.echo(f"  HERMES_CONFIG_PATH:     {cfg.home or _get_hermes_home()}")
     click.echo(f"  HERMES_INSTALL_DIR:  {cfg.install_dir or _get_hermes_install_dir()}")
     click.echo(f"  UV_INSTALL_DIR:         {cfg.uv.install_dir or _get_uv_install_dir()}")
     click.echo(f"  UV_CACHE_DIR:           {cfg.uv.cache_dir or _get_uv_cache_dir()}")
@@ -147,44 +288,15 @@ def setup(provider, model, api_key, base_url, profile, env_only, skip_env, yes):
         click.echo(f"  目标 Profile: {profile_name}")
 
     # ── Step 1: Check / Install Hermes ──────────────────────────
-    click.echo("\n[1/5] 检查 Hermes Agent 安装...")
-    if not _check_hermes_installed():
-        click.echo("  ❌ Hermes CLI 未安装")
-        if yes or click.confirm("  是否安装 hermes-agent?"):
-            r = subprocess.run(
-                [sys.executable, "-m", "pip", "install", "hermes-agent"],
-                capture_output=True, text=True, timeout=120,
-            )
-            if r.returncode != 0:
-                click.echo(f"  ❌ 安装失败: {r.stderr.strip()[:200]}")
-                return
-            click.echo("  ✅ Hermes Agent 安装完成")
-        else:
-            return
-    else:
-        out, _, _ = _run_hermes(["--version"])
-        click.echo(f"  ✅ Hermes CLI 可用 ({out})")
+    if not _setup_hermes_check(yes):
+        return
 
     # ── Step 2: Resolve provider + model ────────────────────────
-    click.echo("\n[2/5] 解析 LLM 配置...")
-    resolved_provider = provider or cfg.setup.provider or ""
-    if not resolved_provider:
-        resolved_provider = click.prompt(
-            "  LLM 服务商",
-            type=click.Choice(list(PROVIDER_ENV_KEYS.keys())),
-            default="deepseek",
-        )
-
-    resolved_model = model or cfg.setup.model or ""
-    if not resolved_model:
-        resolved_model = click.prompt(
-            "  模型名称", default=PROVIDER_DEFAULT_MODELS.get(resolved_provider, ""),
-        )
+    resolved_provider, resolved_model = _setup_provider_prompt(cfg, provider, model)
 
     # ── Step 3: Resolve API key ─────────────────────────────────
     click.echo("\n[3/5] 配置 API Key...")
 
-    # Priority: CLI arg > env var > sccsos.yaml > interactive
     env_key_name = PROVIDER_ENV_KEYS.get(resolved_provider, "")
     env_api_key = _get_env_api_key(resolved_provider)
 
@@ -205,31 +317,7 @@ def setup(provider, model, api_key, base_url, profile, env_only, skip_env, yes):
         )
 
     # ── Step 4: Set environment variables ───────────────────────
-    if not skip_env and env_key_name:
-        click.echo(f"\n[4/5] 设置环境变量...")
-
-        # Write to shell profile for persistence
-        shell_rc = None
-        for rc_file in [".zshrc", ".bashrc", ".bash_profile", ".zprofile"]:
-            rc_path = Path.home() / rc_file
-            if rc_path.exists():
-                shell_rc = rc_path
-                break
-
-        if shell_rc and not yes:
-            if click.confirm(f"  将 {env_key_name} 写入 {shell_rc.name}?"):
-                escaped_key = resolved_api_key.replace("'", "'\\''")
-                line = f"export {env_key_name}='{escaped_key}'"
-                if line not in shell_rc.read_text(encoding="utf-8"):
-                    with open(shell_rc, "a", encoding="utf-8") as f:
-                        f.write(f"\n# sccsos: {resolved_provider} API Key\n{line}\n")
-                    click.echo(f"  ✅ {env_key_name} 已追加到 {shell_rc.name}")
-                else:
-                    click.echo(f"  ⚠️  {env_key_name} 已在 {shell_rc.name} 中存在，跳过")
-
-        # Export to current session
-        os.environ[env_key_name] = resolved_api_key
-        click.echo(f"  ✅ 当前会话已设置 {env_key_name}")
+    _setup_env(resolved_provider, resolved_api_key, skip_env, yes)
 
     # ── If env-only mode, skip profile config ───────────────────
     if env_only:
@@ -237,57 +325,13 @@ def setup(provider, model, api_key, base_url, profile, env_only, skip_env, yes):
         click.echo("  运行 'sccsos hermes setup' 可继续配置 Hermes Profile。")
         return
 
-    # ── Step 5 (or 4 for non-skip): Create/Update profile ───────
-    step_label = "[4/5]" if skip_env else "[5/5]"
-    click.echo(f"\n{step_label} 配置 Hermes Profile '{profile_name}'...")
-
-    if _profile_exists(profile_name):
-        if not yes and not click.confirm(f"  覆盖 '{profile_name}' 的现有配置?"):
-            click.echo("  跳过 Profile 配置")
-        else:
-            _set_profile_config(profile_name, "model.default", resolved_model)
-            _set_profile_config(profile_name, "model.provider", resolved_provider)
-            _set_profile_config(profile_name, "model.api_key", resolved_api_key)
-            resolved_base_url = base_url or cfg.setup.base_url or PROVIDER_DEFAULT_URLS.get(resolved_provider, "")
-            if resolved_base_url:
-                _set_profile_config(profile_name, "model.base_url", resolved_base_url)
-            click.echo(f"  ✅ Provider: {resolved_provider}")
-            click.echo(f"  ✅ Model:    {resolved_model}")
-            click.echo(f"  ✅ API Key:  {'***' + resolved_api_key[-4:] if len(resolved_api_key) > 4 else '***'}")
-            if resolved_base_url:
-                click.echo(f"  ✅ Base URL: {resolved_base_url}")
-    else:
-        click.echo(f"  → 创建 Profile '{profile_name}'...")
-        if not _create_profile(profile_name):
-            click.echo("  ❌ 创建 Profile 失败")
-            return
-        _set_profile_config(profile_name, "model.default", resolved_model)
-        _set_profile_config(profile_name, "model.provider", resolved_provider)
-        _set_profile_config(profile_name, "model.api_key", resolved_api_key)
-        resolved_base_url = base_url or cfg.setup.base_url or PROVIDER_DEFAULT_URLS.get(resolved_provider, "")
-        if resolved_base_url:
-            _set_profile_config(profile_name, "model.base_url", resolved_base_url)
-        click.echo(f"  ✅ Profile '{profile_name}' 已创建并配置")
-
-    # Update sccsos.yaml with the profile name
-    _update_yaml(["hermes", "profile"], profile_name)
-    click.echo("  ✅ sccsos.yaml 已更新")
+    # ── Step 5: Create/Update profile ───────────────────────────
+    resolved_base_url = base_url or cfg.setup.base_url or PROVIDER_DEFAULT_URLS.get(resolved_provider, "")
+    _setup_profile(profile_name, resolved_provider, resolved_model,
+                   resolved_api_key, resolved_base_url, yes, skip_env, cfg)
 
     # ── Validate end-to-end ─────────────────────────────────────
-    click.echo(f"\n  验证 Profile '{profile_name}'...")
-    ok, msg = _test_profile(profile_name, timeout=90)
-    if ok:
-        click.echo("  ✅ Profile 验证通过 — LLM 响应正常")
-        click.echo(f"\n🎉 Hermes Agent 配置完成！Profile '{profile_name}' 已就绪。")
-        click.echo("\n后续步骤:")
-        click.echo("  sccsos health                    # 检查 SCCS OS 健康状态")
-        click.echo("  sccsos agent create architect     # 创建一个 Agent")
-        click.echo("  sccsos agent start architect      # 启动 Agent")
-        click.echo("  sccsos workflow run demo.yaml     # 运行工作流")
-    else:
-        click.echo(f"  ❌ 验证失败: {msg[:200]}")
-        click.echo("  请检查 API Key 和网络连接后重试。")
-        click.echo(f"  → 环境变量 {env_key_name} 已设置，可直接重试命令。")
+    _setup_validate(profile_name)
 
 
 @click.command(name="use")
