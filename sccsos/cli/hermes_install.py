@@ -259,6 +259,24 @@ def _detect_shell_rc() -> str:
     return str(rc_path)
 
 
+def _export_current_session(
+    home: str, install_dir: str,
+    hermes_bin: str, hermes_bin_dir: str,
+    uv_bin: str, uv_cache: str,
+) -> None:
+    """Export Hermes env vars to the current shell session (os.environ)."""
+    export_home = os.path.expandvars(home)
+    export_install = os.path.expandvars(install_dir)
+    os.environ["HERMES_HOME"] = export_home
+    os.environ["HERMES_CONFIG_PATH"] = export_home
+    os.environ["HERMES_INSTALL_DIR"] = export_install
+    os.environ["HERMES_BIN"] = os.path.expandvars(hermes_bin)
+    os.environ["HERMES_BIN_DIR"] = os.path.expandvars(hermes_bin_dir)
+    os.environ["UV_INSTALL_DIR"] = os.path.expandvars(uv_bin)
+    os.environ["UV_CACHE_DIR"] = os.path.expandvars(uv_cache)
+    click.echo("  ✅ 当前会话已生效")
+
+
 def _setup_shell_rc(rc_file: str = "", yes: bool = False,
                     home: str = "", install_dir: str = "") -> bool:
     """Write Hermes core environment variables to the user's shell rc file.
@@ -299,8 +317,12 @@ export PATH="{resolved_path}"
     if rc_path.exists():
         existing = rc_path.read_text(encoding="utf-8")
         if "HERMES_INSTALL_DIR" in existing and "HERMES_CONFIG_PATH" in existing:
-            click.echo(f"  ⏭ Hermes 环境变量已在 {rc_path.name} 中存在，跳过")
-            return False
+            click.echo(f"  ⏭ Hermes 环境变量已在 {rc_path.name} 中存在，跳过 rc 写入")
+            # 跳过 rc 写入，但仍导出到当前会话（确保 HERMES_BIN/BIN_DIR 生效）
+            _export_current_session(resolved_home, resolved_install,
+                                     resolved_bin, resolved_bin_dir,
+                                     resolved_uv_bin, resolved_uv_cache)
+            return True
 
     if not yes:
         if not click.confirm(f"  将 Hermes 环境变量写入 {rc_path.name}?\\n"
@@ -315,16 +337,9 @@ export PATH="{resolved_path}"
     click.echo(f"     路径: {rc_path}")
 
     # Export to current shell session immediately
-    export_home = os.path.expandvars(resolved_home)
-    export_install = os.path.expandvars(resolved_install)
-    os.environ["HERMES_HOME"] = export_home
-    os.environ["HERMES_CONFIG_PATH"] = export_home
-    os.environ["HERMES_INSTALL_DIR"] = export_install
-    os.environ["HERMES_BIN"] = os.path.expandvars(resolved_bin)
-    os.environ["HERMES_BIN_DIR"] = os.path.expandvars(resolved_bin_dir)
-    os.environ["UV_INSTALL_DIR"] = os.path.expandvars(resolved_uv_bin)
-    os.environ["UV_CACHE_DIR"] = os.path.expandvars(resolved_uv_cache)
-    click.echo(f"  ✅ 当前会话已生效")
+    _export_current_session(resolved_home, resolved_install,
+                            resolved_bin, resolved_bin_dir,
+                            resolved_uv_bin, resolved_uv_cache)
     return True
 
 
