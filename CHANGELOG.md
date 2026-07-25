@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.20.8] — 2026-07-25
+
+### 修复
+- `_resolve_hermes_binary` 验证 `HERMES_BIN` 存在性，路径不存在时 fallthrough 到 discovery
+
 ## [0.20.7] — 2026-07-25
 
 ### 修复
