@@ -12,11 +12,14 @@ echo ""
 echo "━━━ [1/2] Hermes Agent 安装 ━━━"
 bash "$SCRIPT_DIR/install-hermes.sh"
 
-# 子进程的 export 不继承，重新声明环境变量
+# 子进程的 export 不继承父进程，重新声明全量变量
 SCCSOS_HOME="${SCCSOS_HOME:-$HOME/sccsos}"
-HERMES_BIN="$SCCSOS_HOME/hermes-agent/venv/bin/hermes"
-HERMES_BIN_DIR="$SCCSOS_HOME/hermes-agent/venv/bin"
-export SCCSOS_HOME HERMES_BIN HERMES_BIN_DIR
+export SCCSOS_HOME
+export HERMES_HOME="$SCCSOS_HOME/hermes"
+export HERMES_CONFIG_PATH="$SCCSOS_HOME/hermes"
+export HERMES_INSTALL_DIR="$SCCSOS_HOME/hermes-agent"
+export HERMES_BIN="$SCCSOS_HOME/hermes-agent/venv/bin/hermes"
+export HERMES_BIN_DIR="$SCCSOS_HOME/hermes-agent/venv/bin"
 export PATH="$HERMES_BIN_DIR:$PATH"
 
 # Step 2: SCCS OS

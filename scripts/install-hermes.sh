@@ -6,6 +6,16 @@ set -euo pipefail
 
 SCCSOS_HOME="${SCCSOS_HOME:-$HOME/sccsos}"
 
+# ── 全量路径变量（安装全程使用，确保一切收归 $SCCSOS_HOME）──
+export SCCSOS_HOME
+export HERMES_HOME="$SCCSOS_HOME/hermes"
+export HERMES_CONFIG_PATH="$SCCSOS_HOME/hermes"
+export HERMES_CODE_PATH="$SCCSOS_HOME/hermes-agent"    # Hermes 安装脚本读取此变量
+export HERMES_INSTALL_DIR="$SCCSOS_HOME/hermes-agent"
+export HERMES_BIN="$SCCSOS_HOME/hermes-agent/venv/bin/hermes"
+export HERMES_BIN_DIR="$SCCSOS_HOME/hermes-agent/venv/bin"
+export PATH="$HERMES_BIN_DIR:$PATH"
+
 echo "═══ Hermes Agent 安装 ═══"
 echo "  Target:  $SCCSOS_HOME"
 echo ""
@@ -35,10 +45,8 @@ echo "  ✅ $SCCSOS_HOME/"
 # ── 3. 安装 Hermes Agent（官方脚本）──
 echo ""
 echo "3️⃣ Hermes Agent（官方 install.sh）..."
-export HERMES_HOME="$SCCSOS_HOME/hermes"
-export HERMES_CODE_PATH="$SCCSOS_HOME/hermes-agent"
 
-if [ -f "$HERMES_CODE_PATH/venv/bin/hermes" ]; then
+if [ -f "$HERMES_BIN" ]; then
   echo "  ↪ 已安装，跳过"
 else
   # PATH 前置 python3.12 → install.sh 内部 python3 解析为 3.12
@@ -46,9 +54,9 @@ else
   export PATH="$PY312_DIR:$PATH"
   curl -fsSL https://hermes-agent.nousresearch.com/install.sh | \
     bash -s -- --skip-setup --skip-browser
-  echo "  ✅ Hermes CLI: $HERMES_CODE_PATH/venv/bin/hermes"
+  echo "  ✅ Hermes CLI: $HERMES_BIN"
 fi
-"$HERMES_CODE_PATH/venv/bin/hermes" --version
+"$HERMES_BIN" --version
 
 # ── 4. Hermes 初始配置 ──
 mkdir -p "$SCCSOS_HOME/hermes/profiles/sccsos"
@@ -87,10 +95,8 @@ EOF
   echo "  ✅ 写入 $RC_FILE"
 fi
 
-# 当前会话立即生效
-export SCCSOS_HOME HERMES_HOME HERMES_CONFIG_PATH
-export HERMES_INSTALL_DIR HERMES_BIN HERMES_BIN_DIR
-export PATH="$HERMES_BIN_DIR:$PATH"
+# 当前会话（顶部已 export，此处保留只为可读性确认）
+echo "  ✅ 当前会话: SCCSOS_HOME=$SCCSOS_HOME"
 
 echo ""
 echo "═══ Hermes 安装完成 ═══"
