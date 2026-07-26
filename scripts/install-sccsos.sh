@@ -79,11 +79,19 @@ cat > "$SCCSOS_HOME/config/pricing.json" << 'PRICING'
 }
 PRICING
 
-# ── 3. 安装 SCCS OS ──
+# ── 3. 编译安装 SCCS OS ──
 echo ""
-echo "2️⃣ SCCS OS（pip install sccsos[api]）..."
-pip3 install --quiet "sccsos[api]" 2>/dev/null || \
-  python3 -m pip install --quiet "sccsos[api]"
+echo "2️⃣ SCCS OS（从源码编译 wheel 安装）..."
+TMPDIR="$(mktemp -d)"
+git clone --depth 1 --branch "v$SCCSOS_VERSION" \
+  https://github.com/sccsos/sccsos.git "$TMPDIR/sccsos" 2>/dev/null || {
+  # 回退：无对应 tag 时用默认分支
+  git clone --depth 1 https://github.com/sccsos/sccsos.git "$TMPDIR/sccsos"
+}
+pip install build --quiet
+python3 -m build --wheel "$TMPDIR/sccsos" --quiet
+pip install "$TMPDIR/sccsos/dist/sccsos-*-py3-none-any.whl[api]" --quiet
+rm -rf "$TMPDIR"
 echo "  ✅ $(python3 -m sccsos --version 2>&1)"
 
 # ── 4. config-sync ──
