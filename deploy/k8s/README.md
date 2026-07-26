@@ -1,6 +1,6 @@
 # SCCS OS — Kubernetes 部署与验证手册
 
-> **版本**: 0.14.0  
+> **版本**: 0.20.10  
 > **API 端口**: 8765  
 > **运行时**: Python 3.11 + FastAPI  
 > **数据库**: SQLite（默认）/ PostgreSQL（可选）

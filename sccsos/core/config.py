@@ -67,11 +67,70 @@ class PricingConfig:
 
 
 @dataclass
+class KnowledgeChromaConfig:
+    """ChromaDB connection config (used when knowledge.mode = chroma)."""
+    host: str = "localhost"
+    port: int = 8000
+    collection: str = "sccsos-wiki"
+    persist_dir: str = "./data/chroma"
+
+
+@dataclass
+class KnowledgeRemoteConfig:
+    """Remote wiki service config (used when knowledge.mode = remote)."""
+    url: str = "http://localhost:8750"
+    api_key: str = ""
+    timeout: int = 10
+
+
+@dataclass
+class KnowledgeConfig:
+    """Knowledge base backend selection for wiki retrieval.
+
+    Three modes:
+
+    - ``local`` (default): KnowledgeBase reads ``wiki/`` from local disk.
+      Use with shared NFS/EFS volume for multi-instance consistency.
+      ``vector_backend`` selects the retrieval engine (tfidf | chroma).
+
+    - ``chroma``: shared ChromaDB service. All instances query the same
+      Chroma server. Index is shared across all replicas.
+
+    - ``remote``: dedicated wiki microservice. SCCS OS sends HTTP requests
+      to a standalone wiki service. Maximum decoupling.
+    """
+    mode: str = "local"                    # local | chroma | remote
+    vector_backend: str = "tfidf"          # tfidf | chroma (local mode only)
+    chroma: KnowledgeChromaConfig = field(default_factory=KnowledgeChromaConfig)
+    remote: KnowledgeRemoteConfig = field(default_factory=KnowledgeRemoteConfig)
+
+    def __post_init__(self):
+        if self.mode not in ("local", "chroma", "remote"):
+            raise ValueError(f"knowledge.mode must be local/chroma/remote, got: {self.mode}")
+
+
+
+
+@dataclass
 class AgentsConfig:
-    """Agent-related paths."""
+    """Agent-related paths and knowledge configuration.
+
+    Three knowledge backends are supported:
+
+    - ``local`` (default): filesystem-based, reads ``wiki_path`` from local disk.
+      Works with NFS/EFS shared storage for multi-instance deployments.
+      Uses TF-IDF (no external dependencies) or Chroma (optional).
+
+    - ``chroma``: shared ChromaDB vector store. All instances query the same
+      Chroma service. Requires ``sccsos[chroma]`` extras.
+
+    - ``remote``: dedicated wiki microservice. SCCS OS calls the service
+      over HTTP. Decouples knowledge from the orchestration layer.
+    """
     path: str = "./agents"
     wiki_path: str = "./wiki"
     personalities_path: str = "./personalities"
+    knowledge: KnowledgeConfig = field(default_factory=KnowledgeConfig)
 
 
 @dataclass

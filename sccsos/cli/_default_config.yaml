@@ -39,6 +39,26 @@ agents:
   path: ./agents
   wiki_path: ./wiki
   personalities_path: ./personalities
+  knowledge:
+    # 知识库模式: local | chroma | remote
+    #   local (默认): 读取本地 wiki/ 目录，配合 NFS 共享卷实现多实例
+    #   chroma: 共享 ChromaDB，所有实例共用同一向量索引
+    #   remote: 独立 Wiki 微服务，通过 HTTP 查询
+    mode: local
+    vector_backend: tfidf    # tfidf | chroma (仅 local 模式有效)
+
+    # chroma 模式配置
+    chroma:
+      host: localhost
+      port: 8000
+      collection: sccsos-wiki
+      persist_dir: ./data/chroma
+
+    # remote 模式配置
+    remote:
+      url: http://localhost:8750
+      api_key: ""
+      timeout: 10
 policies:
   default:
     max_tokens_per_session: 100000

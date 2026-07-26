@@ -312,7 +312,6 @@ export HERMES_BIN_DIR="{resolved_bin_dir}"
 export UV_INSTALL_DIR="{resolved_uv_bin}"
 export UV_CACHE_DIR="{resolved_uv_cache}"
 export PATH="{resolved_path}"
-. $HERMES_INSTALL_DIR/venv/bin
 # ── ──
 """
     if rc_path.exists():

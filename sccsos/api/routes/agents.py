@@ -42,7 +42,10 @@ async def register_agent(req: RegisterAgentRequest):
         tags=req.tags,
         tenant_id=req.tenant_id,
     )
-    runtime.register_agent(spec)
+    try:
+        runtime.register_agent(spec)
+    except ValueError:
+        raise HTTPException(status_code=409, detail=f"Agent '{spec.name}' already registered")
     runtime.lifecycle.create(spec)
     return {"registered": spec.name}
 
