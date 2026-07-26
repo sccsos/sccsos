@@ -36,15 +36,22 @@ fi
 sudo apt-get install -y -qq git curl xz-utils build-essential
 echo "  ✅ $(python3.12 --version)"
 
-# ── 2. 目录结构 ──
+# ── 2. pip + uv 准备（--no-user 禁用 ~/.local/，确保 venv 内安装）──
 echo ""
-echo "2️⃣ 目录结构..."
+echo "2️⃣ pip + uv（--no-user 禁用本地用户目录）..."
+python3.12 -m pip install --upgrade pip uv --no-user --quiet
+echo "  ✅ pip: $(python3.12 -m pip --version)"
+echo "  ✅ uv:  $(python3.12 -m uv --version 2>/dev/null || echo uv)"
+
+# ── 3. 目录结构 ──
+echo ""
+echo "3️⃣ 目录结构..."
 mkdir -p "$SCCSOS_HOME"/{agents,workflows,personalities,wiki,config,data/{logs,traces},uv-cache}
 echo "  ✅ $SCCSOS_HOME/"
 
-# ── 3. 安装 Hermes Agent（官方脚本）──
+# ── 4. 安装 Hermes Agent（官方脚本）──
 echo ""
-echo "3️⃣ Hermes Agent（官方 install.sh）..."
+echo "4️⃣ Hermes Agent（官方 install.sh）..."
 
 if [ -f "$HERMES_BIN" ]; then
   echo "  ↪ 已安装，跳过"
@@ -58,7 +65,7 @@ else
 fi
 "$HERMES_BIN" --version
 
-# ── 4. Hermes 初始配置 ──
+# ── 5. Hermes 初始配置 ──
 mkdir -p "$SCCSOS_HOME/hermes/profiles/sccsos"
 cat > "$SCCSOS_HOME/hermes/config.yaml" << 'EOF'
 model:
@@ -67,9 +74,9 @@ model:
   base_url: "https://api.deepseek.com/v1"
 EOF
 
-# ── 5. Shell 环境变量（单引号 heredoc → 不展开，留 shell 变量引用）──
+# ── 6. Shell 环境变量（单引号 heredoc → 不展开，留 shell 变量引用）──
 echo ""
-echo "4️⃣ Shell 环境变量..."
+echo "5️⃣ Shell 环境变量..."
 case "${SHELL:-bash}" in
   *zsh) RC_FILE="${ZDOTDIR:-$HOME}/.zshrc" ;;
   *bash) RC_FILE="$HOME/.bashrc" ;;
