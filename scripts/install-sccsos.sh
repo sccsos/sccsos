@@ -12,17 +12,20 @@ echo ""
 
 # ── 前置检查 ──
 echo "0️⃣ 前置检查..."
-if [ ! -f "$SCCSOS_HOME/hermes-agent/venv/bin/hermes" ]; then
-  echo "  ❌ Hermes Agent 未安装。请先执行: bash install-hermes.sh"
+hermes_bin="$SCCSOS_HOME/hermes-agent/venv/bin/hermes"
+if [ ! -f "$hermes_bin" ]; then
+  echo "  ❌ Hermes Agent 未安装"
+  echo "     请先执行: bash install-hermes.sh"
   exit 1
 fi
 if [ ! -f "$SCCSOS_HOME/hermes/config.yaml" ]; then
-  echo "  ❌ Hermes 配置缺失。请先执行: bash install-hermes.sh"
+  echo "  ❌ Hermes 配置缺失"
+  echo "     请先执行: bash install-hermes.sh"
   exit 1
 fi
-echo "  ✅ Hermes Agent 已就绪"
+echo "  ✅ Hermes: $("$hermes_bin" --version 2>/dev/null || echo "OK")"
 
-# ── 1. sccsos.yaml ──
+# ── 1. sccsos.yaml（unquoted heredoc → $SCCSOS_HOME 展开为绝对路径）──
 echo ""
 echo "1️⃣ sccsos.yaml..."
 cat > "$SCCSOS_HOME/sccsos.yaml" << YAML
@@ -59,7 +62,7 @@ agents:
 pricing:
   path: $SCCSOS_HOME/config/pricing.json
 YAML
-echo "  ✅ $SCCSOS_HOME/sccsos.yaml"
+echo "  ✅ sccsos.yaml（version: $SCCSOS_VERSION）"
 
 # ── 2. 定价表 ──
 cat > "$SCCSOS_HOME/config/pricing.json" << 'PRICING'
@@ -78,10 +81,10 @@ PRICING
 
 # ── 3. 安装 SCCS OS ──
 echo ""
-echo "2️⃣ SCCS OS (pip)..."
+echo "2️⃣ SCCS OS（pip install sccsos[api]）..."
 pip3 install --quiet "sccsos[api]" 2>/dev/null || \
   python3 -m pip install --quiet "sccsos[api]"
-echo "  ✅ SCCS OS $SCCSOS_VERSION"
+echo "  ✅ $(python3 -m sccsos --version 2>&1)"
 
 # ── 4. config-sync ──
 echo ""
@@ -97,8 +100,9 @@ fi
 # ── 5. 验证 ──
 echo ""
 echo "4️⃣ 验证..."
-echo -n "  sccsos: "; python3 -m sccsos --version 2>/dev/null || echo "(需 source ~/.bashrc)"
-echo -n "  hermes: "; "$SCCSOS_HOME/hermes-agent/venv/bin/hermes" --version 2>/dev/null || echo "(需 source ~/.bashrc)"
+echo "  sccsos: $(python3 -m sccsos --version 2>&1)"
+echo "  hermes: $("$hermes_bin" --version 2>&1)"
+echo "  路径:   $SCCSOS_HOME"
 
 echo ""
 echo "═══ SCCS OS 安装完成 ═══"
