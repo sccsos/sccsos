@@ -12,8 +12,8 @@ echo ""
 
 # ── 1. 系统依赖 + Python 3.12 ──
 echo "1️⃣ 系统依赖 + Python 3.12..."
-sudo apt-get update -qq
 if ! command -v python3.12 &>/dev/null; then
+  sudo apt-get update -qq
   if grep -qi "24.04\|24.10\|25.04" /etc/os-release 2>/dev/null; then
     sudo apt-get install -y -qq python3.12 python3.12-venv python3.12-pip
   else
@@ -41,10 +41,10 @@ export HERMES_CODE_PATH="$SCCSOS_HOME/hermes-agent"
 if [ -f "$HERMES_CODE_PATH/venv/bin/hermes" ]; then
   echo "  ↪ 已安装，跳过"
 else
-  # PATH 前置 python3.12 → install.sh 创建的 venv 自动用 3.12
+  # PATH 前置 python3.12 → install.sh 内部 python3 解析为 3.12
   PY312_DIR="$(dirname "$(command -v python3.12)")"
-  PATH="$PY312_DIR:$PATH" \
-    curl -fsSL https://hermes-agent.nousresearch.com/install.sh | \
+  export PATH="$PY312_DIR:$PATH"
+  curl -fsSL https://hermes-agent.nousresearch.com/install.sh | \
     bash -s -- --skip-setup --skip-browser
   echo "  ✅ Hermes CLI: $HERMES_CODE_PATH/venv/bin/hermes"
 fi
