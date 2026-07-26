@@ -39,7 +39,7 @@ echo "  ✅ $(python3.12 --version)"
 # ── 2. pip + uv 准备（--no-user 禁用 ~/.local/，确保 venv 内安装）──
 echo ""
 echo "2️⃣ pip + uv（--no-user 禁用本地用户目录）..."
-python3.12 -m pip install --upgrade pip uv --no-user --quiet
+python3.12 -m pip install --upgrade pip uv --no-user --break-system-packages --quiet
 echo "  ✅ pip: $(python3.12 -m pip --version)"
 echo "  ✅ uv:  $(python3.12 -m uv --version 2>/dev/null || echo uv)"
 
