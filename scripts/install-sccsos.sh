@@ -1,16 +1,13 @@
 #!/usr/bin/env bash
 # SCCS OS 安装脚本 (Ubuntu / Python 3.12)
 # 必须在 install-hermes.sh 成功执行后运行
-# Usage: source ~/.bashrc && bash install-sccsos.sh
 set -euo pipefail
 
 SCCSOS_HOME="${SCCSOS_HOME:-$HOME/sccsos}"
 SCCSOS_VERSION="${SCCSOS_VERSION:-0.20.11}"
-PYTHON="${PYTHON:-python3.12}"
 
 echo "═══ SCCS OS 安装 ═══"
 echo "  Target:  $SCCSOS_HOME"
-echo "  Python:  $PYTHON"
 echo ""
 
 # ── 前置检查 ──
@@ -24,7 +21,6 @@ if [ ! -f "$SCCSOS_HOME/hermes/config.yaml" ]; then
   exit 1
 fi
 echo "  ✅ Hermes Agent 已就绪"
-echo "  ✅ Hermes 配置已就绪"
 
 # ── 1. sccsos.yaml ──
 echo ""
@@ -83,8 +79,8 @@ PRICING
 # ── 3. 安装 SCCS OS ──
 echo ""
 echo "2️⃣ SCCS OS (pip)..."
-"$PYTHON" -m pip install --quiet "sccsos[api]" 2>/dev/null || \
-  pip3 install --quiet "sccsos[api]"
+pip3 install --quiet "sccsos[api]" 2>/dev/null || \
+  python3 -m pip install --quiet "sccsos[api]"
 echo "  ✅ SCCS OS $SCCSOS_VERSION"
 
 # ── 4. config-sync ──
@@ -101,7 +97,6 @@ fi
 # ── 5. 验证 ──
 echo ""
 echo "4️⃣ 验证..."
-echo -n "  python: "; $PYTHON --version
 echo -n "  sccsos: "; python3 -m sccsos --version 2>/dev/null || echo "(需 source ~/.bashrc)"
 echo -n "  hermes: "; "$SCCSOS_HOME/hermes-agent/venv/bin/hermes" --version 2>/dev/null || echo "(需 source ~/.bashrc)"
 
@@ -111,4 +106,3 @@ echo ""
 echo "  配置 API Key:  export DEEPSEEK_API_KEY=\"sk-***\" && sccsos hermes config-sync"
 echo "  启动服务:      cd ~/sccsos && python3 -m sccsos serve"
 echo "  测试:          curl http://localhost:8765/api/v1/health"
-echo "  使用 Agent:    sccsos agent create architect && sccsos agent ask architect \"hello\""
