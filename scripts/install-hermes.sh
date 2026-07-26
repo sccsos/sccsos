@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Hermes Agent 安装脚本 (Ubuntu / Python 3.12)
+# Hermes Agent 安装脚本 (Ubuntu 24.04+ / Python 3.12)
 # 使用官方 install.sh，路径收拢至 ~/sccsos/
 # 必须先于 install-sccsos.sh 执行
 set -euo pipefail
@@ -22,26 +22,29 @@ echo ""
 
 # ── 1. 系统依赖 + Python 3.12 ──
 echo "1️⃣ 系统依赖 + Python 3.12..."
-if ! command -v python3.12 &>/dev/null; then
+PYTHON="python3"
+
+# Ubuntu 24.04+: python3 = 3.12（系统自带 pip/venv）
+# Ubuntu 22.04-: 需要 deadsnakes PPA 安装 python3.12
+if ! python3 --version 2>&1 | grep -q "3\.12"; then
   sudo apt-get update -qq
-  if grep -qi "24.04\|24.10\|25.04" /etc/os-release 2>/dev/null; then
-    sudo apt-get install -y -qq python3.12 python3.12-venv python3.12-pip
-  else
-    sudo apt-get install -y -qq software-properties-common
-    sudo add-apt-repository -y ppa:deadsnakes/ppa -s
-    sudo apt-get update -qq
-    sudo apt-get install -y -qq python3.12 python3.12-venv python3.12-pip
-  fi
+  sudo apt-get install -y -qq software-properties-common
+  sudo add-apt-repository -y ppa:deadsnakes/ppa -s
+  sudo apt-get update -qq
+  sudo apt-get install -y -qq python3.12 python3.12-venv python3.12-pip
+  PYTHON="python3.12"
+else
+  sudo apt-get install -y -qq python3 python3-pip python3-venv
 fi
 sudo apt-get install -y -qq git curl xz-utils build-essential
-echo "  ✅ $(python3.12 --version)"
+echo "  ✅ $($PYTHON --version)"
 
-# ── 2. pip + uv 准备（--no-user 禁用 ~/.local/，确保 venv 内安装）──
+# ── 2. pip + uv 准备（--no-user 禁用 ~/.local/）──
 echo ""
-echo "2️⃣ pip + uv（--no-user 禁用本地用户目录）..."
-python3.12 -m pip install --upgrade pip uv --no-user --break-system-packages --quiet
-echo "  ✅ pip: $(python3.12 -m pip --version)"
-echo "  ✅ uv:  $(python3.12 -m uv --version 2>/dev/null || echo uv)"
+echo "2️⃣ pip + uv..."
+$PYTHON -m pip install --upgrade pip uv --no-user --break-system-packages --quiet
+echo "  ✅ pip: $($PYTHON -m pip --version)"
+echo "  ✅ uv:  $($PYTHON -m uv --version 2>/dev/null || echo uv)"
 
 # ── 3. 目录结构 ──
 echo ""
@@ -56,8 +59,8 @@ echo "4️⃣ Hermes Agent（官方 install.sh）..."
 if [ -f "$HERMES_BIN" ]; then
   echo "  ↪ 已安装，跳过"
 else
-  # PATH 前置 python3.12 → install.sh 内部 python3 解析为 3.12
-  PY312_DIR="$(dirname "$(command -v python3.12)")"
+  # 将 python3 指向 3.12 → install.sh 内部创建 venv 时自动用 3.12
+  PY312_DIR="$(dirname "$(command -v $PYTHON)")"
   export PATH="$PY312_DIR:$PATH"
   curl -fsSL https://hermes-agent.nousresearch.com/install.sh | \
     bash -s -- --skip-setup --skip-browser
@@ -102,7 +105,6 @@ EOF
   echo "  ✅ 写入 $RC_FILE"
 fi
 
-# 当前会话（顶部已 export，此处保留只为可读性确认）
 echo "  ✅ 当前会话: SCCSOS_HOME=$SCCSOS_HOME"
 
 echo ""

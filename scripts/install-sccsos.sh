@@ -90,10 +90,11 @@ git clone --depth 1 --branch "v$SCCSOS_VERSION" \
   https://github.com/sccsos/sccsos.git "$TMPDIR/sccsos" 2>/dev/null || {
   git clone --depth 1 https://github.com/sccsos/sccsos.git "$TMPDIR/sccsos"
 }
-# 使用 Hermes 的 venv 中的 pip，保证路径统一
+# 使用 Hermes venv 的 python + pip 编译安装（不污染系统）
+HERMES_PYTHON="$HERMES_BIN_DIR/python3"
 HERMES_PIP="$HERMES_BIN_DIR/pip"
 "$HERMES_PIP" install build --quiet
-python3 -m build --wheel "$TMPDIR/sccsos" --quiet
+"$HERMES_PYTHON" -m build --wheel "$TMPDIR/sccsos" --quiet
 "$HERMES_PIP" install "$TMPDIR/sccsos/dist/sccsos-*-py3-none-any.whl[api]" --quiet
 rm -rf "$TMPDIR"
 echo "  ✅ $("$HERMES_BIN_DIR/sccsos" --version 2>&1)"
