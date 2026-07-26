@@ -6,13 +6,16 @@ set -euo pipefail
 SCCSOS_HOME="${SCCSOS_HOME:-$HOME/sccsos}"
 SCCSOS_VERSION="${SCCSOS_VERSION:-0.20.11}"
 
+# HERMES_BIN_DIR 可能已被 install-hermes.sh export，否则从路径推导
+HERMES_BIN_DIR="${HERMES_BIN_DIR:-$SCCSOS_HOME/hermes-agent/venv/bin}"
+
 echo "═══ SCCS OS 安装 ═══"
 echo "  Target:  $SCCSOS_HOME"
 echo ""
 
 # ── 前置检查 ──
 echo "0️⃣ 前置检查..."
-hermes_bin="$SCCSOS_HOME/hermes-agent/venv/bin/hermes"
+hermes_bin="$HERMES_BIN_DIR/hermes"
 if [ ! -f "$hermes_bin" ]; then
   echo "  ❌ Hermes Agent 未安装"
   echo "     请先执行: bash install-hermes.sh"
@@ -79,20 +82,21 @@ cat > "$SCCSOS_HOME/config/pricing.json" << 'PRICING'
 }
 PRICING
 
-# ── 3. 编译安装 SCCS OS ──
+# ── 3. 编译安装 SCCS OS（入 Hermes venv，不污染系统）──
 echo ""
-echo "2️⃣ SCCS OS（从源码编译 wheel 安装）..."
+echo "2️⃣ SCCS OS（源码编译，安装到 Hermes venv）..."
 TMPDIR="$(mktemp -d)"
 git clone --depth 1 --branch "v$SCCSOS_VERSION" \
   https://github.com/sccsos/sccsos.git "$TMPDIR/sccsos" 2>/dev/null || {
-  # 回退：无对应 tag 时用默认分支
   git clone --depth 1 https://github.com/sccsos/sccsos.git "$TMPDIR/sccsos"
 }
-pip install build --quiet
+# 使用 Hermes 的 venv 中的 pip，保证路径统一
+HERMES_PIP="$HERMES_BIN_DIR/pip"
+"$HERMES_PIP" install build --quiet
 python3 -m build --wheel "$TMPDIR/sccsos" --quiet
-pip install "$TMPDIR/sccsos/dist/sccsos-*-py3-none-any.whl[api]" --quiet
+"$HERMES_PIP" install "$TMPDIR/sccsos/dist/sccsos-*-py3-none-any.whl[api]" --quiet
 rm -rf "$TMPDIR"
-echo "  ✅ $(python3 -m sccsos --version 2>&1)"
+echo "  ✅ $("$HERMES_BIN_DIR/sccsos" --version 2>&1)"
 
 # ── 4. config-sync ──
 echo ""
@@ -108,7 +112,7 @@ fi
 # ── 5. 验证 ──
 echo ""
 echo "4️⃣ 验证..."
-echo "  sccsos: $(python3 -m sccsos --version 2>&1)"
+echo "  sccsos: $("$HERMES_BIN_DIR/sccsos" --version 2>&1)"
 echo "  hermes: $("$hermes_bin" --version 2>&1)"
 echo "  路径:   $SCCSOS_HOME"
 
@@ -116,5 +120,5 @@ echo ""
 echo "═══ SCCS OS 安装完成 ═══"
 echo ""
 echo "  配置 API Key:  export DEEPSEEK_API_KEY=\"sk-***\" && sccsos hermes config-sync"
-echo "  启动服务:      cd ~/sccsos && python3 -m sccsos serve"
+echo "  启动服务:      cd ~/sccsos && sccsos serve"
 echo "  测试:          curl http://localhost:8765/api/v1/health"
